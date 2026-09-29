@@ -1,0 +1,18 @@
+[project]
+name = "music-backend"
+version = "0.1.0"
+description = "Personal music streaming backend"
+readme = "README.md"
+authors = [
+    { name = "ego004", email = "221738094+ego004@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi[standard]>=0.141.1",
+    "httpx>=0.28.1",
+]
+
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
