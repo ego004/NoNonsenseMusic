@@ -6,6 +6,7 @@ from typing import get_args
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 
+from music_backend.matching import rank_songs
 from music_backend.models import Listing, SearchSourceInfo, SearchResponse, SourceName
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
@@ -53,12 +54,12 @@ async def search(q: str) -> SearchResponse:
     logger.debug("Received search query : %s", q)
     # every source runs at the same time; each one's failure stays inside its own search_one
     results = await asyncio.gather(*(search_one(name, source, q) for name, source in SOURCES.items()))
-    listings = []
+    by_source = []
     sources = []
     for source_listings, info in results:
-        listings += source_listings
+        by_source.append(source_listings)
         sources.append(info)
-    return SearchResponse(query = q, sources = sources, listings = listings)
+    return SearchResponse(query = q, sources = sources, songs = rank_songs(by_source))
 
 @app.get("/play/{source}/{song_id}")
 async def play(source: SourceName, song_id: str) -> RedirectResponse:
