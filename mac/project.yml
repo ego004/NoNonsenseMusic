@@ -1,0 +1,35 @@
+# The Xcode project, as text. Regenerate the .xcodeproj after editing:  cd mac && xcodegen
+name: NoNonsense
+options:
+  bundleIdPrefix: app.nononsense
+  deploymentTarget:
+    macOS: "26.0"          # Tahoe: Liquid Glass (.glassEffect) is available
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    # UI code runs on the main thread by default; background work opts out explicitly
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+targets:
+  NoNonsense:
+    type: application
+    platform: macOS
+    sources: [NoNonsense]
+    info:
+      path: NoNonsense/Info.plist
+      properties:
+        CFBundleDisplayName: NoNonsense
+        LSApplicationCategoryType: public.app-category.music
+        NSAppTransportSecurity:
+          # the backend runs on this Mac over plain http; everything else (audio CDNs) is https
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.nononsense.music
+        # no sandbox: the app must reach Discord's local socket and your local server
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_IDENTITY: "-"   # ad-hoc signature: runs on this Mac, no developer account needed
+        CODE_SIGN_STYLE: Manual
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"

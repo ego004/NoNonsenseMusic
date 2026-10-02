@@ -1,16 +1,32 @@
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 from typing import get_args
+from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
+from music_backend import db, library
 from music_backend.matching import rank_songs
-from music_backend.models import Listing, SearchSourceInfo, SearchResponse, SourceName
+from music_backend.models import (EventRequest, LibraryRequest, LibrarySong, Listing, SearchResponse,
+                                  SearchSourceInfo, SongRef, SourceName)
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
-app = FastAPI(title="music")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # runs once at startup (before yield) and once at shutdown (after yield)
+    pool = db.make_pool(db.DATABASE_URL)
+    await pool.open()
+    await db.apply_schema(pool)
+    app.state.pool = pool
+    yield
+    await pool.close()
+
+
+app = FastAPI(title="music", lifespan=lifespan)
 # INFO for everything (keeps httpx's own DEBUG chatter out of the terminal), DEBUG for our own logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -75,3 +91,43 @@ async def play(source: SourceName, song_id: str) -> RedirectResponse:
     # redirect, not proxy: the browser fetches the audio straight from the CDN, so it never passes
     # through this server. Fine while browser and server share an IP (YouTube URLs are tied to it).
     return RedirectResponse(song_url)
+
+
+# ---------- library (MUS-4) ----------
+
+@app.post("/library")
+async def add_to_library(body: LibraryRequest, request: Request) -> SongRef:
+    """Like a song. The app sends the song's listings; the server finds or creates the stored song."""
+    async with request.app.state.pool.connection() as conn:
+        song_id = await library.resolve_song(conn, body.listings)
+        await library.like(conn, song_id)
+    return SongRef(song_id = song_id)
+
+
+@app.delete("/library/{song_id}", status_code = 204)
+async def remove_from_library(song_id: UUID, request: Request) -> Response:
+    async with request.app.state.pool.connection() as conn:
+        if not await library.unlike(conn, song_id):
+            raise HTTPException(status_code = 404, detail = "Song is not in your library")
+    return Response(status_code = 204)
+
+
+@app.get("/library")
+async def get_library(request: Request) -> list[LibrarySong]:
+    async with request.app.state.pool.connection() as conn:
+        return await library.liked_songs(conn)
+
+
+@app.get("/recent")
+async def get_recent(request: Request, limit: int = 50) -> list[LibrarySong]:
+    async with request.app.state.pool.connection() as conn:
+        return await library.recent_songs(conn, limit)
+
+
+@app.post("/events")
+async def add_event(body: EventRequest, request: Request) -> SongRef:
+    """Record a play, a skip (and at which second), or a finish."""
+    async with request.app.state.pool.connection() as conn:
+        song_id = await library.resolve_song(conn, body.listings)
+        await library.record_event(conn, song_id, body.type, body.position)
+    return SongRef(song_id = song_id)
