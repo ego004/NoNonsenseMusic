@@ -72,11 +72,26 @@ def to_listing(item: dict) -> Listing:
     )
 
 
+# YouTube serves at least two row layouts (about 1 request in 5 got the second one, 2 Oct 2026):
+#   usual:  playlistItemData.videoId, and the title run is a link
+#   other:  no playlistItemData, the title run is plain text, the whole row is the link
+# The play button overlay carries the id in both.
+VIDEO_ID_PATHS = [
+    ("playlistItemData", "videoId"),
+    ("navigationEndpoint", "watchEndpoint", "videoId"),
+    ("overlay", "musicItemThumbnailOverlayRenderer", "content", "musicPlayButtonRenderer", "playNavigationEndpoint", "watchEndpoint", "videoId"),
+]
+
+
 def video_id(item: dict) -> str:
-    """The row's videoId. Usually in playlistItemData; the title's link carries it too."""
-    if "playlistItemData" in item:
-        return item["playlistItemData"]["videoId"]
-    return column(item, 0)[0]["navigationEndpoint"]["watchEndpoint"]["videoId"]
+    """The row's videoId, from whichever place this row layout keeps it."""
+    for path in VIDEO_ID_PATHS:
+        value = item
+        for key in path:
+            value = value.get(key) if isinstance(value, dict) else None
+        if value:
+            return value
+    raise KeyError("videoId")
 
 
 def column(item: dict, index: int) -> list[dict]:

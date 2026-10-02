@@ -11,10 +11,14 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 | Ticket | What you can show at the end | Size |
 |---|---|---|
-| MUS-1 | Break a source on purpose, search still works and says which source failed | S (1–2 h) |
-| MUS-2 | Open a link in Chrome and a song plays from **your** API | L (4–6 h) |
-| MUS-3 | Same song from two sources shows up as one song with two listings | L (4–6 h) |
-| MUS-4 | "blinding lights" puts The Weeknd at #1, every time, with a score you can explain | M (3–4 h) |
+| MUS-1 ✅ | Break a source on purpose, search still works and says which source failed | S (1–2 h) |
+| MUS-2 ✅ | Open a link in Chrome and a song plays from **your** API | L (4–6 h) |
+| MUS-3 | Search shows each song **once**, with the best version to play picked for you | L (4–6 h) |
+| MUS-4 | Like a song, restart the server, it is still liked (your library, in PostgreSQL) | L |
+| MUS-5 | Search **your** library: "weekend" finds The Weeknd, "sad arijit" finds sad Arijit songs you saved | L |
+| MUS-6 | The second identical search is much faster, with before/after numbers (caching) | M |
+| MUS-7 | Your phone on mobile data plays from your Mac (proxy streaming + Tailscale) | M |
+| MUS-8+ | The app (web or Flutter, decided then), offline, recommendations, Spotify import, Jam, Blend | — |
 
 ---
 
@@ -81,9 +85,9 @@ Start with redirect. Proxy is the stretch goal.
 
 ---
 
-## MUS-3 · Pool listings into songs
+## MUS-3 · Merge and dedupe listings into songs
 
-**Why:** the same recording shows up from both sources. The app should show one song, with every place it can be played from.
+**Why:** the same recording comes back several times (both sources, and several releases inside JioSaavn). The app should show each song once and play its best version.
 
 **`/search` returns songs instead of a flat list:**
 
@@ -95,61 +99,97 @@ Start with redirect. Proxy is the stretch goal.
       "title": "Blinding Lights",
       "artists": ["The Weeknd"],
       "duration": 200,
-      "listings": [ {"source": "jiosaavn", "id": "fW-Mxsnu", ...}, {"source": "ytmusic", "id": "J7p4bzqLvCw", ...} ]
+      "best": {"source": "jiosaavn", "id": "fW-Mxsnu", "...": "..."},
+      "listings": [ {"source": "jiosaavn", "id": "fW-Mxsnu", "...": "..."}, {"source": "ytmusic", "id": "J7p4bzqLvCw", "...": "..."} ]
     }
   ],
-  "sources": { ...same as MUS-1... }
+  "sources": [ "...same as MUS-1..." ]
 }
 ```
 
-**Version 1 rule (hand-written, no ML yet):** two listings are the same recording when the titles are similar, the artists overlap (order does not matter: `Mithoon, Arijit Singh` = `Arijit Singh, Mithoon`), and the durations are close. **You choose the thresholds and justify each one.**
+**The logic (agreed 2 Oct 2026):**
+
+1. **`normalise(text)`**: lowercase, remove accents (`ROSALÍA` → `rosalia`), punctuation → space, collapse spaces. Keep the words inside brackets.
+2. **`same_recording(a, b)`** is true when all three hold:
+   - **Titles equal after normalising**, brackets included. Not fuzzy: `token_set_ratio("blinding lights", "blinding lights (major lazer remix)")` is **100**, which would merge a remix into the original (they are 198 s vs 200 s with the same artist, so duration and artist cannot catch it). A missed merge shows a duplicate row; a wrong merge plays the wrong song. Version 1 accepts duplicates.
+   - **At least one artist matches**, each pair compared fuzzily after normalising (`Mithoon, Arijit Singh` vs `Arijit Singh`; `Pritam` vs `Pritam Chakraborty`). You pick the score and justify it.
+   - **Durations within 5 s** (changed from 3 s on 2 Oct after a live search split Blinding Lights into a 204 s group and a 200 s group). Different edits seen so far are further apart (Rosalía remix 206 vs 217).
+   - (ISRC rule, for when a source provides one: equal ISRC → same, different ISRC → different. Neither current source has ISRC.)
+3. **Grouping:** walk the listings **alternating between sources** (JioSaavn #1, YouTube Music #1, JioSaavn #2, ...). Each listing joins the first group whose **first listing** it matches, otherwise it starts a new group. Comparing only against each group's first listing stops chains (200 ↔ 202 ↔ 204). Groups come out roughly in rank order, because the first listing of each group is its best-ranked one.
+4. **Order the songs by Reciprocal Rank Fusion** (added 2 Oct): each listing is a vote worth `1 / (60 + its position in its source)`. Interleaving alone let one source's junk take positions 2, 4, 6 while the other source's copies of the top song used up its turns.
+5. **`best` listing in each group**, in this order: source audio quality (jiosaavn 320 kbps before ytmusic ~133 kbps; JioSaavn URLs also do not expire) → higher popularity **within the same source only** (38 million on JioSaavn and 3.6 billion on YouTube Music are not comparable) → duration closest to the group's median. The song's `title`, `artists`, `duration` come from `best`. All listings stay as fallbacks.
 
 **Acceptance checks**
 
-- [ ] "blinding lights": The Weeknd's JioSaavn *After Hours* listing (200 s) and his YouTube Music listing (201–202 s) are in the **same** song.
-- [ ] Loi's cover of Blinding Lights is a **different** song.
-- [ ] "tum hi ho": JioSaavn's `Tum Hi Ho (From "Aashiqui 2")` (261 s) and YouTube Music's `Tum Hi Ho` (262 s), both Arijit Singh, are the **same** song, even though the titles differ.
-- [ ] Tests with `pytest` that load `samples/*.json` and check the cases above, with no network calls. `uv run pytest` passes.
+- [ ] `normalise("ROSALÍA")` == `"rosalia"`.
+- [ ] "blinding lights": The Weeknd's JioSaavn 200 s listing and YouTube Music 201–202 s listing are **one** song, and `best` is the JioSaavn one.
+- [ ] *Blinding Lights (Major Lazer Remix)* (198 s, The Weeknd) is **not** merged into the original (200 s, The Weeknd).
+- [ ] Loi's cover is a **separate** song.
+- [ ] "tum hi ho": JioSaavn's *Tum Hi Ho* (Mithoon, Arijit Singh, 262 s) and YouTube Music's *Tum Hi Ho* (Arijit Singh, 262 s) are **one** song (the artist-subset rule).
+- [ ] Known and accepted for now: *Tum Hi Ho (From "Aashiqui 2")* stays a separate song (title differs in brackets).
+- [ ] `/play/{best.source}/{best.id}` plays every song's `best`.
+- [ ] `uv run pytest` passes: tests for each check above using `samples/*.json` and hand-made `Listing` pairs, no network.
 
-**Docs:** [RapidFuzz](https://rapidfuzz.github.io/RapidFuzz/Usage/fuzz.html) (compare `ratio`, `partial_ratio`, `token_set_ratio` on the tum hi ho titles before choosing) · [pytest Get Started](https://docs.pytest.org/en/stable/getting-started.html) · reference answer key, read *after* yours works: spotDL [`matching.py`](https://spotdl.github.io/spotify-downloader/reference/utils/matching/)
+**Docs:** Python [`unicodedata.normalize`](https://docs.python.org/3/library/unicodedata.html#unicodedata.normalize) (NFKD splits `í` into `i` + accent mark; [`unicodedata.combining`](https://docs.python.org/3/library/unicodedata.html#unicodedata.combining) tells you which characters are marks) · [RapidFuzz `fuzz`](https://rapidfuzz.github.io/RapidFuzz/Usage/fuzz.html) (for the artist comparison) · [`statistics.median`](https://docs.python.org/3/library/statistics.html#statistics.median) · [pytest Get Started](https://docs.pytest.org/en/stable/getting-started.html)
 
 ---
 
-## MUS-4 · Rank the songs
+## MUS-4 · Your library
 
-**Why:** both sources return junk mixed in (Starboy for "blinding lights", 20 random songs for nonsense). Your order has to be better than either source's.
+**Why:** search results vanish when you close the tab. A library is the first thing that is *yours* and persists.
 
-**Each song gets a score built from parts you can see:**
+**First design question (answer it in the PR description before writing code):** MUS-3 builds songs fresh on every search, so a song has **no ID**. To like a song today and find it tomorrow it needs one that does not change. Candidates: the `best` listing's `source:id`; an ID of your own with all known listings attached; a hash of normalised title + artists + duration. What happens to each when a song is later found on a new source?
 
-```json
-{ "title": "Blinding Lights", "score": 0.91,
-  "score_parts": { "relevance": 0.98, "popularity": 0.88, "on_both_sources": 1.0 },
-  "best": {"source": "jiosaavn", "id": "fW-Mxsnu"} }
-```
-
-**Things to know before designing it:**
-
-- Popularity is on different scales per source (Blinding Lights: 38 million on JioSaavn, 3.6 **billion** on YouTube Music). Compare a listing only against its own source.
-- `best` is the listing `/play` should use. Prefer higher audio quality.
+**Build**
+- PostgreSQL on this Mac (Claude sets up the install; you write the tables).
+- Tables for songs, their listings, likes, and play events (play, skip with the second it happened, finish).
+- `POST /library/{song_id}` (like), `DELETE /library/{song_id}` (unlike), `GET /library`, `POST /events`.
 
 **Acceptance checks**
+- [ ] Like *Blinding Lights*, stop and restart the server, `GET /library` still has it.
+- [ ] Liking the same song from a second search (different listing order) does not create a duplicate.
+- [ ] A skip at 12 s and a finish are both stored and can be counted per song.
+- [ ] pytest against a separate test database.
 
-- [ ] "blinding lights" → #1 is The Weeknd.
-- [ ] "blinding lights" → *Starboy* is not in the top 5.
-- [ ] "tum hi ho" → #1 is Arijit Singh's.
-- [ ] "zzqxjvw nonsense 123" → every score is below your "no good match" threshold, and the response says no good match was found.
-- [ ] Each song has `best`, and `/play/{best.source}/{best.id}` plays it.
-- [ ] pytest cases for the first four checks.
-
-**Docs:** [`math.log10`](https://docs.python.org/3/library/math.html#math.log10) (why do raw view counts make a bad score?) · Python [`sorted` with `key`](https://docs.python.org/3/howto/sorting.html)
+**Docs:** [PostgreSQL tutorial](https://www.postgresql.org/docs/current/tutorial.html) (chapters 2–3) · [psycopg 3](https://www.psycopg.org/psycopg3/docs/basic/usage.html) (async: [AsyncConnection](https://www.psycopg.org/psycopg3/docs/advanced/async.html))
 
 ---
 
-## Later (not yet)
+## MUS-5 · Search your library
 
-- MUS-5: minimal web player, split ticket. Claude builds one page served by FastAPI (search box, ranked results, a player, next/previous). You build the backend it needs: `POST /events` that records every play, skip (and at what second) and finish, stored in PostgreSQL. This is when daily use starts producing the data that MUS-7 and learned ranking train on.
-- MUS-6: likes and playlists in PostgreSQL
-- MUS-7: recommendations v1 (ListenBrainz similar songs + your play history)
-- MUS-8: import your Spotify playlists
-- MUS-9: Jam
-- Later: Flutter app for the phone (background playback, lock screen controls)
+**Why:** in your own library, *your* typos and fuzzy memory are the problem ("weekend", "kesaria", "that sad arijit one"). This is where phonetic and semantic matching earn their place (JioSaavn built Indi-Editex for exactly this).
+
+**Build:** two searches over your library, merged:
+- **Spelling-tolerant:** PostgreSQL trigrams (`pg_trgm`) plus phonetic codes for artist names.
+- **By meaning:** embeddings stored with `pgvector`. Pick a **multilingual** model: `nomic-embed-text` scored the same song in Devanagari at 0.66, below a different song (0.69), on 2 Oct 2026.
+- Merge the two ranked lists with **Reciprocal Rank Fusion** (hybrid search).
+
+**Acceptance checks**
+- [ ] "weekend" finds The Weeknd's songs in your library.
+- [ ] "kesaria" finds *Kesariya*.
+- [ ] A description ("sad arijit") finds a sad Arijit song you liked, with no title words in the query.
+- [ ] A Devanagari query finds the Roman-script song (or you document why your model cannot).
+
+**Docs:** [`pg_trgm`](https://www.postgresql.org/docs/current/pgtrgm.html) · [pgvector](https://github.com/pgvector/pgvector) · [pgvector-python hybrid search with RRF](https://github.com/pgvector/pgvector-python/blob/master/examples/hybrid_search/rrf.py)
+
+---
+
+## MUS-6 · Caching
+
+Server cache for search results (minutes), resolved `/play` URLs (until their `expire=`), and anything slow to compute. Measure first: time the same search twice before and after. Caching also protects you from being rate-limited by YouTube and JioSaavn.
+
+---
+
+## MUS-7 · Reach it from your phone
+
+YouTube audio URLs only work from the IP that requested them, so redirect mode fails once the phone is on mobile data. Build **proxy mode** for `/play` (with HTTP Range requests so seeking still works), and put your Mac and phone on one private network with Tailscale.
+
+---
+
+## Later, only if needed
+
+- Titles that differ only in brackets (`Tum Hi Ho` vs `Tum Hi Ho (From "Aashiqui 2")`): send just those pairs to an LLM (local `gemma4:12b` parsed 43/45 real titles correctly, 2 Oct 2026, ~2.7 s per title, so background + cache only). Phonetic, semantic and their harmonic mean all failed to separate these from remixes on the same day.
+- Search eval set (30 queries + expected top song) before changing catalog ranking: on 2 Oct, JioSaavn's own #1 was right for 7/7 song queries.
+- Query intent (song / artist / lyrics): artist searches are where both sources are weak. Never score query-vs-title without an `intent = lyrics` exception.
+- Audio fingerprinting (AcoustID) in the background after first play: certain same-recording answers.
+- The app, offline downloads, recommendations (ListenBrainz + history), Spotify import (brings ISRCs), Jam, Blend.

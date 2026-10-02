@@ -1,12 +1,10 @@
 from typing import Literal
-
 from pydantic import BaseModel, Field
 
 # The one list of source IDs, used by every model, SOURCES in main.py, and the /play URL.
 # Lowercase, no spaces: they appear in URLs (/play/ytmusic/...) and must never drift between files.
 # Display names like "YouTube Music" belong to a UI, not here.
 SourceName = Literal["jiosaavn", "ytmusic"]
-
 
 class Listing(BaseModel):
     source : SourceName
@@ -17,6 +15,14 @@ class Listing(BaseModel):
     duration: int
     popularity : int | None
 
+
+class Song(BaseModel):
+    title: str
+    artists: list[str] | None
+    duration: int
+    score: float
+    best: Listing
+    listings: list[Listing]
 
 class SearchSourceInfo(BaseModel):
     source : SourceName
@@ -29,4 +35,4 @@ class SearchSourceInfo(BaseModel):
 class SearchResponse(BaseModel):
     query : str
     sources : list[SearchSourceInfo]
-    listings : list[Listing]
+    songs : list[Song]
