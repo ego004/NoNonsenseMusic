@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 
 import httpx
 from yt_dlp import YoutubeDL
@@ -10,8 +11,9 @@ from music_backend.sources import SongNotFound, SourceUnavailable
 
 SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"
 WATCH_URL = "https://music.youtube.com/watch?v="
-# "bestaudio" makes yt-dlp pick one audio-only format and put its direct link in info["url"]
-YTDLP_OPTIONS = {"format" : "bestaudio", "quiet" : True, "no_warnings" : True}
+# yt-dlp picks one audio-only format and puts its direct link in info["url"].
+# m4a (AAC) first: Apple's AVPlayer cannot play YouTube's default WebM/Opus; fall back to anything else
+YTDLP_OPTIONS = {"format" : "bestaudio[ext=m4a]/bestaudio", "quiet" : True, "no_warnings" : True}
 CLIENT = {"clientName" : "WEB_REMIX", "clientVersion" : "1.20250101.01.00", "hl" : "en"}
 SONGS_ONLY = "EgWKAQIIAWoKEAkQBRAKEAMQBA=="
 SEPARATOR = " • "
@@ -69,6 +71,7 @@ def to_listing(item: dict) -> Listing:
         album = album,
         duration = to_seconds(parts[-1][0]["text"]),
         popularity = to_count(plays[0]["text"]) if plays else None,
+        image = artwork(item),
     )
 
 
@@ -81,6 +84,15 @@ VIDEO_ID_PATHS = [
     ("navigationEndpoint", "watchEndpoint", "videoId"),
     ("overlay", "musicItemThumbnailOverlayRenderer", "content", "musicPlayButtonRenderer", "playNavigationEndpoint", "watchEndpoint", "videoId"),
 ]
+
+
+def artwork(item: dict) -> str | None:
+    """The row's cover image, rewritten from the 60/120 px search thumbnail to 544 px."""
+    thumbnails = item.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [])
+    if not thumbnails:
+        return None
+    # the size lives in the URL itself: ...=w120-h120-l90-rj
+    return re.sub(r"=w\d+-h\d+", "=w544-h544", thumbnails[-1]["url"])
 
 
 def video_id(item: dict) -> str:

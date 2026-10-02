@@ -1,4 +1,7 @@
+from datetime import datetime
 from typing import Literal
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 # The one list of source IDs, used by every model, SOURCES in main.py, and the /play URL.
@@ -14,6 +17,8 @@ class Listing(BaseModel):
     album: str | None
     duration: int
     popularity : int | None
+    # artwork URL, already rewritten to a large size by the source adapter
+    image : str | None = None
 
 
 class Song(BaseModel):
@@ -36,3 +41,32 @@ class SearchResponse(BaseModel):
     query : str
     sources : list[SearchSourceInfo]
     songs : list[Song]
+
+
+EventType = Literal["play", "skip", "finish"]
+
+
+class LibraryRequest(BaseModel):
+    # IDs are assigned lazily: the app sends the song's listings, the server finds or creates the song
+    listings : list[Listing] = Field(min_length = 1)
+
+
+class EventRequest(LibraryRequest):
+    type : EventType
+    position : int = Field(ge = 0)
+
+
+class SongRef(BaseModel):
+    song_id : UUID
+
+
+class LibrarySong(BaseModel):
+    """A stored song as the app shows it: identity from the database, display from its best listing."""
+    id : UUID
+    title : str
+    artists : list[str]
+    duration : int
+    best : Listing
+    listings : list[Listing]
+    liked : bool
+    at : datetime | None = None   # liked_at for /library, last played for /recent

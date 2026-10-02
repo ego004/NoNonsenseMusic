@@ -9,16 +9,22 @@ How this works:
 
 Stuck for more than 30 minutes? Bring: what you tried, what you expected, what happened.
 
-| Ticket | What you can show at the end | Size |
-|---|---|---|
-| MUS-1 ✅ | Break a source on purpose, search still works and says which source failed | S (1–2 h) |
-| MUS-2 ✅ | Open a link in Chrome and a song plays from **your** API | L (4–6 h) |
-| MUS-3 | Search shows each song **once**, with the best version to play picked for you | L (4–6 h) |
-| MUS-4 | Like a song, restart the server, it is still liked (your library, in PostgreSQL) | L |
-| MUS-5 | Search **your** library: "weekend" finds The Weeknd, "sad arijit" finds sad Arijit songs you saved | L |
-| MUS-6 | The second identical search is much faster, with before/after numbers (caching) | M |
-| MUS-7 | Your phone on mobile data plays from your Mac (proxy streaming + Tailscale) | M |
-| MUS-8+ | The app (web or Flutter, decided then), offline, recommendations, Spotify import, Jam, Blend | — |
+| Ticket | What you can show at the end | Who | Size |
+|---|---|---|---|
+| MUS-1 ✅ | Break a source on purpose, search still works and says which source failed | You | S |
+| MUS-2 ✅ | Open a link in Chrome and a song plays from **your** API | You + Claude | L |
+| MUS-3 ✅ | Search shows each song once, best version picked, ranked with RRF | You + Claude | L |
+| MUS-4 ✅ | Like a song, restart the server, it is still liked; plays and skips are recorded | **You** | L |
+| MUS-5 | Your Spotify liked songs and playlists appear in your library | **You** (OAuth, API) · Claude (setup) | M |
+| MUS-6 ◐ | An app you can actually use daily: search, tap, play, next (Mac v1 built 2 Oct; phone later) | **Pair** (new language) | L |
+| MUS-7 | Shuffle that never clumps one artist | **You** | S |
+| MUS-8 | When the queue ends, music keeps going, shaped by your skips | **You** (ranking, `/next`) · Claude (radio parser) | M |
+| MUS-9 | Search your library: "weekend" finds The Weeknd, "sad arijit" works | **Pair** | L |
+| MUS-10 | The second identical search is much faster, with numbers | **You** | M |
+| MUS-11 | Your phone on mobile data plays from your Mac | **Pair** | M |
+| MUS-12 | Every played song gets a "sounds like" vector | Claude (model setup) · **You** (background job) | M |
+| MUS-13 | About 1 in 5 autoplay songs is new to you, and it learns which new ones you skip | **You** | M |
+| MUS-14 | Your own "people who played X played Y" model, beating or losing to YouTube radio on your skip rate | **Pair** | L |
 
 ---
 
@@ -155,7 +161,31 @@ Start with redirect. Proxy is the stretch goal.
 
 ---
 
-## MUS-5 · Search your library
+## MUS-5 · Spotify import (moved up: solves cold start)
+
+Log in with Spotify (OAuth, the standard "allow this app to access your account" flow), page through your liked songs and playlists, and add each track to your library: Spotify gives **ISRCs**, so resolve each track to a playable listing by searching your sources and matching with MUS-3's `same_recording`. Your taste exists on day one instead of an empty library.
+
+---
+
+## MUS-6 · The app v1
+
+Search, results (MUS-3 songs), tap to play, next/previous, like. Platform decided at the start of the ticket. You have never written Swift, Kotlin or Flutter: Claude sets up the project and explains every piece; you write the screens.
+
+---
+
+## MUS-7 · Shuffle
+
+Fisher–Yates first (true random), then Spotify's 2014 approach: spread each artist's songs across the playlist with some jitter, because true random clumps and feels broken.
+
+---
+
+## MUS-8 · Autoplay v1
+
+`GET /next?after=<song_id>`. Candidates: YouTube Music radio (verified 2 Oct: `youtubei/v1/next` with `playlistId=RDAMVM<videoId>` returns 50 songs) plus your library. **Your own re-ranking:** push down songs you skipped in the first 30 s, push up artists you finish or like, no repeats within the last hour, no artist three times in a row. Pre-resolve the next song's audio URL so there is no gap. Metric from now on: **skip rate in the first 30 s**.
+
+---
+
+## MUS-9 · Search your library
 
 **Why:** in your own library, *your* typos and fuzzy memory are the problem ("weekend", "kesaria", "that sad arijit one"). This is where phonetic and semantic matching earn their place (JioSaavn built Indi-Editex for exactly this).
 
@@ -174,15 +204,33 @@ Start with redirect. Proxy is the stretch goal.
 
 ---
 
-## MUS-6 · Caching
+## MUS-10 · Caching
 
 Server cache for search results (minutes), resolved `/play` URLs (until their `expire=`), and anything slow to compute. Measure first: time the same search twice before and after. Caching also protects you from being rate-limited by YouTube and JioSaavn.
 
 ---
 
-## MUS-7 · Reach it from your phone
+## MUS-11 · Reach it from your phone
 
 YouTube audio URLs only work from the IP that requested them, so redirect mode fails once the phone is on mobile data. Build **proxy mode** for `/play` (with HTTP Range requests so seeking still works), and put your Mac and phone on one private network with Tailscale.
+
+---
+
+## MUS-12 · Audio embeddings
+
+A background job computes a "sounds like" vector for every song you play (a CLAP-style model, run locally) and stores it in pgvector. Works for any song, no crowd needed.
+
+---
+
+## MUS-13 · Discovery (explore / exploit)
+
+A bandit (start with Thompson sampling) decides when to slip in a song that is new to you, chosen from songs that sound like ones you finish, and learns from whether you skip it. Reference: Spotify's BaRT (2018).
+
+---
+
+## MUS-14 · Your own collaborative filtering
+
+Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens, CC0), map its MusicBrainz IDs to your songs, and A/B it against YouTube radio in autoplay using your skip rate. Expect thin coverage of Indian music in ListenBrainz (unverified): measure it first.
 
 ---
 
