@@ -1,26 +1,41 @@
+import asyncio
+import logging
+
 import httpx
+from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError, ExtractorError
 
 from music_backend.models import Listing
+from music_backend.sources import SongNotFound, SourceUnavailable
 
 SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"
-# the same client identity music.youtube.com sends; an old version string is still accepted
+WATCH_URL = "https://music.youtube.com/watch?v="
+# "bestaudio" makes yt-dlp pick one audio-only format and put its direct link in info["url"]
+YTDLP_OPTIONS = {"format" : "bestaudio", "quiet" : True, "no_warnings" : True}
 CLIENT = {"clientName" : "WEB_REMIX", "clientVersion" : "1.20250101.01.00", "hl" : "en"}
-# what the "Songs" filter chip on music.youtube.com adds to the request
 SONGS_ONLY = "EgWKAQIIAWoKEAkQBRAKEAMQBA=="
 SEPARATOR = " • "
 ARTIST_JOINERS = (", ", " & ")
 PLAYS_MULTIPLIER = {"K" : 1_000, "M" : 1_000_000, "B" : 1_000_000_000}
+REQUEST_TIMEOUT = 2
 
+logger = logging.getLogger(__name__)
 
 async def search(query: str) -> list[Listing]:
     """Search YouTube Music (songs only) and return a list of listings."""
     body = {"context" : {"client" : CLIENT}, "query" : query, "params" : SONGS_ONLY}
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout = REQUEST_TIMEOUT) as client:
+        # added the timeout, but i wanna see 2 things... 1. when it times out what gets passed up? i suppose an error class which is converted to json..
+        # 2. if it is jsoon, can it be caught by try except?
         r = await client.post(SEARCH_URL, params = {"prettyPrint" : "false"}, json = body)
         r = r.json()
         listings = []
         for item in song_rows(r):
-            listings.append(to_listing(item))
+            # one odd row (seen once: no playlistItemData) must not throw away the other 19
+            try:
+                listings.append(to_listing(item))
+            except (KeyError, IndexError, ValueError) as e:
+                logger.warning("skipped a YouTube Music row for %r: %r", query, e)
         return listings
 
 
@@ -42,21 +57,26 @@ def song_rows(response: dict) -> list[dict]:
 def to_listing(item: dict) -> Listing:
     """Turn one YouTube Music song row into a Listing."""
     title = column(item, 0)[0]["text"]
-    # column 1 reads like: Emily Dawn , Vive & Sandy Beach • Blinding Lights • 2:52
-    # (artists • album • duration, and the album part can be missing)
     parts = split_on_separator(column(item, 1))
     artists = [run["text"] for run in parts[0] if run["text"] not in ARTIST_JOINERS]
     album = parts[1][0]["text"] if len(parts) == 3 else None
     plays = column(item, 2)
     return Listing(
         source = "ytmusic",
-        id = item["playlistItemData"]["videoId"],
+        id = video_id(item),
         title = title,
         artists = artists,
         album = album,
         duration = to_seconds(parts[-1][0]["text"]),
         popularity = to_count(plays[0]["text"]) if plays else None,
     )
+
+
+def video_id(item: dict) -> str:
+    """The row's videoId. Usually in playlistItemData; the title's link carries it too."""
+    if "playlistItemData" in item:
+        return item["playlistItemData"]["videoId"]
+    return column(item, 0)[0]["navigationEndpoint"]["watchEndpoint"]["videoId"]
 
 
 def column(item: dict, index: int) -> list[dict]:
@@ -92,3 +112,29 @@ def to_count(plays: str) -> int:
     if number[-1] in PLAYS_MULTIPLIER:
         return round(float(number[:-1]) * PLAYS_MULTIPLIER[number[-1]])
     return int(number.replace(",", ""))
+
+
+async def get_song_url(song_id: str) -> str:
+    """Direct audio URL for a YouTube Music video id (best audio-only format, ~133 kbps Opus).
+
+    The URL expires after a few hours and only works from the IP address that asked for it.
+    """
+    # yt-dlp is ordinary blocking code (~2 s). Called directly, it would freeze the whole server;
+    # to_thread runs it on a separate thread and gives back something we can await.
+    return await asyncio.to_thread(extract_audio_url, song_id)
+
+
+def extract_audio_url(song_id: str) -> str:
+    """The blocking yt-dlp call, with its errors translated into our two source errors."""
+    try:
+        with YoutubeDL(YTDLP_OPTIONS) as ydl:
+            info = ydl.extract_info(WATCH_URL + song_id, download=False)
+    except DownloadError as e:
+        # yt-dlp wraps everything in DownloadError; the error inside says what really happened.
+        # "This video is unavailable" (missing, private, blocked) is an ExtractorError marked expected=True;
+        # a network failure is a TransportError.
+        inner = e.exc_info[1] if e.exc_info else None
+        if isinstance(inner, ExtractorError) and inner.expected:
+            raise SongNotFound(song_id) from e
+        raise SourceUnavailable(f"YouTube Music: {e}") from e
+    return info["url"]
