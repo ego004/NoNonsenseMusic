@@ -92,6 +92,8 @@ enum SelfTest {
     }
 
     private static var startedPlayback = false
+    /// Where the bar's ⏮ ▶ ⏭ are, in window points (PlayerBar sets it): the playback test checks they sit at the bar's centre.
+    static var controlsFrame: CGRect = .zero
 
     /// With `NN_SELFTEST_PLAY=1`: plays two songs built to fail, reports the player every second, then quits.
     /// 1. one copy that never plays  -> one serve_fresh retry, then "Couldn't play", then the next song
@@ -126,6 +128,11 @@ enum SelfTest {
             for second in 1...10 {
                 try? await Task.sleep(for: .seconds(1))
                 if second == 4, ProcessInfo.processInfo.environment["NN_SELFTEST_SWIPE"] != nil { swipeTest(player: player) }
+                if second == 2 {
+                    let bar = player.barFrame, controls = controlsFrame
+                    report(String(format: "centre: bar %.1f (width %.0f), play button %.1f, off by %+.1f pt",
+                                  bar.midX, bar.width, controls.midX, controls.midX - bar.midX))
+                }
                 report("t=\(second)s  song: \(player.current?.title ?? "-")  playing: \(player.isPlaying)  buffering: \(player.isBuffering)  message: \(player.errorMessage ?? "-")")
             }
             NSApp.terminate(nil)
