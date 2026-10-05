@@ -7,11 +7,13 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
+from psycopg import errors
 
 from music_backend import db, library, cache
 from music_backend.matching import rank_songs
 from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
-                                  SearchSourceInfo, SongRef, SourceName)
+                                  SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
+                                  PlaylistsResponse)
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
 
@@ -138,3 +140,20 @@ async def add_event(body: EventRequest, request: Request) -> SongRef:
         song_id = await library.resolve_song(conn, body.listings)
         await library.record_event(conn, song_id, body.type, body.position)
     return SongRef(song_id = song_id)
+
+#----- playlists -----
+
+@app.post("/playlists", status_code = 201)
+async def create_playlist(body: PlaylistRequest, request: Request) -> PlaylistMetadata:
+    async with request.app.state.pool.connection() as conn:
+        try:
+            playlist_id = await library.create_playlist(conn, body.name)
+        except errors.UniqueViolation:
+            raise HTTPException(status_code = 409, detail = "A playlist with this name already exists")
+    return PlaylistMetadata(id = playlist_id, name = body.name, duration=0, song_count=0, thumbnail=None)
+
+@app.get("/playlists")
+async def get_playlists(request: Request) -> PlaylistsResponse:
+    async with request.app.state.pool.connection() as conn:
+        playlists = await library.get_playlists(conn)
+    return PlaylistsResponse(playlists = playlists)
