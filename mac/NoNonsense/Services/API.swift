@@ -32,8 +32,16 @@ enum API {
     }
 
     /// The server answers with a redirect to the audio file; AVPlayer follows it.
-    static func playURL(_ listing: Listing) -> URL {
-        baseURL.appending(path: "play").appending(path: listing.source).appending(path: listing.id)
+    /// `fresh`: skip the server's cache (sent only after this listing's cached URL failed to play).
+    static func playURL(_ listing: Listing, fresh: Bool = false) -> URL {
+        let url = baseURL.appending(path: "play").appending(path: listing.source).appending(path: listing.id)
+        return fresh ? url.appending(queryItems: [URLQueryItem(name: "serve_fresh", value: "true")]) : url
+    }
+
+    /// Tell the server a listing's URL failed: it fetches a fresh one into its cache. The reply is ignored
+    /// (the redirect is not followed), so no audio is downloaded.
+    static func refresh(_ listing: Listing) async {
+        _ = try? await noRedirect.data(from: playURL(listing, fresh: true))
     }
 
     /// Ask the server to resolve a listing's audio URL in advance, without downloading any audio:

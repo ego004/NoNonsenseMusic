@@ -87,8 +87,11 @@ struct Track: Identifiable, Hashable {
     init(_ song: SearchSong) { self.init(best: song.best, listings: song.listings) }
     init(_ song: LibrarySong) { self.init(best: song.best, listings: song.listings) }
 
-    /// The same song, but playing one specific copy (chosen from "N versions").
+    /// The same song, but playing one specific copy (chosen from its listings).
     func playing(_ listing: Listing) -> Track { Track(best: listing, listings: listings) }
+
+    /// Same song, whichever copy plays: the same set of listings.
+    func isSameSong(as other: Track) -> Bool { Set(listings.map(\.key)) == Set(other.listings.map(\.key)) }
 
     static func == (a: Track, b: Track) -> Bool { a.id == b.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }

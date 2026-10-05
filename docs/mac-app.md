@@ -28,7 +28,7 @@ All files are in `mac/NoNonsense/`. The project file is generated from [`mac/pro
 
 ### `PlaybackCommands`
 - **Does:** the "Controls" menu in the menu bar.
-- **Shortcuts:** ⌘→ next, ⌘← previous, ⌘L like, ⇧⌘F Now Playing. Space is handled by `Player.installKeyMonitor`.
+- **Shortcuts:** ⌘→ next, ⌘← previous, ⌘↑ / ⌘↓ volume (as in Apple Music), Mute, ⌘L like, ⇧⌘F Now Playing. Space is handled by `Player.installKeyMonitor`.
 
 ---
 
@@ -60,7 +60,8 @@ All files are in `mac/NoNonsense/`. The project file is generated from [`mac/pro
 | `liked()` | `GET /liked` | `[LibrarySong]` |
 | `recent()` | `GET /recent` | `[LibrarySong]` |
 | `health()` | `GET /health` | `true` if the server answers |
-| `playURL(listing)` | (no request) | The URL `/play/{source}/{id}`, given to AVPlayer |
+| `playURL(listing, fresh:)` | (no request) | The URL `/play/{source}/{id}`, given to AVPlayer. `fresh: true` adds `?serve_fresh=true` |
+| `refresh(listing)` | `GET /play/…?serve_fresh=true`, redirect **not** followed | Nothing. Tells the server a URL failed, so its cache fetches a fresh one |
 | `warm(listing)` | `GET /play/…`, redirect **not** followed | Nothing. Asks the server to look up the next song's audio early (pays off with a server cache) |
 | `like(listings)` | `POST /liked` | The song's ID |
 | `unlike(songID)` | `DELETE /liked/{id}` | Nothing |
@@ -90,7 +91,7 @@ All files are in `mac/NoNonsense/`. The project file is generated from [`mac/pro
 ## Services/Player.swift
 
 ### `Player` (`@Observable`)
-State the screens read: `queue`, `index`, `current`, `isPlaying`, `position`, `duration`, `isBuffering`, `upNext`, `showNowPlaying`.
+State the screens read: `queue`, `index`, `current`, `isPlaying`, `position`, `duration`, `isBuffering`, `upNext`, `showNowPlaying`, `playingListing` (the copy actually playing), `volume`, `isMuted`, `errorMessage`.
 
 | Function | Does |
 |---|---|
@@ -100,11 +101,16 @@ State the screens read: `queue`, `index`, `current`, `isPlaying`, `position`, `d
 | `next()` | Reports a skip, then the next song. |
 | `previous()` | Restarts the song if more than 3 s in; otherwise the previous song. |
 | `jump(to:)` | Plays one song from Up Next. |
+| `setVolume(level)` | 0…1, remembered between launches; unmutes. |
+| `nextPresses`, `previousPresses` | Count every skip (button, menu, media key, swipe); the transport buttons bounce on them. |
+| `toggleMute()` | Mute / unmute. |
 | `seek(to:)` | Moves to a second in the song. |
 | `installKeyMonitor()` | Space = play/pause, except while typing in a text field. |
+| `installSwipeMonitor()` | Two-finger swipe across the player bar: fingers left = next, right = previous. One skip per swipe; the coasting afterwards is ignored; vertical swipes pass through. Uses `barFrame`, which the bar reports. Checked 5 Oct with a synthetic swipe: one swipe, one `next()`. |
 | `startCurrent()` (private) | Plays the current song's best copy, reports `play`, and warms the next song (`API.warm`). |
-| `load(listing)` (private) | Gives AVPlayer the `/play` URL; watches for failure. |
-| `statusChanged(status)` (private) | If a copy fails: tries the song's other copies. If all fail: next song. |
+| `load(listing, fresh:)` (private) | Gives AVPlayer the `/play` URL (or the `serve_fresh` one); remembers which copy is loaded; watches for failure. |
+| `statusChanged(status)` (private) | A copy failed. **2+ copies:** switch to the next one, and `API.refresh` the failed one in the background. **1 copy:** retry it once with `serve_fresh` (the spinner shows). Nothing left: `show` a message, next song. Checked 5 Oct with `NN_SELFTEST_PLAY`. |
+| `show(message)` (private) | Shows `errorMessage` for 4 seconds; a newer message replaces it. |
 | `tick(seconds)` (private) | Every 0.5 s: updates `position`. |
 | `itemEnded(item)` (private) | Reports `finish`, then the next song. |
 | `reportSkipIfNeeded()` (private) | Reports `skip` with the second, unless the song was in its last 3 s. |
@@ -133,21 +139,29 @@ State the screens read: `queue`, `index`, `current`, `isPlaying`, `position`, `d
 - **Does:** talks to the Discord desktop app through its local socket (`$TMPDIR/discord-ipc-0`).
 - **Message format:** `[opcode: 4 bytes][length: 4 bytes][JSON]`. Opcode 0 = handshake, 1 = command, 2 = Discord refused.
 - `setActivity(activity, clientID)`: connects if needed (handshake with your Application ID), then sends `SET_ACTIVITY`. `nil` clears the status.
-- The status uses activity type 2 ("Listening to"). It has no buttons or links.
+- The status uses activity type 2 ("Listening to"). Every part follows Settings › Discord: the song (`details`), the artist (`state`), the cover (`assets`), the time bar (`timestamps`), each optional; the member-list line (`status_display_type`: 2 the song, 1 the artist, 0 the app's name); and whether it stays while paused. It has no buttons or links.
+- Needs an Application ID: create an application at discord.com/developers (its name is what people see: "Listening to NoNonsense") and paste its ID in Settings.
+- Open question: Discord's gateway docs give timestamps in milliseconds; the app sends seconds, as common presence libraries do over this socket. Check the time bar once an ID is set.
 
 ### `Presence` (`@Observable`)
-- `setEnabled(on)`, `setClientID(id)`: the Settings controls. Saved in `UserDefaults`.
-- `update(track, isPlaying, position)`: builds the status (song, artists, album cover, start and end times) and sends it. Paused or stopped clears it. `status` shows the result in Settings.
+- `setEnabled(on)`, `setClientID(id)`, and the share settings (`statusLine`, `shareSong`, `shareArtist`, `shareArt`, `shareTime`, `showWhenPaused`): saved in `UserDefaults`; each change is sent to Discord at once.
+- `update(track, isPlaying, position)`: called by the player on every change; sends `activity(for:)`, or clears the status. `status` shows the result in Settings.
+- `activity(for:isPlaying:position:)`: the one place the status is built from the share settings.
+- `sendTest()`: Settings' "Send a test status" (the last song, or a sample), to check the setup without playing.
 
 ---
 
-## Services/Palette.swift
+## Services/ArtworkCache.swift
+
+### `ArtworkCache.shared`
+- **Does:** downloads each cover once and keeps it in memory, so a cover shown once appears instantly, and a new cover can replace the old one with no empty frame between them (that grey frame was the white flash between songs).
 
 | Function | Returns |
 |---|---|
-| `pastel(for:dark:)` | The artwork's average colour, softened toward white (light mode) or black (dark mode). Cached per URL. |
-| `fallback(for:)` | A soft colour made from the title, for songs without artwork. |
-| `averageRGB(data)` | The average colour of an image (Core Image's area-average filter). Runs off the main thread (`@concurrent`). |
+| `image(for:)` | The cover. Two views asking for the same URL at once share one download (single-flight). |
+| `cached(_:)` | The cover if already loaded, without waiting. |
+| `colorGrid(for:)` | The cover shrunk to 3×3 pixels: nine colours, each where it sits on the cover. The background mesh is made from them. |
+| `accent(for:dark:)` | The cover's most vivid colour, made readable; `nil` for grey covers (the system accent stays). Tints sliders, the progress line and the heart. |
 
 ---
 
@@ -167,24 +181,28 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 
 | File | Type | Shows |
 |---|---|---|
-| `RootView.swift` | `RootView` | The window: sidebar, the chosen screen over the colour backdrop, the floating player, Now Playing on top. Starts the server if needed, then loads the library. The title bar is see-through. |
+| `RootView.swift` | `RootView` | The window: sidebar, the chosen screen over the colour backdrop, the floating player, Now Playing on top. Starts the server if needed, then loads the library. The title bar is see-through. Shows the player's message ("Couldn't play …") above the player bar. |
 | `Screens.swift` | `SidebarItem` | The sidebar's three items. |
 | | `SidebarView` | The sidebar, with the Settings link at the bottom. Each row's `.tag` must be its **last** modifier: before `.badge`, it was hidden and no row could be selected (5 Oct). |
-| | `SearchView` | A large centred search bar, lower on the screen while empty; it moves to the top when you type. Focused on open; ⌘F focuses it. Waits 350 ms after typing stops (debounce). Shows a note if a source is down. |
+| | `SearchView` | A large centred search bar, lower on the screen while empty, with your recently played covers under it; it moves to the top when you type. Focused on open; ⌘F focuses it. Waits 350 ms after typing stops (debounce). Shows a note if a source is down. |
 | | `SearchBar` | The bar itself: glass capsule, icon, field, a spinner while searching, a clear (×) button. |
+| | `RecentShelf` | The idle home: up to 12 recently played songs as large covers. Empty history shows nothing. |
+| | `CoverTile` | One cover: under the pointer it tilts toward it with a soft light following the pointer (the Apple TV focus look), lifts, deepens its shadow and shows a glass play button; click plays (the whole Recently Played list becomes the queue). No tilt with Reduce Motion. |
 | | `SongListView` | Liked Songs and Recently Played: title, count, Play, Shuffle, the list. |
-| `SongRow.swift` | `SongRow` | One song: artwork (click to play), title, artists, "N copies", heart (on hover), duration. Double-click plays. Right-click: Play, Play Next, Like. |
-| | `VersionsView` | The "N copies" popover: every listing; click one to play that copy. |
-| `PlayerViews.swift` | `PlayerBar` | The floating glass bar. Hidden until a song plays. |
+| `SongRow.swift` | `SongRow` | One song: artwork (click to play), title, artists, "N listings" (click to open), heart (on hover), duration. Double-click plays. Right-click: Play, Play Next, Like. Playing a chosen listing keeps the rest of the list as the queue. |
+| | `ListingRow` | One copy, inside an opened song: title, artists, "Default" for the copy that plays normally, source, quality, length. Click plays exactly this copy; the playing copy shows an animated speaker. |
+| `PlayerViews.swift` | `PlayerBar` | The floating glass bar, with the volume control. Its glass is *interactive* (reacts to hover and press) and *materializes* in. Hidden until a song plays. |
 | | `TransportControls` | ⏮ ▶ ⏭, shared by the bar and Now Playing. |
-| | `NowPlayingView` | Full window: large artwork, progress, controls, Up Next. Esc closes it. |
+| | `NowPlayingView` | Full window, over a thick material: large artwork, progress, controls, a volume slider, Up Next. Esc closes it. |
 | | `UpNextView` | The queue panel. Click a song to jump to it. |
 | `Components.swift` | `ArtworkView` | A cover with rounded corners. |
-| | `Backdrop` | The blurred artwork + pastel colour behind the screens. |
+| | `WindowBlur` | The see-through window background: AppKit's behind-window blur (`NSVisualEffectView`, `.behindWindow`). |
+| | `Backdrop` | The cover's nine colours as a `MeshGradient` whose inner points drift (about 30 s per cycle); a new song crossfades in. With **Custom** colours it is nine shades of your Background colour instead. `strength` scales it, `base:` adds a material (Now Playing). **Battery:** at most 30 frames a second, and still (no frames at all) unless music plays, the app is in front, Low Power Mode is off, Reduce Motion is off and the setting is on. Measured 5 Oct: ~1.5% CPU and energy impact ~1.5 during playback, the same with it moving or still. |
+| | `Color(hex:)`, `.hexString` | `#RRGGBB` ⟷ colour (sRGB), for the custom colours. |
+| | `VolumeControl` | Mute button (the speaker's waves follow the level: an SF Symbols variable value) and a slider. |
 | | `LikeButton` | The heart, with a small bounce. |
-| | `ProgressBar` | The thin bar. Drag to seek. |
-| | `Chip` | A small label ("JioSaavn", "AAC 320 kbps"). |
-| `SettingsView.swift` | `SettingsView` | Theme, Discord (toggle, Application ID, status), server address and status. |
+| | `ProgressBar` | The thin bar. Drag to seek. The played part takes the tint (the cover's colour). A haptic tick at each minute while you drag (if Trackpad › Haptic ticks is on). |
+| `SettingsView.swift` | `SettingsView` | Tabs, as in the Mac's own apps: **Appearance** (theme, transparency, colour strength, moving background; **Colours: From the song** or **Custom**, with Accent, Heart and Background each as a swatch + hex field; reset all), **Trackpad** (haptic ticks on/off, the gestures), **Discord** (on/off, Application ID, test, what to share, a preview of what friends see), **Server**. Defaults live in `Look` and `Theme`. `HexColorField` keeps a swatch and its `#RRGGBB` code in step (checked 5 Oct: six colours round-trip exactly, bad codes are rejected). |
 
 ---
 
@@ -195,4 +213,9 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 - **Does:** draws the window into `<folder>/window.png` and `after-click.png`. Prints which view a click on each sidebar row reaches. Clicks the second row, prints the selection before and after, then quits.
 - **Why:** checks layout and clicks without screen-recording permission. The app draws only its own window.
 - **Limit:** glass (the sidebar, glass buttons) draws as blank in the PNG.
+
+### Playback scenario (`NN_SELFTEST_PLAY=1`)
+- **Run:** `NN_SELFTEST_PLAY=1 DATABASE_URL=postgresql:///music_test mac/build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense -serverURL http://127.0.0.1:8765`. The launch argument overrides the server address for this run only; the app starts a test server there, on `music_test`, so your library stays clean.
+- **Does:** plays a song whose only copy fails, then a song whose best copy fails but whose second works. Prints the player every second for 10 s, then quits.
+- **Check:** `~/Library/Logs/NoNonsense/server.log` shows the `serve_fresh` retry for song 1, the background `serve_fresh` for song 2's bad copy, and a 307 for its good copy.
 

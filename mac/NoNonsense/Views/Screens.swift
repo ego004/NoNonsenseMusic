@@ -50,11 +50,6 @@ struct SearchView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 14) {
-                if isIdle {
-                    Text("What do you want to hear?")
-                        .font(.largeTitle.bold())
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
                 SearchBar(text: $query, isLoading: isLoading, focused: $fieldFocused) { schedule(query, delay: .zero) }
                 if !unhealthy.isEmpty {
                     Label("\(unhealthy.map { $0.source == "jiosaavn" ? "JioSaavn" : "YouTube Music" }.joined(separator: ", ")) unavailable — showing the rest",
@@ -64,27 +59,31 @@ struct SearchView: View {
                 }
             }
             .padding(.horizontal, 24)
-            .padding(.top, isIdle ? 120 : 18)
+            .padding(.top, isIdle ? 110 : 18)
             .padding(.bottom, 10)
 
             ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(Array(results.enumerated()), id: \.element.id) { i, track in
-                        SongRow(track: track, queue: results, index: i)
+                if isIdle {
+                    RecentShelf()                              // until you type: your own music, as covers
+                        .padding(.horizontal, 32)
+                        .padding(.top, 40)
+                        .padding(.bottom, 24)
+                        .transition(.opacity)
+                } else {
+                    LazyVStack(spacing: 2) {
+                        ForEach(Array(results.enumerated()), id: \.element.id) { i, track in
+                            SongRow(track: track, queue: results, index: i)
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
             }
             .overlay {
                 if failed {
                     ContentUnavailableView("Can't reach your server", systemImage: "wifi.exclamationmark",
                                            description: Text("Is the backend running at \(API.baseURL.absoluteString)?"))
-                } else if isIdle {
-                    Text("Search JioSaavn and YouTube Music at once.  ⌘F")
-                        .font(.callout).foregroundStyle(.tertiary)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                } else if results.isEmpty && !isLoading {
+                } else if !isIdle && results.isEmpty && !isLoading {      // idle shows the feature grid instead
                     ContentUnavailableView.search(text: query)
                 }
             }
@@ -200,5 +199,96 @@ struct SearchBar: View {
         .padding(.vertical, 13)
         .glassEffect(.regular.interactive(), in: .capsule)
         .frame(maxWidth: 580)
+    }
+}
+
+
+/// The idle home: the songs you played last, as covers. Nothing at all when there is no history yet.
+struct RecentShelf: View {
+    @Environment(LibraryStore.self) private var library
+    @Environment(Player.self) private var player
+
+    var body: some View {
+        let tracks = Array(library.recent.prefix(12))
+        if !tracks.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Recently Played").font(.title3.weight(.semibold))
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: 20) {
+                        ForEach(Array(tracks.enumerated()), id: \.element.id) { i, track in
+                            CoverTile(track: track) { player.play(library.recent, startAt: i) }
+                        }
+                    }
+                    .padding(.vertical, 12)                    // room for the hover lift and its shadow
+                }
+                .scrollIndicators(.hidden)
+                .defaultScrollAnchor(.leading)                 // open at the first cover (it opened at the last)
+                .scrollClipDisabled()                          // shadows and lifted covers draw past the edges
+            }
+            .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+/// A cover you can play. Under the pointer it tilts toward it, a soft light follows the pointer across it
+/// (the Apple TV focus look), its shadow deepens and a small glass play button floats in.
+/// No tilt with Reduce Motion. Drawn only while the pointer moves over it: nothing runs otherwise.
+struct CoverTile: View {
+    let track: Track
+    let play: () -> Void
+    @State private var pointer: CGPoint?                 // where the pointer is on the cover, 0...1 each way
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let side: CGFloat = 148
+
+    var body: some View {
+        let hovering = pointer != nil
+        let tilt = reduceMotion ? nil : pointer
+        Button(action: play) {
+            VStack(alignment: .leading, spacing: 9) {
+                ArtworkView(url: track.image, size: side, radius: 12)
+                    .overlay {
+                        if let p = tilt {                                     // the light, where the pointer is
+                            RadialGradient(colors: [.white.opacity(0.28), .clear], center: UnitPoint(x: p.x, y: p.y),
+                                           startRadius: 0, endRadius: side * 0.85)
+                                .blendMode(.plusLighter)
+                                .clipShape(.rect(cornerRadius: 12, style: .continuous))
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if hovering {
+                            Image(systemName: "play.fill")
+                                .font(.callout)
+                                .frame(width: 36, height: 36)
+                                .glassEffect(.regular.interactive(), in: .circle)
+                                .padding(10)
+                                .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        }
+                    }
+                    .rotation3DEffect(.degrees(tilt.map { ($0.y - 0.5) * -9 } ?? 0), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
+                    .rotation3DEffect(.degrees(tilt.map { ($0.x - 0.5) * 9 } ?? 0), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
+                    .shadow(color: .black.opacity(hovering ? 0.32 : 0.14), radius: hovering ? 18 : 8, y: hovering ? 12 : 4)
+                    .scaleEffect(hovering ? 1.035 : 1)
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let at):
+                            withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.8)) {
+                                pointer = CGPoint(x: min(max(at.x / side, 0), 1), y: min(max(at.y / side, 0), 1))
+                            }
+                        case .ended:
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.7)) { pointer = nil }
+                        }
+                    }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(track.title).font(.callout.weight(.medium)).lineLimit(1)
+                    Text(track.artistLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .frame(width: side, alignment: .leading)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Play \(track.title)")
     }
 }
