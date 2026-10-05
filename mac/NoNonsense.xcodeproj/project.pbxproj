@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		06ED42D3B0F7A7FD121A2AC7 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93FF752447B1866FD59A5D9D /* LibraryStore.swift */; };
 		0E59F343C250DEB67EB7B342 /* Screens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 187B65FDE5C1D9B4300ACE83 /* Screens.swift */; };
+		1F80C4CE5289A4F4712090A6 /* Shuffle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E61BBC7E329399CCCFF251 /* Shuffle.swift */; };
 		2378FEC447BD5BF1FCB49A4C /* Presence.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C8CE53A38023E1F773BDBD /* Presence.swift */; };
 		2A900B581D7541CC22D8F5CE /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61B7B9C798BEEEDC810D3C7C /* SettingsView.swift */; };
 		3DDD48B03F42672DEF183122 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73544AE9F06A2B4B55D2598C /* Components.swift */; };
@@ -28,6 +29,7 @@
 		292804CD0EB5D2B5A39CF640 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		3086DF81F782A80C2C5F9033 /* Palette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Palette.swift; sourceTree = "<group>"; };
 		3BE09B7F546BD239B2AFD81C /* PlayerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViews.swift; sourceTree = "<group>"; };
+		57E61BBC7E329399CCCFF251 /* Shuffle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shuffle.swift; sourceTree = "<group>"; };
 		61B7B9C798BEEEDC810D3C7C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		73544AE9F06A2B4B55D2598C /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		73F3F3979510A3CCDB133168 /* API.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = API.swift; sourceTree = "<group>"; };
@@ -98,6 +100,7 @@
 				3086DF81F782A80C2C5F9033 /* Palette.swift */,
 				AEB8186E89FB9026CB640031 /* Player.swift */,
 				B5C8CE53A38023E1F773BDBD /* Presence.swift */,
+				57E61BBC7E329399CCCFF251 /* Shuffle.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -180,6 +183,7 @@
 				7C3F83393CA321A64FA0909C /* RootView.swift in Sources */,
 				0E59F343C250DEB67EB7B342 /* Screens.swift in Sources */,
 				2A900B581D7541CC22D8F5CE /* SettingsView.swift in Sources */,
+				1F80C4CE5289A4F4712090A6 /* Shuffle.swift in Sources */,
 				F0E2C30026FE94064660905F /* SongRow.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
