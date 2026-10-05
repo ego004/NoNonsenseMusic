@@ -13,22 +13,47 @@ actor DiscordIPC {
         let state: String?          // "by …"
         let image: String?          // the cover's URL
         let imageText: String?      // the album, shown on hover
+        let smallImage: String?     // the badge on the cover's corner (an art asset's name)
+        let smallText: String?
         let start: Int?             // unix seconds; with `end`, Discord draws a time bar
         let end: Int?
         let statusLine: Int         // what the member list shows: 0 the app's name, 1 `state`, 2 `details`
     }
 
-    enum Failure: Error { case notRunning, rejected }
+    enum Failure: Error {
+        case notRunning                 // no Discord socket to connect to
+        case rejected(String)           // the handshake was refused, with Discord's reason ("Invalid Client ID")
+        case closed                     // the connection broke (e.g. Discord restarted)
+        case timeout                    // Discord did not answer within 2 s
+        case discord(String)            // Discord answered the command with an error, with its message
+    }
 
     private var fd: Int32 = -1
     private var connectedClientID: String?
 
+    /// Sends the status. A connection kept from earlier can be dead (Discord restarts to update itself), so a
+    /// closed connection is dropped and tried once more on a fresh one. A timeout is not retried at once:
+    /// handshakes in quick succession are exactly what makes Discord stop answering.
     func setActivity(_ activity: Activity?, clientID: String) throws {
+        do {
+            try setActivityOnce(activity, clientID: clientID)
+        } catch Failure.closed {
+            disconnect()
+            try setActivityOnce(activity, clientID: clientID)
+        }
+    }
+
+    private func setActivityOnce(_ activity: Activity?, clientID: String) throws {
         try connect(clientID: clientID)
         var args: [String: Any] = ["pid": Int(getpid())]
         if let activity { args["activity"] = payload(activity) }      // no activity = clear the status
         try send(opcode: 1, ["cmd": "SET_ACTIVITY", "args": args, "nonce": UUID().uuidString])
-        _ = try receive()
+        let (_, reply) = try receive()
+        // Discord answers a bad command with evt "ERROR" and a message: report it instead of claiming success
+        if let json = try? JSONSerialization.jsonObject(with: reply) as? [String: Any], json["evt"] as? String == "ERROR" {
+            let message = (json["data"] as? [String: Any])?["message"] as? String ?? "unknown error"
+            throw Failure.discord(message)
+        }
     }
 
     func disconnect() {
@@ -48,6 +73,8 @@ actor DiscordIPC {
         var assets: [String: Any] = [:]
         if let image = a.image { assets["large_image"] = image }
         if let text = a.imageText { assets["large_text"] = padded(text) }
+        if let small = a.smallImage { assets["small_image"] = small }
+        if let text = a.smallText { assets["small_text"] = padded(text) }
         if !assets.isEmpty { activity["assets"] = assets }
         // deliberately no buttons or links: nothing here points at a GitHub profile
         return activity
@@ -63,7 +90,9 @@ actor DiscordIPC {
             guard s >= 0 else { continue }
             var one: Int32 = 1
             setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))   // no crash if Discord quits
-            var timeout = timeval(tv_sec: 2, tv_usec: 0)                                           // never hang the app
+            // Discord can take seconds to answer a handshake, and slows down after several in a row (measured 5 Oct:
+            // 0.4 s, 4.5 s, no answer). This runs on the actor, never on the main thread, so waiting is free.
+            var timeout = timeval(tv_sec: 10, tv_usec: 0)
             setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
             var address = sockaddr_un()
             address.sun_family = sa_family_t(AF_UNIX)
@@ -83,8 +112,12 @@ actor DiscordIPC {
         }
         guard fd >= 0 else { throw Failure.notRunning }
         try send(opcode: 0, ["v": 1, "client_id": clientID])
-        let (opcode, _) = try receive()
-        guard opcode == 1 else { disconnect(); throw Failure.rejected }   // 2 = wrong Application ID
+        let (opcode, reply) = try receive()
+        guard opcode == 1 else {                                              // 2 = refused, with a reason
+            let reason = (try? JSONSerialization.jsonObject(with: reply) as? [String: Any])?["message"] as? String
+            disconnect()
+            throw Failure.rejected(reason ?? "refused")
+        }
         connectedClientID = clientID
     }
 
@@ -101,7 +134,7 @@ actor DiscordIPC {
         withUnsafeBytes(of: UInt32(body.count).littleEndian) { frame.append(contentsOf: $0) }
         frame.append(body)
         let written = frame.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, frame.count) }
-        guard written == frame.count else { disconnect(); throw Failure.notRunning }
+        guard written == frame.count else { disconnect(); throw Failure.closed }
     }
 
     private func receive() throws -> (UInt32, Data) {
@@ -117,7 +150,11 @@ actor DiscordIPC {
         var received = 0
         while received < count {
             let n = data.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress! + received, count - received) }
-            guard n > 0 else { disconnect(); throw Failure.notRunning }
+            guard n > 0 else {
+                let timedOut = n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)    // SO_RCVTIMEO ran out
+                disconnect()
+                throw timedOut ? Failure.timeout : Failure.closed
+            }
             received += n
         }
         return data
@@ -138,9 +175,18 @@ final class Presence {
     var shareArtist = Presence.flag("discordShareArtist") { didSet { save("discordShareArtist", shareArtist) } }
     var shareArt = Presence.flag("discordShareArt") { didSet { save("discordShareArt", shareArt) } }
     var shareTime = Presence.flag("discordShareTime") { didSet { save("discordShareTime", shareTime) } }
-    var showWhenPaused = Presence.flag("discordShowWhenPaused", default: false) { didSet { save("discordShowWhenPaused", showWhenPaused) } }
+    /// When paused: "message" (your text), "keep" (the song, without the time bar) or "clear" (nothing).
+    /// The app's logo, uploaded by you as an art asset with this name in the Discord Developer Portal.
+    static let logoAsset = "nononsense"
+    var shareLogo = Presence.flag("discordShareLogo") { didSet { save("discordShareLogo", shareLogo) } }
+    var whenPaused = UserDefaults.standard.string(forKey: "discordWhenPaused") ?? "message" { didSet { save("discordWhenPaused", whenPaused) } }
+    var pausedMessage = UserDefaults.standard.string(forKey: "discordPausedMessage") ?? "Nothing playing" { didSet { save("discordPausedMessage", pausedMessage) } }
 
     @ObservationIgnored private let ipc = DiscordIPC()
+    @ObservationIgnored private var attempts = 0          // only the newest attempt may set `status`
+
+    /// Discord Application IDs are 17 to 20 digits; anything else is not tried (it would only be refused).
+    private var idLooksValid: Bool { (17...20).contains(clientID.count) && clientID.allSatisfy(\.isNumber) }
     @ObservationIgnored private var last: (isPlaying: Bool, position: Double) = (false, 0)
 
     init() { status = enabled ? "Shows up when a song plays" : "Off" }
@@ -153,7 +199,9 @@ final class Presence {
     }
 
     func setClientID(_ id: String) {
-        clientID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard id != clientID else { return }                 // same ID: keep the connection (no new handshake)
+        clientID = id
         UserDefaults.standard.set(clientID, forKey: "discordClientID")
         Task { await ipc.disconnect() }
         if enabled { resend() }
@@ -164,12 +212,14 @@ final class Presence {
         last = (isPlaying, position)
         guard enabled else { return }
         guard !clientID.isEmpty else { status = "Add your Discord Application ID"; return }
+        guard idLooksValid else { status = "An Application ID is 17–20 digits"; return }
         send(track.flatMap { activity(for: $0, isPlaying: isPlaying, position: position) }, title: track?.title)
     }
 
     /// Settings' "Send a test status": the last song, or a sample, so the setup can be checked without playing anything.
     func sendTest() {
         guard !clientID.isEmpty else { status = "Add your Discord Application ID"; return }
+        guard idLooksValid else { status = "An Application ID is 17–20 digits"; return }
         let sample = lastTrack ?? Track(best: Listing(source: "jiosaavn", id: "test", title: "Test from NoNonsense", artists: ["NoNonsense"],
                                                       album: nil, duration: 200, popularity: nil, image: nil), listings: [])
         send(activity(for: sample, isPlaying: true, position: 0), title: sample.title)
@@ -177,13 +227,28 @@ final class Presence {
 
     /// What Discord gets for a song, following the share switches. nil clears the status.
     func activity(for track: Track, isPlaying: Bool, position: Double) -> DiscordIPC.Activity? {
-        guard isPlaying || showWhenPaused else { return nil }
+        if !isPlaying {
+            switch whenPaused {
+            case "clear": return nil
+            case "message":
+                let text = pausedMessage.trimmingCharacters(in: .whitespaces)
+                return .init(details: text.isEmpty ? "Nothing playing" : text, state: nil,
+                             image: shareLogo ? Self.logoAsset : nil, imageText: shareLogo ? "NoNonsense" : nil,
+                             smallImage: nil, smallText: nil,
+                             start: nil, end: nil, statusLine: 2)       // the member list shows your message
+            default: break                                           // "keep": the song below, without the time bar
+            }
+        }
         let start = Int(Date().timeIntervalSince1970) - Int(position)
         let timed = shareTime && isPlaying                    // a paused song has no running time bar
+        let cover = shareArt ? track.best.image : nil         // nil when not shared, or when the song has none
+        let badge = cover != nil && shareLogo                 // the logo badge only sits on a real cover
         return .init(details: shareSong ? track.title : nil,
                      state: shareArtist ? "by \(track.artistLine)" : nil,
-                     image: shareArt ? track.best.image : nil,
-                     imageText: shareArt ? track.best.album : nil,
+                     image: cover ?? (shareLogo ? Self.logoAsset : nil),            // no cover: the logo is the picture
+                     imageText: cover != nil ? track.best.album : (shareLogo ? "NoNonsense" : nil),
+                     smallImage: badge ? Self.logoAsset : nil,
+                     smallText: badge ? "NoNonsense" : nil,
                      start: timed ? start : nil,
                      end: timed ? start + track.duration : nil,
                      statusLine: statusLine)
@@ -202,15 +267,25 @@ final class Presence {
 
     private func send(_ activity: DiscordIPC.Activity?, title: String?) {
         let id = clientID
+        attempts += 1
+        let attempt = attempts
         Task {
+            let result: String
             do {
                 try await ipc.setActivity(activity, clientID: id)
-                status = activity == nil ? "Connected, nothing playing" : "Showing “\(title ?? "")”"
-            } catch DiscordIPC.Failure.rejected {
-                status = "Discord rejected the Application ID"
+                result = activity == nil ? "Connected, nothing playing" : "Showing “\(title ?? "")”"
+            } catch let failure as DiscordIPC.Failure {
+                switch failure {
+                case .notRunning: result = "Discord isn't open"
+                case .rejected(let reason): result = "Discord refused the ID: \(reason)"
+                case .closed: result = "Discord closed the connection; it retries on the next song"
+                case .timeout: result = "Discord didn't answer in 10 s; it tries again on the next song"
+                case .discord(let message): result = "Discord said: \(message)"
+                }
             } catch {
-                status = "Discord isn't running"
+                result = "Couldn't reach Discord: \(error.localizedDescription)"
             }
+            if attempt == attempts { status = result }        // an older, slower answer never overwrites a newer one
         }
     }
 }

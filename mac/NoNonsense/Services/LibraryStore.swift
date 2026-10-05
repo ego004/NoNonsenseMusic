@@ -30,6 +30,21 @@ final class LibraryStore {
         }
     }
 
+    @ObservationIgnored private var messageTimer: Task<Void, Never>?
+
+    /// A library problem shown above the player bar for 5 s. Its own field: `refresh()` clears `lastError`
+    /// when it succeeds, which would wipe this message the moment it appeared.
+    private(set) var message: String?
+
+    private func show(_ text: String) {
+        message = text
+        messageTimer?.cancel()
+        messageTimer = Task {
+            try? await Task.sleep(for: .seconds(5))
+            if !Task.isCancelled { message = nil }
+        }
+    }
+
     func toggleLike(_ track: Track) async {
         let wasLiked = isLiked(track)
         // optimistic: the heart fills instantly, the server catches up
@@ -42,7 +57,8 @@ final class LibraryStore {
                 try await API.like(track.listings)
             }
         } catch {
-            lastError = "Couldn't update your library."
+            show(wasLiked ? "Couldn't unlike “\(track.title)”: \(error.localizedDescription)"
+                          : "Couldn't like “\(track.title)”: \(error.localizedDescription)")
         }
         await refresh()
     }

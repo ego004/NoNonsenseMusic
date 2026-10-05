@@ -6,6 +6,7 @@ struct NoNonsenseApp: App {
     @State private var presence: Presence
     @State private var player: Player
     @State private var server = ServerLauncher()
+    @State private var theme = ThemeStore()
     @AppStorage("appearance") private var appearance = Appearance.system
 
     init() {
@@ -20,6 +21,7 @@ struct NoNonsenseApp: App {
         WindowGroup("NoNonsense") {
             RootView()
                 .environment(server)
+                .environment(theme)
                 .environment(player)
                 .environment(library)
                 .environment(presence)
@@ -31,6 +33,9 @@ struct NoNonsenseApp: App {
                     #if DEBUG
                     SelfTest.runIfAsked()
                     SelfTest.runPlaybackIfAsked(player: player)
+                    SelfTest.runPresenceCheckIfAsked(presence: presence)
+                    SelfTest.runThemeCheckIfAsked(theme: theme)
+                    SelfTest.runLikeCheckIfAsked()
                     #endif
                 }
         }
@@ -44,6 +49,7 @@ struct NoNonsenseApp: App {
             SettingsView()
                 .environment(presence)
                 .environment(server)
+                .environment(theme)
                 .preferredColorScheme(appearance.colorScheme)
         }
     }

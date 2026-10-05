@@ -43,13 +43,16 @@ struct Backdrop: View {
     @Environment(\.controlActiveState) private var windowState      // .inactive when another app is in front
     @Environment(\.colorScheme) private var scheme
     @Environment(Player.self) private var player
-    @AppStorage(Theme.modeKey) private var colorMode = "song"
-    @AppStorage(Theme.backgroundKey) private var customBackground = Theme.defaultBackground
+    @Environment(ThemeStore.self) private var theme
     @State private var mesh: (key: String, colors: [Color])?
 
-    /// What the mesh is made from: your background colour, or the playing cover. Changing it crossfades.
+    /// What the mesh is made from (Settings › Colours › Background): nothing, the playing cover, or your colour.
     private var source: String {
-        colorMode == "custom" ? "custom:\(customBackground)" : (track?.image?.absoluteString ?? "")
+        switch theme.mode(.background) {
+        case .system: "none"
+        case .custom: "custom:\(theme.hex(.background))"
+        case .song: track?.image?.absoluteString ?? "none"
+        }
     }
 
     /// Battery: the mesh moves only while music plays, the app is in front, Low Power Mode is off,
@@ -70,9 +73,10 @@ struct Backdrop: View {
                 TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { context in
                     MeshGradient(width: 3, height: 3,
                                  points: Self.points(at: moving ? context.date.timeIntervalSinceReferenceDate : 0),
-                                 colors: mesh.colors.map { $0.mix(with: scheme == .dark ? .black : .white, by: 0.3) })
+                                 colors: mesh.colors.map { $0.mix(with: scheme == .dark ? .black : .white, by: 0.3 * (1 - strength)) })
                 }
-                .id(mesh.key)                                   // identity = the cover: changing it crossfades
+                .saturation(1 + 0.35 * strength)                // vivid: unmixed and a little richer, not only more opaque
+                .id(mesh.key)                                   // identity = the source: changing it crossfades
                 .transition(.opacity)
                 .opacity(strength)
             }
@@ -80,7 +84,8 @@ struct Backdrop: View {
         .ignoresSafeArea()
         .task(id: source) {
             let key = source
-            if colorMode == "custom", let base = Color(hex: customBackground) {
+            if theme.mode(.background) == .system { withAnimation(.easeInOut(duration: 0.8)) { mesh = nil }; return }
+            if theme.mode(.background) == .custom, let base = Color(hex: theme.hex(.background)) {
                 withAnimation(.easeInOut(duration: 0.8)) { mesh = (key, Self.shades(of: base)) }
                 return
             }
@@ -116,13 +121,10 @@ struct LikeButton: View {
     let track: Track
     var font: Font = .body
     @Environment(LibraryStore.self) private var library
-    @AppStorage(Theme.modeKey) private var colorMode = "song"
-    @AppStorage(Theme.heartKey) private var customHeart = Theme.defaultHeart
+    @Environment(ThemeStore.self) private var theme
 
-    /// From the song: the cover's accent (the tint). Custom: your heart colour.
-    private var heart: AnyShapeStyle {
-        if colorMode == "custom", let color = Color(hex: customHeart) { AnyShapeStyle(color) } else { AnyShapeStyle(.tint) }
-    }
+    /// Settings › Colours › Heart; System is the system pink.
+    private var heart: Color { theme.color(.heart) ?? Color(nsColor: .systemPink) }
 
     var body: some View {
         let liked = library.isLiked(track)
@@ -131,7 +133,7 @@ struct LikeButton: View {
         } label: {
             Image(systemName: liked ? "heart.fill" : "heart")
                 .font(font)
-                .foregroundStyle(liked ? heart : AnyShapeStyle(.secondary))
+                .foregroundStyle(liked ? AnyShapeStyle(heart) : AnyShapeStyle(.secondary))
                 .contentTransition(.symbolEffect(.replace))
                 .symbolEffect(.bounce, value: liked)
         }
@@ -149,13 +151,15 @@ struct ProgressBar: View {
     @State private var hovering = false
     @State private var dragged: Double?
     @AppStorage("haptics") private var haptics = true
+    @Environment(ThemeStore.self) private var theme
 
     var body: some View {
         GeometryReader { geo in
             let fraction = duration > 0 ? min(1, max(0, (dragged ?? position) / duration)) : 0
             ZStack(alignment: .leading) {
                 Capsule().fill(.primary.opacity(0.12))
-                Capsule().fill(.tint).frame(width: geo.size.width * fraction)
+                Capsule().fill(theme.color(.progress).map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary.opacity(0.7)))   // System: grey
+                    .frame(width: geo.size.width * fraction)
             }
             .frame(height: hovering || dragged != nil ? thickness * 2 : thickness)
             .frame(maxHeight: .infinity)
@@ -175,22 +179,42 @@ struct ProgressBar: View {
 /// behind-window blur, the mechanism Finder's sidebar uses. macOS makes it opaque when Reduce Transparency is on.
 struct WindowBlur: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .underWindowBackground
+    var amount: Double = 1                     // 0 = no blur (the desktop shows sharp), 1 = fully frosted
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
         view.blendingMode = .behindWindow      // sample what is behind the window, not what is inside it
         view.state = .active                   // stay see-through when the window is not in front
+        view.alphaValue = amount
         return view
     }
 
-    func updateNSView(_ view: NSVisualEffectView, context: Context) { view.material = material }
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+        view.alphaValue = amount
+    }
+}
+
+/// Makes its window non-opaque with a clear background, so a thinned blur shows the desktop, not a grey window.
+struct ClearWindow: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Finder() }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    final class Finder: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.isOpaque = false
+            window?.backgroundColor = .clear
+        }
+    }
 }
 
 /// Mute button and slider. The speaker's waves follow the level (an SF Symbols "variable value").
 struct VolumeControl: View {
     var width: CGFloat = 84
     @Environment(Player.self) private var player
+    @Environment(ThemeStore.self) private var theme
     @AppStorage("haptics") private var haptics = true
 
     var body: some View {
@@ -208,6 +232,7 @@ struct VolumeControl: View {
 
             Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }), in: 0...1)
                 .controlSize(.small)
+                .tint(theme.color(.volume))                    // Settings › Colours › Volume
                 .frame(width: width)
                 .sensoryFeedback(.levelChange, trigger: Int((player.volume * 10).rounded())) { _, _ in haptics }   // a tick every 10%
                 .help("Volume (⌘↑ / ⌘↓)")

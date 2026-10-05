@@ -14,6 +14,21 @@ nonisolated struct Listing: Codable, Hashable, Sendable {
 
     /// Unique across sources: the same id string could exist on two sources.
     var key: String { "\(source):\(id)" }
+
+    /// Every field, a missing one as null. Swift's own encoder leaves nil fields out, and the server's model needs
+    /// `album` and `popularity` present even when empty: it answered 422 "Field required" and dropped 44 of 119
+    /// play events and 5 likes before this (5 Oct).
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(source, forKey: .source)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(artists, forKey: .artists)
+        try c.encode(album, forKey: .album)              // nil -> null
+        try c.encode(duration, forKey: .duration)
+        try c.encode(popularity, forKey: .popularity)    // nil -> null
+        try c.encode(image, forKey: .image)
+    }
     var sourceName: String { source == "jiosaavn" ? "JioSaavn" : "YouTube Music" }
     var quality: String { source == "jiosaavn" ? "AAC 320 kbps" : "AAC 128 kbps" }
 }
@@ -81,7 +96,12 @@ struct Track: Identifiable, Hashable {
         self.duration = best.duration
         self.image = best.image.flatMap(URL.init(string:))
         self.best = best
-        self.listings = listings.isEmpty ? [best] : listings
+        // the default copy first, then copies from the same source, then the rest, most popular first.
+        // The listings list shows this order, and a failed copy falls back in this order.
+        let others = listings.filter { $0.key != best.key }.sorted {
+            ($0.source == best.source ? 0 : 1, -($0.popularity ?? 0)) < ($1.source == best.source ? 0 : 1, -($1.popularity ?? 0))
+        }
+        self.listings = [best] + others
     }
 
     init(_ song: SearchSong) { self.init(best: song.best, listings: song.listings) }
