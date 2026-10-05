@@ -90,9 +90,8 @@ async def record_event(conn: AsyncConnection, song_id: UUID, event_type: EventTy
 
 async def liked_songs(conn: AsyncConnection) -> list[LibrarySong]:
     rows = await (await conn.execute(
-        """SELECT s.id, k.liked_at AS at, true AS liked
-             FROM likes k JOIN songs s ON s.id = k.song_id
-            ORDER BY k.liked_at DESC""",
+        """SELECT song_id as id, liked_at AS at, true AS liked
+             FROM likes ORDER BY liked_at DESC""",
     )).fetchall()
     return await _with_listings(conn, rows)
 

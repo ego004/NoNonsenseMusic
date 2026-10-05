@@ -22,7 +22,7 @@ async def pool():
     pool = db.make_pool(TEST_URL)
     await pool.open()
     async with pool.connection() as conn:
-        await conn.execute("DROP TABLE IF EXISTS events, likes, listings, songs CASCADE")
+        await conn.execute("DROP TABLE IF EXISTS playlist_items, playlists, events, likes, listings, songs CASCADE")
     await db.apply_schema(pool)
     yield pool
     await pool.close()
@@ -124,10 +124,10 @@ def test_endpoints_end_to_end(monkeypatch):
     from music_backend.main import app
     body = {"listings": [listing("jiosaavn", "E2E").model_dump()]}
     with TestClient(app) as client:                     # "with" runs startup and shutdown (the lifespan)
-        song_id = client.post("/library", json=body).json()["song_id"]
+        song_id = client.post("/liked", json=body).json()["song_id"]
         assert client.post("/events", json=body | {"type": "play", "position": 0}).json()["song_id"] == song_id
-        assert song_id in [s["id"] for s in client.get("/library").json()]
+        assert song_id in [s["id"] for s in client.get("/liked").json()]
         assert song_id in [s["id"] for s in client.get("/recent").json()]
-        assert client.delete(f"/library/{song_id}").status_code == 204
-        assert client.delete(f"/library/{song_id}").status_code == 404
+        assert client.delete(f"/liked/{song_id}").status_code == 204
+        assert client.delete(f"/liked/{song_id}").status_code == 404
         assert client.post("/events", json=body | {"type": "jump", "position": 0}).status_code == 422

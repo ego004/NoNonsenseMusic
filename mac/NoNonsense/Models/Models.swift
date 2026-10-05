@@ -69,7 +69,7 @@ struct Track: Identifiable, Hashable {
     let artists: [String]
     let duration: Int
     let image: URL?
-    let best: Listing            // the copy to play (MUS-3's pick_best)
+    let best: Listing            // the copy to play (the server's pick_best)
     let listings: [Listing]      // every copy: fallbacks, "N versions"
 
     var artistLine: String { artists.joined(separator: ", ") }

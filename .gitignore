@@ -5,3 +5,6 @@ __pycache__/
 mac/build/
 xcuserdata/
 *.xcuserstate
+
+# secrets and local settings: never commit (the repo is public)
+.env

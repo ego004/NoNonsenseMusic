@@ -14,6 +14,8 @@ struct SettingsView: View {
     @AppStorage("serverURL") private var serverURL = API.defaultServer
     @AppStorage("appearance") private var appearance = Appearance.system
     @Environment(Presence.self) private var presence
+    @Environment(ServerLauncher.self) private var server
+    @AppStorage("backendFolder") private var backendFolder = ServerLauncher.defaultBackendFolder
     @State private var serverOK: Bool?
 
     var body: some View {
@@ -38,7 +40,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Server") {
+            Section {
                 TextField("Address", text: $serverURL)
                 LabeledContent("Status") {
                     switch serverOK {
@@ -47,6 +49,18 @@ struct SettingsView: View {
                     case .some(false): Label("Not reachable", systemImage: "xmark.circle.fill").foregroundStyle(.red)
                     }
                 }
+                TextField("Backend folder", text: $backendFolder)
+                LabeledContent("Auto-start") { Text(server.summary).foregroundStyle(.secondary) }
+                HStack {
+                    Button("Start now") { Task { await server.ensureRunning(); serverOK = await API.health() } }
+                        .disabled(serverOK == true)
+                    Button("Open server log") { NSWorkspace.shared.open(ServerLauncher.logURL) }
+                }
+            } header: {
+                Text("Server")
+            } footer: {
+                Text("When nothing answers at a local address, the app starts the backend in this folder (uv run fastapi dev) and stops it when the app quits. A server you started yourself in a terminal is left alone.")
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

@@ -5,6 +5,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(Player.self) private var player
     @Environment(LibraryStore.self) private var library
+    @Environment(ServerLauncher.self) private var server
     @State private var selection: SidebarItem? = .search
 
     var body: some View {
@@ -13,8 +14,6 @@ struct RootView: View {
                 .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 280)
         } detail: {
             ZStack(alignment: .bottom) {
-                Backdrop(track: player.current)
-
                 Group {
                     switch selection ?? .search {
                     case .search: SearchView()
@@ -29,6 +28,11 @@ struct RootView: View {
                     .padding(.bottom, 18)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            // a background takes the size of what it is behind and can never enlarge it
+            .background { Backdrop(track: player.current) }
+            // see-through title bar: the backdrop shows under it, and lists fade softly as they scroll beneath it
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .animation(.spring(response: 0.45, dampingFraction: 0.86), value: player.current == nil)
         }
         .overlay {
@@ -38,6 +42,9 @@ struct RootView: View {
             }
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.9), value: player.showNowPlaying)
-        .task { await library.refresh() }
+        .task {
+            await server.ensureRunning()     // starts the backend if nothing answers (Services/ServerLauncher.swift)
+            await library.refresh()
+        }
     }
 }

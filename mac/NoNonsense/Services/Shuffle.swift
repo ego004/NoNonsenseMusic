@@ -1,6 +1,6 @@
 import Foundation
 
-/// MUS-7. Two shuffles: true random, and Spotify's 2014 "spread each artist out" version.
+/// Two shuffles: true random, and Spotify's 2014 "spread each artist out" version.
 nonisolated enum Shuffle {
     /// Fisher–Yates: walk from the last position backwards; swap each item with a random one at or before it.
     /// Every order is equally likely. Returns a new array (the caller's array is not changed).

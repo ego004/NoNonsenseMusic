@@ -62,3 +62,36 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS events_song_id_at_idx ON events (song_id, at);
+
+
+CREATE TABLE IF NOT EXISTS playlists (
+    id         uuid        PRIMARY KEY DEFAULT uuidv7(),
+    name       text        NOT NULL CHECK (name <> ''),
+    -- path of an uploaded cover (MUS-2, cover image part 2); empty means "build a 2x2 grid from the first songs"
+    image      text,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS playlist_items (
+    -- its own id: the same song may appear twice in one playlist
+    id          uuid        PRIMARY KEY DEFAULT uuidv7(),
+    playlist_id uuid        NOT NULL REFERENCES playlists (id) ON DELETE CASCADE,
+    song_id     uuid        NOT NULL REFERENCES songs (id) ON DELETE CASCADE,
+    -- fractional index (fractional-indexing library); "C" sorts by plain byte value, which the keys need
+    position    text        COLLATE "C" NOT NULL,
+    added_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- "one playlist's items, in order"
+CREATE INDEX IF NOT EXISTS playlist_items_order_idx ON playlist_items (playlist_id, position);
+
+CREATE TABLE IF NOT EXISTS listing_urls (
+    source     text        NOT NULL,
+    source_id  text        NOT NULL,
+    url        text        NOT NULL,
+    fetched_at timestamptz NOT NULL DEFAULT now(),   -- when this URL came from the source
+    hit_at     timestamptz NOT NULL DEFAULT now(),   -- when it was last used: the trim drops the oldest first
+    PRIMARY KEY (source, source_id)
+);
+-- CREATE TABLE IF NOT EXISTS skips an existing table entirely, so a column added later needs its own line
+ALTER TABLE listing_urls ADD COLUMN IF NOT EXISTS hit_at timestamptz NOT NULL DEFAULT now();

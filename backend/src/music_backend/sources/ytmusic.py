@@ -3,9 +3,10 @@ import logging
 import re
 
 import httpx
+import time
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
-
+from music_backend.settings import settings
 from music_backend.models import Listing
 from music_backend.sources import SongNotFound, SourceUnavailable
 
@@ -165,3 +166,6 @@ def extract_audio_url(song_id: str) -> str:
             raise SongNotFound(song_id) from e
         raise SourceUnavailable(f"YouTube Music: {e}") from e
     return info["url"]
+
+def is_expired(song_url: str) -> bool:
+    return int(re.search(r'[?&]expire=(\d+)', song_url).group(1)) - int(time.time()) <= settings.youtube_cache_expiry_threshold * 60
