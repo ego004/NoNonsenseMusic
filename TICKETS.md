@@ -56,7 +56,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 | Step | Build | Done when |
 |---|---|---|
-| 1 ✅ | The cache in memory: the rule, the margin, `serve_fresh` | Done 5 Oct: JioSaavn 497.6 ms → **0.9 ms** on the second play; expired URLs refetched (tests). YouTube number waits for the bot check |
+| 1 ✅ | The cache in memory: the rule, the margin, `serve_fresh` | Done 5 Oct: YouTube 1,786 ms → **3.7 ms**, JioSaavn 497.6 ms → **0.9 ms** on the second play; expired URLs refetched (tests) |
 | 2 | Single-flight | Two requests at once for one listing make one source call |
 | 3 | The prefetch endpoint: take the window, answer at once, fetch in the background with the rules above | Search, wait 10 s, click the top result: a cache hit |
 | 4 ✅ | The cache survives a restart (a table) | Done 5 Oct: after a restart, 5 songs from the table, 0 source calls, 0.37 ms per table hit; both levels LRU (`hit_at`); a hit costs 0.83 ms with 6,000 rows |
@@ -70,7 +70,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 - What the prefetch worker does when a lookup fails.
 
 **Done when**
-- [ ] Measured and written in the PR: first `/play` of a YouTube song ≈ 2.8 s; second < 50 ms.
+- [x] Measured: first `/play` of a YouTube song 1,786 ms; second 3.7 ms (5 Oct, *Blinding Lights*).
 - [ ] Search, wait 10 s, click the top result: the log shows no yt-dlp call.
 - [x] Every `serve_fresh` is logged: that log is your failure count.
 - [ ] Tests: Claude writes them after you are done (`tests/test_cache.py` already covers step 1).

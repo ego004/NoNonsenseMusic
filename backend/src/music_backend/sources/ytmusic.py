@@ -162,6 +162,11 @@ def extract_audio_url(song_id: str) -> str:
         # "This video is unavailable" (missing, private, blocked) is an ExtractorError marked expected=True;
         # a network failure is a TransportError.
         inner = e.exc_info[1] if e.exc_info else None
+        # YouTube blocking this IP ("Sign in to confirm you're not a bot") is ALSO expected=True, but the song
+        # is fine: the source is what's unavailable. yt-dlp has no separate error type for it, so the message
+        # is the only signal. Checked first, so it never becomes a 404 (seen 5 Oct 2026).
+        if "not a bot" in str(e):
+            raise SourceUnavailable("YouTube Music: bot check on this IP") from e
         if isinstance(inner, ExtractorError) and inner.expected:
             raise SongNotFound(song_id) from e
         raise SourceUnavailable(f"YouTube Music: {e}") from e
