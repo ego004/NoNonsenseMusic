@@ -13,32 +13,43 @@ struct PlayerBar: View {
 
     var body: some View {
         if let track = player.current {
+            // The two sides take equal widths, so ⏮ ▶ ⏭ sit at the bar's exact centre. With a spacer on each side
+            // instead, the wider right side (volume, heart, list) pushed them 56 pt right of centre (5 Oct).
             HStack(spacing: 14) {
-                Button { player.showNowPlaying = true } label: {
-                    ArtworkView(url: track.image, size: 44, radius: 9)
-                }
-                .buttonStyle(.plain)
-                .help("Open Now Playing (⇧⌘F)")
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(track.title).font(.callout.weight(.semibold)).lineLimit(1)
-                    Text(track.artistLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                .frame(minWidth: 120, maxWidth: 240, alignment: .leading)
-
-                Spacer(minLength: 8)
-                TransportControls(size: .title3, playSize: .title)
-                Spacer(minLength: 8)
-
-                VolumeControl()
-                LikeButton(track: track, font: .title3)
-                Button { player.showNowPlaying = true } label: { Image(systemName: "list.bullet").font(.title3) }
+                HStack(spacing: 14) {
+                    Button { player.showNowPlaying = true } label: {
+                        ArtworkView(url: track.image, size: 44, radius: 9)
+                    }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Up Next")
-                    .accessibilityLabel("Up Next")
+                    .help("Open Now Playing (⇧⌘F)")
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.title).font(.callout.weight(.semibold)).lineLimit(1)
+                        Text(track.artistLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    .frame(minWidth: 120, maxWidth: 240, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                TransportControls(size: .title3, playSize: .title)
+                    .fixedSize()
+                    #if DEBUG
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { SelfTest.controlsFrame = $0 }
+                    #endif
+
+                HStack(spacing: 14) {
+                    VolumeControl()
+                    LikeButton(track: track, font: .title3)
+                    Button { player.showNowPlaying = true } label: { Image(systemName: "list.bullet").font(.title3) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Up Next")
+                        .accessibilityLabel("Up Next")
+                }
+                .padding(.trailing, 8)       // inside the side, so both sides stay equal: the list icon keeps its 18 pt from the edge
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .padding(.leading, 10).padding(.trailing, 18).padding(.vertical, 10)
+            .padding(.horizontal, 10).padding(.vertical, 10)   // equal on both sides, or the centre moves
             .overlay(alignment: .bottom) {
                 ProgressBar(position: player.position, duration: player.duration) { player.seek(to: $0) }
                     .padding(.horizontal, 22)

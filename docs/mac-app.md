@@ -207,7 +207,7 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | | `SongListView` | Liked Songs and Recently Played: title, count, Play, Shuffle, the list. |
 | `SongRow.swift` | `SongRow` | One song: artwork (click to play), title, artists, "N listings" (click to open), heart (on hover), duration. Double-click plays. Right-click: Play, Play Next, Like. Playing a chosen listing keeps the rest of the list as the queue. |
 | | `ListingRow` | One copy, inside an opened song: title, artists, "Default" for the copy that plays normally, source, quality, length. Click plays exactly this copy; the playing copy shows an animated speaker. |
-| `PlayerViews.swift` | `PlayerBar` | The floating glass bar, with the volume control. Its glass is *interactive* (reacts to hover and press) and *materializes* in. Hidden until a song plays. |
+| `PlayerViews.swift` | `PlayerBar` | The floating glass bar, with the volume control. Its two sides take equal widths, so ⏮ ▶ ⏭ sit at the exact centre. Its glass is *interactive* (reacts to hover and press) and *materializes* in. Hidden until a song plays. |
 | | `TransportControls` | ⏮ ▶ ⏭, shared by the bar and Now Playing. While a song loads, the play button is a spinner (so is the cover on the row you clicked). |
 | | `NowPlayingView` | Full window, over a thick material: large artwork, progress, controls, a volume slider, Up Next. Esc closes it. |
 | | `UpNextView` | The queue panel. Click a song to jump to it. |
@@ -233,7 +233,7 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 
 ### Playback scenario (`NN_SELFTEST_PLAY=1`)
 - **Run:** `NN_SELFTEST_PLAY=1 DATABASE_URL=postgresql:///music_test mac/build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense -serverURL http://127.0.0.1:8765`. The launch argument overrides the server address for this run only; the app starts a test server there, on `music_test`, so your library stays clean.
-- **Does:** plays a song whose only copy fails, then a song whose best copy fails but whose second works. Prints the player every second for 10 s, then quits.
+- **Does:** plays a song whose only copy fails, then a song whose best copy fails but whose second works. Prints the player every second for 10 s, then quits. At 2 s it also prints `centre: … off by N pt`: how far ⏮ ▶ ⏭ sit from the bar's centre (0 expected).
 - **Check:** `~/Library/Logs/NoNonsense/server.log` shows the `serve_fresh` retry for song 1, the background `serve_fresh` for song 2's bad copy, and a 307 for its good copy.
 
 ---
