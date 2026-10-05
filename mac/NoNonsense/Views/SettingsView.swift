@@ -3,6 +3,9 @@ import SwiftUI
 /// The look's defaults, in one place: the window and Settings must agree on them.
 enum Look {
     static let windowOpacity = 0.5      // half see-through
+    /// The most see-through the window gets. At 0 only the blur was left behind the text, and a video call
+    /// behind the window showed through enough to make the app unreadable (5 Oct).
+    static let minWindowOpacity = 0.3
     static let artStrength = 0.7        // how strongly the cover colours the window
     static let windowBlur = 0.85        // 0 = clear (the desktop sharp), 1 = frosted
 }
@@ -44,7 +47,7 @@ private struct AppearanceSettings: View {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                LabeledContent("Transparency") { RangeSlider(value: $windowOpacity, low: "See-through", high: "Solid") }
+                LabeledContent("Transparency") { RangeSlider(value: $windowOpacity, in: Look.minWindowOpacity...1, low: "See-through", high: "Solid") }
                 LabeledContent("Blur") { RangeSlider(value: $windowBlur, low: "Clear", high: "Frosted") }
                 LabeledContent("Colour strength") { RangeSlider(value: $artStrength, low: "Soft", high: "Vivid") }
                 Toggle("Moving background", isOn: $animateBackdrop)
@@ -291,13 +294,21 @@ private struct ServerSettings: View {
 /// A slider with its two ends named: "See-through ⟷ Solid".
 private struct RangeSlider: View {
     @Binding var value: Double
+    let range: ClosedRange<Double>
     let low: String
     let high: String
+
+    init(value: Binding<Double>, in range: ClosedRange<Double> = 0...1, low: String, high: String) {
+        _value = value
+        self.range = range
+        self.low = low
+        self.high = high
+    }
 
     var body: some View {
         HStack(spacing: 8) {
             Text(low).font(.caption).foregroundStyle(.secondary)
-            Slider(value: $value, in: 0...1)
+            Slider(value: $value, in: range)
             Text(high).font(.caption).foregroundStyle(.secondary)
         }
     }

@@ -219,7 +219,7 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | | `VolumeControl` | Mute button (the speaker's waves follow the level: an SF Symbols variable value) and a slider. |
 | | `LikeButton` | The heart, with a small bounce. |
 | | `ProgressBar` | The thin bar. Drag to seek. The played part takes the tint (the cover's colour). A haptic tick at each minute while you drag (if Trackpad › Haptic ticks is on). |
-| `SettingsView.swift` | `SettingsView` | Tabs, as in the Mac's own apps: **Appearance** (theme; transparency, blur, colour strength; moving background; **Colours**: seven elements, each System / Song / Custom, Custom with a hex field + swatch; set all; reset all), **Trackpad** (haptic ticks on/off, the gestures), **Discord** (on/off, Application ID, test, what to share, a preview of what friends see), **Server**. Defaults live in `Look`; colours in `ThemeStore`. `HexColorControl` keeps a swatch and its `#RRGGBB` code in step (checked 5 Oct: six colours round-trip exactly, bad codes are rejected). |
+| `SettingsView.swift` | `SettingsView` | Tabs, as in the Mac's own apps: **Appearance** (theme; transparency (never below 30%, `Look.minWindowOpacity`: the window stays readable over a video call), blur, colour strength; moving background; **Colours**: seven elements, each System / Song / Custom, Custom with a hex field + swatch; set all; reset all), **Trackpad** (haptic ticks on/off, the gestures), **Discord** (on/off, Application ID, test, what to share, a preview of what friends see), **Server**. Defaults live in `Look`; colours in `ThemeStore`. `HexColorControl` keeps a swatch and its `#RRGGBB` code in step (checked 5 Oct: six colours round-trip exactly, bad codes are rejected). |
 
 ---
 

@@ -1,7 +1,6 @@
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
-
 from pydantic import BaseModel, Field
 
 # The one list of source IDs, used by every model, SOURCES in main.py, and the /play URL.
@@ -66,3 +65,26 @@ class EventRequest(ListingsRequest):
 class SongRef(BaseModel):
     song_id : UUID
 
+class PlaylistCreationRequest(BaseModel):
+    name : str = Field(min_length=1)
+
+class PlaylistMetadata(BaseModel):
+    id : UUID
+    name : str
+    duration : int #should we compute the duration on server? i say yes;
+    thumbnail : str | None = None
+    num_plays : int = 0 #no of plays?
+
+class PlaylistsResponse(BaseModel):
+    playlists : list[PlaylistMetadata]
+
+class PlaylistSongAdditionRequest(BaseModel):
+    song_id : UUID
+
+class PlaylistSongRemovalRequest(BaseModel):
+    song_id : UUID
+
+class PlaylistSongReorderRequest(BaseModel):
+    song_id : UUID
+    top_neighbour_id : UUID
+    bottom_neighbour_id : UUID
