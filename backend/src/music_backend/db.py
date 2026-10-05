@@ -3,14 +3,14 @@
 A pool keeps a few connections open and lends them out per request, instead of opening a new
 connection (slow: a handshake every time) for every request.
 """
-import os
 from pathlib import Path
 
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-# no host or password: connect over the local socket as the current macOS user
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql:///music")
+from music_backend.settings import settings
+
+DATABASE_URL = settings.database_url        # from .env or the environment; see settings.py
 SCHEMA = Path(__file__).resolve().parents[2] / "schema.sql"   # backend/schema.sql
 
 

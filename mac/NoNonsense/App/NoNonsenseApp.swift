@@ -5,6 +5,7 @@ struct NoNonsenseApp: App {
     @State private var library: LibraryStore
     @State private var presence: Presence
     @State private var player: Player
+    @State private var server = ServerLauncher()
     @AppStorage("appearance") private var appearance = Appearance.system
 
     init() {
@@ -18,19 +19,29 @@ struct NoNonsenseApp: App {
     var body: some Scene {
         WindowGroup("NoNonsense") {
             RootView()
+                .environment(server)
                 .environment(player)
                 .environment(library)
                 .environment(presence)
                 .preferredColorScheme(appearance.colorScheme)
                 .frame(minWidth: 900, minHeight: 580)
-                .onAppear { player.installKeyMonitor() }
+                .onAppear {
+                    player.installKeyMonitor()
+                    #if DEBUG
+                    SelfTest.runIfAsked()
+                    #endif
+                }
         }
         .windowToolbarStyle(.unified)
+        // the window can never be smaller than the content's minimum size (it was, and the player bar got cut off)
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 1180, height: 760)
         .commands { PlaybackCommands(player: player, library: library) }
 
         Settings {
             SettingsView()
                 .environment(presence)
+                .environment(server)
                 .preferredColorScheme(appearance.colorScheme)
         }
     }

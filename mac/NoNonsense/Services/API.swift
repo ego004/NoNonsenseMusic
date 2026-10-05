@@ -24,7 +24,7 @@ enum API {
         return try await get(url)
     }
 
-    static func library() async throws -> [LibrarySong] { try await get(baseURL.appending(path: "library")) }
+    static func liked() async throws -> [LibrarySong] { try await get(baseURL.appending(path: "liked")) }
     static func recent() async throws -> [LibrarySong] { try await get(baseURL.appending(path: "recent")) }
 
     static func health() async -> Bool {
@@ -36,6 +36,14 @@ enum API {
         baseURL.appending(path: "play").appending(path: listing.source).appending(path: listing.id)
     }
 
+    /// Ask the server to resolve a listing's audio URL in advance, without downloading any audio:
+    /// the redirect is not followed. Pays off once the server caches URLs; MUS-1 replaces it with a prefetch request.
+    static func warm(_ listing: Listing) async {
+        _ = try? await noRedirect.data(from: playURL(listing))
+    }
+
+    private static let noRedirect = URLSession(configuration: .default, delegate: StopRedirects(), delegateQueue: nil)
+
     // ---- writes (IDs are lazy: send the listings, the server finds or creates the song) ----
 
     private struct LibraryBody: Encodable { let listings: [Listing] }
@@ -43,12 +51,12 @@ enum API {
 
     @discardableResult
     static func like(_ listings: [Listing]) async throws -> UUID {
-        let ref: SongRef = try await send("POST", path: "library", body: LibraryBody(listings: listings))
+        let ref: SongRef = try await send("POST", path: "liked", body: LibraryBody(listings: listings))
         return ref.songID
     }
 
     static func unlike(_ songID: UUID) async throws {
-        var request = URLRequest(url: baseURL.appending(path: "library").appending(path: songID.uuidString.lowercased()))
+        var request = URLRequest(url: baseURL.appending(path: "liked").appending(path: songID.uuidString.lowercased()))
         request.httpMethod = "DELETE"
         let (_, response) = try await URLSession.shared.data(for: request)
         try check(response, allow: [204, 404])
@@ -81,5 +89,14 @@ enum API {
     private static func check(_ response: URLResponse, allow: Set<Int> = Set(200..<300)) throws {
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard allow.contains(code) else { throw Failure.http(code) }
+    }
+}
+
+/// Makes a URLSession stop at a redirect instead of following it (used by `API.warm`).
+/// Top-level and callback-style: a nested class with an `async` version of this method crashed the Swift 6.4 compiler.
+nonisolated final class StopRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

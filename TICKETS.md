@@ -2,162 +2,175 @@
 
 How this works:
 
-1. Pick the next ticket. Make a branch: `git switch -c mus-1` (one branch per ticket).
-2. Read the docs listed, build it, run the acceptance checks yourself.
-3. Tell Claude "MUS-1 ready". Claude runs every acceptance check and reviews the code: what is wrong + a failing case, never the fix.
+1. Pick the next ticket. Make a branch named number + name: `git switch -c 1-fast-playback`. (Old branches `mus-1` to `mus-4` exist, so the old naming would collide.)
+2. Bring a short **design note** (endpoints, tables, your decisions and why), get it reviewed, then build. Run the done-when checks yourself.
+3. Tell Claude "MUS-1 ready". Claude runs every check, reviews the code (what is wrong + a failing case, never the fix), and **writes the tests after you are done**.
 4. When everything passes: commit, merge into `main`, demo it to yourself, move on.
+
+> **How these tickets are written:** each one gives the problem, the facts already checked, the deliverables, and the **decisions that are yours**. It does not say which tables, files or functions to use.
 
 Stuck for more than 30 minutes? Bring: what you tried, what you expected, what happened.
 
+> **Renumbered 5 Oct 2026.** Done and removed: resilient search, play, merge + rank, library, shuffle, and the Mac app v1. Git history and old commit messages use the old numbers. Old → new: 16 → 1 (and 4), 15 → 2, 8 → 3, 5 → 5, 9 → 6, 10 → 7, 6 + 11 → 8, 12 → 9, 13 → 10, 14 → 11.
+
 | Ticket | What you can show at the end | Who | Size |
 |---|---|---|---|
-| MUS-1 ✅ | Break a source on purpose, search still works and says which source failed | You | S |
-| MUS-2 ✅ | Open a link in Chrome and a song plays from **your** API | You + Claude | L |
-| MUS-3 ✅ | Search shows each song once, best version picked, ranked with RRF | You + Claude | L |
-| MUS-4 ✅ | Like a song, restart the server, it is still liked; plays and skips are recorded | **You** | L |
+| MUS-1 | A YouTube song starts instantly the second time, and the next song is ready before you get there | **You** (backend) · Claude (app, tests after) | M |
+| MUS-2 | Playlists: make, fill, reorder, cover image | **You** (backend) · Claude (app) | L |
+| MUS-3 | When the queue ends, music keeps going, shaped by your skips | **You** (ranking, endpoint) · Claude (radio parser, app) | M |
+| MUS-4 | Choose JioSaavn or YouTube Music as the default copy | **You** | S |
 | MUS-5 | Your Spotify liked songs and playlists appear in your library | **You** (OAuth, API) · Claude (setup) | M |
-| MUS-6 ◐ | An app you can actually use daily: search, tap, play, next (Mac v1 built 2 Oct; phone later) | **Pair** (new language) | L |
-| MUS-7 | Shuffle that never clumps one artist | **You** | S |
-| MUS-8 | When the queue ends, music keeps going, shaped by your skips | **You** (ranking, `/next`) · Claude (radio parser) | M |
-| MUS-9 | Search your library: "weekend" finds The Weeknd, "sad arijit" works | **Pair** | L |
-| MUS-10 | The second identical search is much faster, with numbers | **You** | M |
-| MUS-11 | Your phone on mobile data plays from your Mac | **Pair** | M |
-| MUS-12 | Every played song gets a "sounds like" vector | Claude (model setup) · **You** (background job) | M |
-| MUS-13 | About 1 in 5 autoplay songs is new to you, and it learns which new ones you skip | **You** | M |
-| MUS-14 | Your own "people who played X played Y" model, beating or losing to YouTube radio on your skip rate | **Pair** | L |
+| MUS-6 | Search your library: "weekend" finds The Weeknd, "sad arijit" works | **Pair** | L |
+| MUS-7 | The second identical search is much faster, with numbers | **You** | M |
+| MUS-8 | Your phone: an app, playing from your Mac over mobile data | **Pair** | L |
+| MUS-9 | Every played song gets a "sounds like" vector | Claude (model setup) · **You** (background job) | M |
+| MUS-10 | About 1 in 5 autoplay songs is new to you, and it learns which new ones you skip | **You** | M |
+| MUS-11 | Your own "people who played X played Y" model, beating or losing to YouTube radio on your skip rate | **Pair** | L |
 
 ---
 
-## MUS-1 · Search survives a broken source
+## MUS-1 · Fast playback: cache and prefetch
 
-**Why:** today, if YouTube Music errors out, `asyncio.gather` passes the error up and `/search` returns HTTP 500, even though JioSaavn answered fine.
+**Problem:** a YouTube song takes 2.8 s to start, every time. Most of what you play is YouTube-only (6 of your 9 plays, 5 Oct). Do the 2.8 s **once** per listing (cache), and **before** the click (prefetch).
 
-**Change the response of `GET /search?q=...` to:**
+**Facts already checked (5 Oct 2026)**
+- `/play` takes 0.30 s for JioSaavn and 2.8 s for YouTube (yt-dlp). Every faster yt-dlp setting failed (bot checks, DRM, missing formats). Adding a JavaScript runtime (node) changed nothing: same speed, same formats.
+- A YouTube audio URL carries `expire=` (a Unix time) and lives 6 hours. It works only from the IP address that asked for it.
+- JioSaavn URLs showed no expiry.
+- A search returns 25–38 songs. For 18–19 of them the best listing is YouTube.
+- yt-dlp runs through `asyncio.to_thread`: Python's default thread pool, **14 threads** on your Mac, shared by every `/play` and every prefetch.
+- 5 of your 6 stored songs have exactly one listing.
+- `fastapi dev` restarts the server every time you save a backend file. Anything kept only in memory is lost.
+- `listings` rows exist only for songs you liked or played. Search results have none.
+- The app already tries a song's other listings when one fails (AVPlayer reports the failure), and asks for the next song early with `API.warm` (step 3 replaces it).
 
-```json
-{
-  "query": "blinding lights",
-  "listings": [ ...all listings from the sources that worked... ],
-  "sources": {
-    "jiosaavn": { "ok": true,  "count": 20, "ms": 223 },
-    "ytmusic":  { "ok": false, "count": 0,  "ms": 5003, "error": "ReadTimeout" }
-  }
-}
-```
+**Design (5 Oct 2026)**
+- Cache per listing `(source, id)`.
+- The rule: no cached URL, or `serve_fresh=true`, or the URL expires within the margin → fetch, refresh the cache, send. Otherwise send the cached URL. Failures are never cached. A failed fresh fetch returns the error, never the old URL.
+- YouTube expiry comes from `expire=`. JioSaavn URLs never expire (if one ever dies, the app's `serve_fresh` refreshes it).
+- The app picks listings. 2+ listings: switch to the next at once, and send `serve_fresh` for the failed one in the background. 1 listing: retry it with `serve_fresh` and show the spinner.
+- One prefetch mechanism for everything. The app sends the **window**: the listings coming next, in order (a queue: the next 5; a search: the top 5; both at once: queue first). The newest window replaces queued work. Running lookups finish. Cached and running listings are skipped. At most 4 lookups at once, so a click always finds a free thread.
+- One fetch per listing at a time: a second request for a listing being fetched waits for that fetch (single-flight).
 
-**Acceptance checks**
+**Steps** (each one runs and shows something on its own)
 
-- [ ] Every source request has a timeout (pick a number, be ready to justify it).
-- [ ] Change the YouTube Music URL to something wrong on purpose: `/search` still returns **HTTP 200** with the 20 JioSaavn listings, and `sources.ytmusic.ok` is `false` with the error's name.
-- [ ] The failure shows up in the server log via Python's `logging` module (not `print`).
-- [ ] Put the URL back: both sources `ok: true` again.
-- [ ] `ms` is each source's own time, not the total.
-- [ ] The response shape is a Pydantic model, so Swagger (`/docs`) shows it.
+| Step | Build | Done when |
+|---|---|---|
+| 1 ✅ | The cache in memory: the rule, the margin, `serve_fresh` | Done 5 Oct: JioSaavn 497.6 ms → **0.9 ms** on the second play; expired URLs refetched (tests). YouTube number waits for the bot check |
+| 2 | Single-flight | Two requests at once for one listing make one source call |
+| 3 | The prefetch endpoint: take the window, answer at once, fetch in the background with the rules above | Search, wait 10 s, click the top result: a cache hit |
+| 4 ✅ | The cache survives a restart (a table) | Done 5 Oct: after a restart, 5 songs from the table, 0 source calls, 0.37 ms per table hit; both levels LRU (`hit_at`); a hit costs 0.83 ms with 6,000 rows |
+| App | Claude: send the window; the failure handling above; show "Couldn't play …" (today it is silent); delete `warm` | Claude starts after your step 1 (failures) and step 3 (window) |
 
-**Docs:** httpx [Timeouts](https://www.python-httpx.org/advanced/timeouts/) · [`asyncio.gather`](https://docs.python.org/3/library/asyncio-task.html#asyncio.gather) (read `return_exceptions`) · [Logging HOWTO](https://docs.python.org/3/howto/logging.html) (Basic Logging Tutorial) · FastAPI [Response Model](https://fastapi.tiangolo.com/tutorial/response-model/)
+**Decisions that are yours**
+- The margin: anything from 10 minutes to 5 hours (a long song plus seeks; 30 minutes suggested).
+- Where the cache and the "running" dict live.
+- The prefetch endpoint's path, method and body.
+- The table in step 4: its columns. It must also hold search-result listings, which have no `listings` row.
+- What the prefetch worker does when a lookup fails.
 
----
+**Done when**
+- [ ] Measured and written in the PR: first `/play` of a YouTube song ≈ 2.8 s; second < 50 ms.
+- [ ] Search, wait 10 s, click the top result: the log shows no yt-dlp call.
+- [x] Every `serve_fresh` is logged: that log is your failure count.
+- [ ] Tests: Claude writes them after you are done (`tests/test_cache.py` already covers step 1).
 
-## MUS-2 · Play a song
-
-**Why:** the moment the app becomes real.
-
-**New endpoint:** `GET /play/{source}/{id}`. Opening it in Chrome plays the song.
-
-**Research already done (verified 2 Oct 2026, you don't need to rediscover it):**
-
-- **JioSaavn:** each song has `more_info.encrypted_media_url`. It is base64 text, encrypted with **DES in ECB mode, key `38346591`**. Decrypted, it is a URL ending `_96.mp4` (96 kbps). Swapping that for `_320.mp4` gives 320 kbps. To look a song up by id: `__call=song.getDetails&pids=<id>` on the same `api.php` endpoint. Library for DES: `pydes` (`uv add pydes`).
-- **YouTube Music:** use `yt-dlp` as a library (`uv add yt-dlp`), ask it for the info of `https://music.youtube.com/watch?v=<id>` **without downloading**, and take the best audio-only format (format `251`, Opus, ~133 kbps).
-
-**One design decision is yours. Write your choice and reason in the code as a comment:**
-
-| Option | Consequence |
-|---|---|
-| **Redirect** (send the browser to the audio file's real URL) | Simplest; the audio never passes through your server. YouTube's URLs are tied to the IP address that asked for them, which is fine while server and browser are the same machine |
-| **Proxy** (your server fetches the bytes and passes them on) | Works from any device; you control caching later; costs your bandwidth and needs HTTP Range requests for seeking |
-
-Start with redirect. Proxy is the stretch goal.
-
-**Acceptance checks**
-
-- [ ] `/play/jiosaavn/fW-Mxsnu` plays *Blinding Lights* in Chrome, and DevTools → Network shows a file of about **8 MB** (proves it is the 320 kbps one).
-- [ ] `/play/ytmusic/J7p4bzqLvCw` plays.
-- [ ] An id that does not exist returns **404 with a message**, not 500.
-- [ ] `yt-dlp` is slow (1–3 s) and *blocking*. While a YouTube `/play` is resolving, `/health` must still answer instantly. Test it with two terminal tabs. This proves you did not freeze the whole server.
-- [ ] Dragging the progress bar (seeking) works.
-- [ ] Stretch: proxy mode, with seeking still working.
-
-**Docs:** FastAPI [Path Parameters](https://fastapi.tiangolo.com/tutorial/path-params/) · FastAPI [Custom Response — RedirectResponse](https://fastapi.tiangolo.com/advanced/custom-response/#redirectresponse) · FastAPI [Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) · [`asyncio.to_thread`](https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread) · yt-dlp [embedding it in Python](https://github.com/yt-dlp/yt-dlp#embedding-yt-dlp) · Python [`base64`](https://docs.python.org/3/library/base64.html)
+**Docs**
+- Step 1: [`urllib.parse.urlparse`](https://docs.python.org/3/library/urllib.parse.html#urllib.parse.urlparse) and [`parse_qs`](https://docs.python.org/3/library/urllib.parse.html#urllib.parse.parse_qs) (read `expire=`) · [`time.time`](https://docs.python.org/3/library/time.html#time.time) · FastAPI [Query Parameters](https://fastapi.tiangolo.com/tutorial/query-params/) (see "Query parameter type conversion" for a `bool`)
+- Step 2: asyncio [Creating Tasks](https://docs.python.org/3/library/asyncio-task.html#creating-tasks) (read the "Important" note about keeping a reference) · [Shielding From Cancellation](https://docs.python.org/3/library/asyncio-task.html#shielding-from-cancellation) · the idea, named: Go's [`singleflight`](https://pkg.go.dev/golang.org/x/sync/singleflight) (one paragraph; the problem it prevents is a "cache stampede")
+- Step 3: FastAPI [Request Body](https://fastapi.tiangolo.com/tutorial/body/) · [`asyncio.Semaphore`](https://docs.python.org/3/library/asyncio-sync.html#asyncio.Semaphore) · [`asyncio.Queue`](https://docs.python.org/3/library/asyncio-queue.html) · [`Task.cancel`](https://docs.python.org/3/library/asyncio-task.html#asyncio.Task.cancel) · HTTP [202 Accepted](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/202) ("I took it, the work happens later")
+- Step 4: PostgreSQL [`INSERT … ON CONFLICT DO UPDATE`](https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT) ("upsert")
 
 ---
 
-## MUS-3 · Merge and dedupe listings into songs
+## MUS-2 · Playlists (one big task)
 
-**Why:** the same recording comes back several times (both sources, and several releases inside JioSaavn). The app should show each song once and play its best version.
+**Problem:** you can like songs, but you cannot group them. You want playlists you can create, fill, reorder, rename, delete and give a cover image.
 
-**`/search` returns songs instead of a flat list:**
+**Already in place:** the `playlists` and `playlist_items` tables in `schema.sql` (UUIDv7 ids, `ON DELETE CASCADE`, `position text COLLATE "C"`, the `(playlist_id, position)` index). The `fractional-indexing` library generates position keys.
 
-```json
-{
-  "query": "blinding lights",
-  "songs": [
-    {
-      "title": "Blinding Lights",
-      "artists": ["The Weeknd"],
-      "duration": 200,
-      "best": {"source": "jiosaavn", "id": "fW-Mxsnu", "...": "..."},
-      "listings": [ {"source": "jiosaavn", "id": "fW-Mxsnu", "...": "..."}, {"source": "ytmusic", "id": "J7p4bzqLvCw", "...": "..."} ]
-    }
-  ],
-  "sources": [ "...same as MUS-1..." ]
-}
-```
+**Deliverables**
+1. Create a playlist; list all playlists with their song counts.
+2. Open one playlist: its songs in order, each shown through its best listing (like Liked Songs).
+3. Add a song (from search results, so: listings in, a stored song out) at the end.
+4. Move a song to any position by updating **one row**.
+5. Remove one song; rename a playlist; delete a playlist (its items go, the songs stay).
+6. Cover image, part 1: none stored, the app shows a 2×2 grid of the first four songs' artwork.
+7. Cover image, part 2: upload an image; it is checked, cleaned and stored safely, and served to the app.
+8. The app: a Playlists section in the sidebar, a playlist screen, "Add to playlist" in a song's right-click menu, drag to reorder. (Claude builds the Swift with you; the backend is yours.)
 
-**The logic (agreed 2 Oct 2026):**
+**Facts already decided (5 Oct 2026)**
+- Image safety rules: open with Pillow and re-save as JPEG (rejects non-images, strips EXIF/GPS); reject over 5 MB; never use the uploaded filename; only your devices can reach the server.
+- Likes stay in their own table.
+- Playing a playlist is a queue: MUS-1's prefetch window covers it, no extra prefetch work.
 
-1. **`normalise(text)`**: lowercase, remove accents (`ROSALÍA` → `rosalia`), punctuation → space, collapse spaces. Keep the words inside brackets.
-2. **`same_recording(a, b)`** is true when all three hold:
-   - **Titles equal after normalising**, brackets included. Not fuzzy: `token_set_ratio("blinding lights", "blinding lights (major lazer remix)")` is **100**, which would merge a remix into the original (they are 198 s vs 200 s with the same artist, so duration and artist cannot catch it). A missed merge shows a duplicate row; a wrong merge plays the wrong song. Version 1 accepts duplicates.
-   - **At least one artist matches**, each pair compared fuzzily after normalising (`Mithoon, Arijit Singh` vs `Arijit Singh`; `Pritam` vs `Pritam Chakraborty`). You pick the score and justify it.
-   - **Durations within 5 s** (changed from 3 s on 2 Oct after a live search split Blinding Lights into a 204 s group and a 200 s group). Different edits seen so far are further apart (Rosalía remix 206 vs 217).
-   - (ISRC rule, for when a source provides one: equal ISRC → same, different ISRC → different. Neither current source has ISRC.)
-3. **Grouping:** walk the listings **alternating between sources** (JioSaavn #1, YouTube Music #1, JioSaavn #2, ...). Each listing joins the first group whose **first listing** it matches, otherwise it starts a new group. Comparing only against each group's first listing stops chains (200 ↔ 202 ↔ 204). Groups come out roughly in rank order, because the first listing of each group is its best-ranked one.
-4. **Order the songs by Reciprocal Rank Fusion** (added 2 Oct): each listing is a vote worth `1 / (60 + its position in its source)`. Interleaving alone let one source's junk take positions 2, 4, 6 while the other source's copies of the top song used up its turns.
-5. **`best` listing in each group**, in this order: source audio quality (jiosaavn 320 kbps before ytmusic ~133 kbps; JioSaavn URLs also do not expire) → higher popularity **within the same source only** (38 million on JioSaavn and 3.6 billion on YouTube Music are not comparable) → duration closest to the group's median. The song's `title`, `artists`, `duration` come from `best`. All listings stay as fallbacks.
+**Decisions that are yours**
+- Every endpoint's path, method, body and reply.
+- Where uploaded images live on disk, and how the app gets them.
+- What "move" receives: a target index, or the ids of the new neighbours? (One of them is much easier to make correct when two devices edit at once.)
+- What happens when the same song is added twice.
 
-**Acceptance checks**
+**Done when**
+- [ ] Add 3 songs, move the third to the top: the order changes, and the database shows exactly one row updated.
+- [ ] Delete a playlist: its items are gone, the songs are still in `songs`.
+- [ ] Uploading a text file renamed `.jpg` is rejected; a phone photo comes back without EXIF data.
+- [ ] pytest against `music_test` for all of the above.
 
-- [ ] `normalise("ROSALÍA")` == `"rosalia"`.
-- [ ] "blinding lights": The Weeknd's JioSaavn 200 s listing and YouTube Music 201–202 s listing are **one** song, and `best` is the JioSaavn one.
-- [ ] *Blinding Lights (Major Lazer Remix)* (198 s, The Weeknd) is **not** merged into the original (200 s, The Weeknd).
-- [ ] Loi's cover is a **separate** song.
-- [ ] "tum hi ho": JioSaavn's *Tum Hi Ho* (Mithoon, Arijit Singh, 262 s) and YouTube Music's *Tum Hi Ho* (Arijit Singh, 262 s) are **one** song (the artist-subset rule).
-- [ ] Known and accepted for now: *Tum Hi Ho (From "Aashiqui 2")* stays a separate song (title differs in brackets).
-- [ ] `/play/{best.source}/{best.id}` plays every song's `best`.
-- [ ] `uv run pytest` passes: tests for each check above using `samples/*.json` and hand-made `Listing` pairs, no network.
-
-**Docs:** Python [`unicodedata.normalize`](https://docs.python.org/3/library/unicodedata.html#unicodedata.normalize) (NFKD splits `í` into `i` + accent mark; [`unicodedata.combining`](https://docs.python.org/3/library/unicodedata.html#unicodedata.combining) tells you which characters are marks) · [RapidFuzz `fuzz`](https://rapidfuzz.github.io/RapidFuzz/Usage/fuzz.html) (for the artist comparison) · [`statistics.median`](https://docs.python.org/3/library/statistics.html#statistics.median) · [pytest Get Started](https://docs.pytest.org/en/stable/getting-started.html)
+**Docs:** [fractional-indexing for Python](https://github.com/httpie/fractional-indexing-python) · [PostgreSQL transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html) · FastAPI [Request Files](https://fastapi.tiangolo.com/tutorial/request-files/) · FastAPI [Static Files](https://fastapi.tiangolo.com/tutorial/static-files/) · [Pillow](https://pillow.readthedocs.io/en/stable/reference/Image.html)
 
 ---
 
-## MUS-4 · Your library
+## MUS-3 · Autoplay
 
-**Why:** search results vanish when you close the tab. A library is the first thing that is *yours* and persists.
+**Problem:** when the queue ends, the music stops. It should continue with songs you will probably like, and keep going.
 
-**First design question (answer it in the PR description before writing code):** MUS-3 builds songs fresh on every search, so a song has **no ID**. To like a song today and find it tomorrow it needs one that does not change. Candidates: the `best` listing's `source:id`; an ID of your own with all known listings attached; a hash of normalised title + artists + duration. What happens to each when a song is later found on a new source?
+**Facts already checked**
+- YouTube Music radio: `POST youtubei/v1/next` with `videoId` and `playlistId = "RDAMVM" + videoId` returns about 50 related songs (verified 2 Oct 2026).
+- Your `events` table records every play, skip (with the second) and finish.
+- A song only has a YouTube Music listing if one was found; some stored songs are JioSaavn-only.
+- Neither source gives an ISRC (checked 29 Sep 2026). To find a JioSaavn copy of a radio song: search title + artist, then `same_recording`.
+- Autoplay songs are just more queue: MUS-1's prefetch window covers them, no extra prefetch work.
 
-**Build**
-- PostgreSQL on this Mac (Claude sets up the install; you write the tables).
-- Tables for songs, their listings, likes, and play events (play, skip with the second it happened, finish).
-- `POST /library/{song_id}` (like), `DELETE /library/{song_id}` (unlike), `GET /library`, `POST /events`.
+**Deliverables**
+1. An endpoint the app calls to get the next songs after a given song.
+2. Ranking that uses **your** history: songs you skipped in the first 30 seconds are pushed down or removed; artists you finish or like are pushed up.
+3. No repeats: nothing played in the last hour, nothing already in the queue.
+4. Endless: the app asks again before the queue runs out, starting from the last song in the queue.
+5. A number: your skip rate on autoplay songs (skips in the first 30 s ÷ autoplay plays), visible somewhere (an endpoint is enough).
 
-**Acceptance checks**
-- [ ] Like *Blinding Lights*, stop and restart the server, `GET /library` still has it.
-- [ ] Liking the same song from a second search (different listing order) does not create a duplicate.
-- [ ] A skip at 12 s and a finish are both stored and can be counted per song.
-- [ ] pytest against a separate test database.
+**Decisions that are yours**
+- The endpoint's shape: `GET` with a song ID, or `POST` with listings? How many songs per call?
+- What to do when the seed song has no YouTube Music listing.
+- How strong each ranking signal is, and how you will know your ranking is better than the radio's own order.
+- When the app should ask for more (how many songs left?).
 
-**Docs:** [PostgreSQL tutorial](https://www.postgresql.org/docs/current/tutorial.html) (chapters 2–3) · [psycopg 3](https://www.psycopg.org/psycopg3/docs/basic/usage.html) (async: [AsyncConnection](https://www.psycopg.org/psycopg3/docs/advanced/async.html))
+**Done when**
+- [ ] Play one song, let the queue run out: music continues, 3 batches in a row, no repeats.
+- [ ] A song you skipped early yesterday does not come back today.
+- [ ] pytest covers the ranking rules with fake candidates (no network).
+- [ ] The skip-rate number is shown.
+
+**Docs:** [Spotify BaRT (explore/exploit, for later)](https://research.atspotify.com/publications/explore-exploit-explain-personalizing-explainable-recommendations-with-bandits) · your own `samples/` folder for a saved radio reply
+
+---
+
+## MUS-4 · A preferred source
+
+**Problem:** when a song has both copies, JioSaavn always plays. You want to choose the default.
+
+**Facts already checked**
+- `pick_best` decides the copy: JioSaavn first, then popularity, then closest to the median duration. It runs inside `/search`, `/liked` and `/recent`, so `best` arrives in the app already chosen.
+- The app plays `best` and falls back to the other listings in order.
+
+**Deliverable:** a setting (JioSaavn or YouTube Music) that changes which copy plays first, everywhere: search, Liked, Recent, playlists, autoplay.
+
+**Decisions that are yours**
+- Where the preference is stored (the app or the server), and how `pick_best` learns it.
+- What happens to songs already in the queue when the setting changes.
+
+**Done when**
+- [ ] Switching to YouTube Music makes *Blinding Lights* play the YouTube copy.
+- [ ] pytest: `pick_best` with each preference.
 
 ---
 
@@ -183,56 +196,23 @@ Both end in the same place: **for each Spotify track, find the song in your sour
 | A3 | `GET /spotify/callback`: check `state`, exchange the `code` for tokens, store them (a small table) | You | Tokens in the database |
 | A4 | Refresh: access tokens last one hour; use the refresh token when one expires | You | A call after an hour still works |
 | A5 | Page through `GET /me/tracks` (50 per page, follow `next`) | You | Count equals your liked-songs count |
-| A6 | **Match each track** (the real problem): search your sources with "title artist", run MUS-3's grouping, keep the song whose best listing passes `same_recording` against the Spotify track, then `resolve_song` + `like` | **You**, the core | Most of your likes land in the library |
+| A6 | **Match each track** (the real problem): search your sources with "title artist", run `group_listings`, keep the song whose best listing passes `same_recording` against the Spotify track, then `resolve_song` + `like` | **You**, the core | Most of your likes land in the library |
 | A7 | Throttle: at most 4 searches at a time (`asyncio.Semaphore`), so 500 tracks do not get you rate-limited by JioSaavn or YouTube | You | No 429 errors in the log |
 | A8 | `GET /spotify/import/status`: done, matched, unmatched (with the list) | Claude | The app can show progress |
 
 **Acceptance checks**
 - [ ] Login → callback → tokens stored; a wrong `state` is refused.
 - [ ] At least 90% of your liked songs end up in your library; the misses are listed, not silently dropped.
-- [ ] Running the import twice does not duplicate anything (MUS-4's `resolve_song` should make this free).
+- [ ] Running the import twice does not duplicate anything (`resolve_song` should make this free).
 - [ ] `git log -p | grep -i secret` finds nothing: the secret never entered the repo.
 
 **Docs:** [Spotify: Authorization Code flow](https://developer.spotify.com/documentation/web-api/tutorials/code-flow) · [Redirect URIs](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri) · [Get User's Saved Tracks](https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks) · [Get Playlist Items](https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks) · [OAuth 2.0 in plain words (oauth.com)](https://www.oauth.com/oauth2-servers/server-side-apps/authorization-code/) · [`asyncio.Semaphore`](https://docs.python.org/3/library/asyncio-sync.html#asyncio.Semaphore) · [pydantic-settings for `.env`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
 
 **Path B instead:** B1 request the export (you); B2 `POST /spotify/import` that accepts the export's library JSON; then A6–A8 unchanged.
----
-
-## MUS-6 · The app v1
-
-Search, results (MUS-3 songs), tap to play, next/previous, like. Platform decided at the start of the ticket. You have never written Swift, Kotlin or Flutter: Claude sets up the project and explains every piece; you write the screens.
 
 ---
 
-## MUS-7 · Shuffle (you write all of it: a pure algorithm, then your first Swift)
-
-**Why:** true random **clumps** (three songs by one artist in a row feels broken). Spotify moved away from it in 2014.
-
-| # | Piece | Who | Done when |
-|---|---|---|---|
-| 1 | `backend/src/music_backend/shuffle.py`: `fisher_yates(items, rng) -> list`: walk from the end, swap each item with a random one at or before it. Return a **new** list (your bug class #3: do not shuffle the caller's list) | You | Tests below pass |
-| 2 | Test it is **fair**: shuffle `[1, 2, 3]` 60,000 times with a seeded `random.Random`; each of the 6 orders should appear about 10,000 times | You | Every order within 9,500–10,500 |
-| 3 | `artist_spread(tracks, rng)`: group by main artist; an artist with *k* songs gets positions `offset + i/k` (`offset` random in `[0, 1/k)`) plus a little jitter; sort everything by position | You | Tests below pass |
-| 4 | Measure clumping: count adjacent same-artist pairs over 1,000 shuffles of a real library, `fisher_yates` vs `artist_spread` | You | A number you can quote ("x clumps per shuffle → y") |
-| 5 | **Port `artist_spread` to Swift** in `mac/NoNonsense/Services/Shuffle.swift` and use it for the Shuffle button (it calls `tracks.shuffled()` today) | You, with Claude explaining Swift line by line | The app's Shuffle never puts one artist twice in a row when it can be avoided |
-
-**Acceptance checks**
-- [ ] Same elements in, same elements out, every time (no losses, no duplicates).
-- [ ] Fisher–Yates fairness test passes.
-- [ ] 3 artists × 4 songs: `artist_spread` never puts the same artist twice in a row.
-- [ ] One artist only: still works (nothing to spread).
-- [ ] Clumping numbers written in the PR description.
-
-**Docs:** [Fisher–Yates shuffle (Wikipedia: the modern algorithm section)](https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle) · [Python `random.Random`](https://docs.python.org/3/library/random.html#random.Random) · [Why Spotify shuffle is not truly random](https://www.howtogeek.com/847793/why-spotify-shuffle-is-not-truly-random/) · Swift: [A Swift Tour](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/guidedtour/) (read *Simple Values* to *Functions and Closures*) · [`RandomNumberGenerator`](https://developer.apple.com/documentation/swift/randomnumbergenerator)
----
-
-## MUS-8 · Autoplay v1
-
-`GET /next?after=<song_id>`. Candidates: YouTube Music radio (verified 2 Oct: `youtubei/v1/next` with `playlistId=RDAMVM<videoId>` returns 50 songs) plus your library. **Your own re-ranking:** push down songs you skipped in the first 30 s, push up artists you finish or like, no repeats within the last hour, no artist three times in a row. Pre-resolve the next song's audio URL so there is no gap. Metric from now on: **skip rate in the first 30 s**.
-
----
-
-## MUS-9 · Search your library
+## MUS-6 · Search your library
 
 **Why:** in your own library, *your* typos and fuzzy memory are the problem ("weekend", "kesaria", "that sad arijit one"). This is where phonetic and semantic matching earn their place (JioSaavn built Indi-Editex for exactly this).
 
@@ -251,31 +231,31 @@ Search, results (MUS-3 songs), tap to play, next/previous, like. Platform decide
 
 ---
 
-## MUS-10 · Caching
+## MUS-7 · Search caching
 
-Server cache for search results (minutes), resolved `/play` URLs (until their `expire=`), and anything slow to compute. Measure first: time the same search twice before and after. Caching also protects you from being rate-limited by YouTube and JioSaavn.
-
----
-
-## MUS-11 · Reach it from your phone
-
-YouTube audio URLs only work from the IP that requested them, so redirect mode fails once the phone is on mobile data. Build **proxy mode** for `/play` (with HTTP Range requests so seeking still works), and put your Mac and phone on one private network with Tailscale.
+A server cache for search results (minutes, not hours). Measure first: time the same search twice, before and after. Caching also protects you from being rate-limited by YouTube and JioSaavn. (Audio-URL caching is MUS-1.)
 
 ---
 
-## MUS-12 · Audio embeddings
+## MUS-8 · Your phone
+
+Two parts. **The app:** a phone version of the Mac app (new platform: Pair). **The reach:** YouTube audio URLs only work from the IP that requested them, so redirect mode fails once the phone is on mobile data. Build **proxy mode** for `/play` (with HTTP Range requests so seeking still works), put your Mac and phone on one private network with Tailscale, and keep the server running when the Mac app is closed (a launchd service instead of the app starting it).
+
+---
+
+## MUS-9 · Audio embeddings
 
 A background job computes a "sounds like" vector for every song you play (a CLAP-style model, run locally) and stores it in pgvector. Works for any song, no crowd needed.
 
 ---
 
-## MUS-13 · Discovery (explore / exploit)
+## MUS-10 · Discovery (explore / exploit)
 
 A bandit (start with Thompson sampling) decides when to slip in a song that is new to you, chosen from songs that sound like ones you finish, and learns from whether you skip it. Reference: Spotify's BaRT (2018).
 
 ---
 
-## MUS-14 · Your own collaborative filtering
+## MUS-11 · Your own collaborative filtering
 
 Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens, CC0), map its MusicBrainz IDs to your songs, and A/B it against YouTube radio in autoplay using your skip rate. Expect thin coverage of Indian music in ListenBrainz (unverified): measure it first.
 
@@ -287,4 +267,6 @@ Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens
 - Search eval set (30 queries + expected top song) before changing catalog ranking: on 2 Oct, JioSaavn's own #1 was right for 7/7 song queries.
 - Query intent (song / artist / lyrics): artist searches are where both sources are weak. Never score query-vs-title without an `intent = lyrics` exception.
 - Audio fingerprinting (AcoustID) in the background after first play: certain same-recording answers.
-- The app, offline downloads, recommendations (ListenBrainz + history), Spotify import (brings ISRCs), Jam, Blend.
+- Offline downloads, Jam, Blend.
+- Give the app to someone: freeze the server with PyInstaller inside the app; bundle PostgreSQL or move to SQLite (the big decision); Apple signing ($99/year) or "Open Anyway"; a way to update yt-dlp.
+- yt-dlp JavaScript runtime (node + `yt-dlp-ejs`): same speed and formats as without, measured 5 Oct 2026. Turn it on if formats go missing. Stop hiding yt-dlp's warnings (`no_warnings: True`) so you see that day coming.

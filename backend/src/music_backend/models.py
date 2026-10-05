@@ -20,14 +20,21 @@ class Listing(BaseModel):
     # artwork URL, already rewritten to a large size by the source adapter
     image : str | None = None
 
-
-class Song(BaseModel):
+class BaseSong(BaseModel):
     title: str
     artists: list[str] | None
     duration: int
-    score: float
     best: Listing
     listings: list[Listing]
+
+class LibrarySong(BaseSong):
+    """A stored song as the app shows it: identity from the database, display from its best listing."""
+    id : UUID
+    liked : bool
+    at : datetime | None = None   # liked_at for /liked, last played for /recent
+
+class Song(BaseSong):
+    score: float
 
 class SearchSourceInfo(BaseModel):
     source : SourceName
@@ -46,12 +53,12 @@ class SearchResponse(BaseModel):
 EventType = Literal["play", "skip", "finish"]
 
 
-class LibraryRequest(BaseModel):
+class ListingsRequest(BaseModel):
     # IDs are assigned lazily: the app sends the song's listings, the server finds or creates the song
     listings : list[Listing] = Field(min_length = 1)
 
 
-class EventRequest(LibraryRequest):
+class EventRequest(ListingsRequest):
     type : EventType
     position : int = Field(ge = 0)
 
@@ -59,14 +66,3 @@ class EventRequest(LibraryRequest):
 class SongRef(BaseModel):
     song_id : UUID
 
-
-class LibrarySong(BaseModel):
-    """A stored song as the app shows it: identity from the database, display from its best listing."""
-    id : UUID
-    title : str
-    artists : list[str]
-    duration : int
-    best : Listing
-    listings : list[Listing]
-    liked : bool
-    at : datetime | None = None   # liked_at for /library, last played for /recent

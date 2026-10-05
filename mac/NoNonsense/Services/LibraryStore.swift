@@ -16,7 +16,7 @@ final class LibraryStore {
 
     func refresh() async {
         do {
-            async let likedSongs = API.library()
+            async let likedSongs = API.liked()
             async let recentSongs = API.recent()
             let (l, r) = try await (likedSongs, recentSongs)
             liked = l.map(Track.init)

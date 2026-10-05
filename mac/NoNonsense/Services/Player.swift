@@ -32,6 +32,8 @@ final class Player {
     init(library: LibraryStore, presence: Presence) {
         self.library = library
         self.presence = presence
+        // start as soon as audio arrives, instead of first buffering several seconds (the CDN answers in ~0.26 s)
+        player.automaticallyWaitsToMinimizeStalling = false
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
                                                       queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.tick(time.seconds) }
@@ -123,6 +125,8 @@ final class Player {
         fallbacksTried = 0
         load(track.best)
         report("play", track, at: 0)
+        // ask the server for the NEXT song's audio URL now, so it is ready (and cached) when that song starts
+        if let next = upNext.first { Task { await API.warm(next.best) } }
     }
 
     private func load(_ listing: Listing) {
@@ -130,7 +134,8 @@ final class Player {
         isBuffering = true
         errorMessage = nil
         let item = AVPlayerItem(url: API.playURL(listing))      // the server redirects to the audio file
-        statusObservation = item.observe(\.status) { [weak self] item, _ in
+        // @Sendable: KVO calls this on whatever thread changed the status, not necessarily the main one
+        statusObservation = item.observe(\.status) { @Sendable [weak self] item, _ in
             let status = item.status
             Task { @MainActor in self?.statusChanged(status) }
         }
@@ -142,7 +147,7 @@ final class Player {
 
     private func statusChanged(_ status: AVPlayerItem.Status) {
         guard status == .failed, let track = current else { return }
-        // the best copy would not play: try the song's other copies before giving up (MUS-3's fallbacks)
+        // the best copy would not play: try the song's other copies before giving up
         let others = track.listings.filter { $0.key != track.best.key }
         if fallbacksTried < others.count {
             let listing = others[fallbacksTried]
@@ -167,7 +172,7 @@ final class Player {
         advance(by: 1)
     }
 
-    // MARK: - taste data (MUS-4 events)
+    // MARK: - taste data (events)
 
     private func reportSkipIfNeeded() {
         guard let track = current, position > 0 || isPlaying else { return }
@@ -211,29 +216,32 @@ final class Player {
         guard let url = track.image else { return }
         Task {
             guard let (data, _) = try? await URLSession.shared.data(from: url), let image = NSImage(data: data) else { return }
-            artwork[track.id] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            // @Sendable: macOS asks for the image from its own background queue (this crashed on 5 Oct
+            // when the closure was inferred main-thread-only)
+            artwork[track.id] = MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in image }
             if current?.id == track.id { publish() }
         }
     }
 
     private func setUpRemoteCommands() {
         let commands = MPRemoteCommandCenter.shared()
-        commands.togglePlayPauseCommand.addTarget { [weak self] _ in
+        // @Sendable: media-key handlers are not guaranteed to run on the main thread; each hops there with Task
+        commands.togglePlayPauseCommand.addTarget { @Sendable [weak self] _ in
             Task { @MainActor in self?.togglePlayPause() }; return .success
         }
-        commands.playCommand.addTarget { [weak self] _ in
+        commands.playCommand.addTarget { @Sendable [weak self] _ in
             Task { @MainActor in if self?.isPlaying == false { self?.togglePlayPause() } }; return .success
         }
-        commands.pauseCommand.addTarget { [weak self] _ in
+        commands.pauseCommand.addTarget { @Sendable [weak self] _ in
             Task { @MainActor in if self?.isPlaying == true { self?.togglePlayPause() } }; return .success
         }
-        commands.nextTrackCommand.addTarget { [weak self] _ in
+        commands.nextTrackCommand.addTarget { @Sendable [weak self] _ in
             Task { @MainActor in self?.next() }; return .success
         }
-        commands.previousTrackCommand.addTarget { [weak self] _ in
+        commands.previousTrackCommand.addTarget { @Sendable [weak self] _ in
             Task { @MainActor in self?.previous() }; return .success
         }
-        commands.changePlaybackPositionCommand.addTarget { [weak self] event in
+        commands.changePlaybackPositionCommand.addTarget { @Sendable [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             let time = event.positionTime
             Task { @MainActor in self?.seek(to: time) }

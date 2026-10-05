@@ -19,8 +19,9 @@ struct SidebarView: View {
         List(selection: $selection) {
             ForEach(SidebarItem.allCases) { item in
                 Label(item.title, systemImage: item.symbol)
-                    .tag(item)
                     .badge(item == .liked ? library.liked.count : 0)
+                    // .tag must come last: placed before .badge, the list could not see it and no row was selectable (5 Oct)
+                    .tag(item)
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -40,46 +41,60 @@ struct SearchView: View {
     @State private var isLoading = false
     @State private var failed = false
     @State private var task: Task<Void, Never>?
+    @FocusState private var fieldFocused: Bool
 
     private var unhealthy: [SourceInfo] { sources.filter { !$0.healthy } }
+    /// Nothing typed yet: the bar sits lower, as the screen's main element. Typing moves it to the top.
+    private var isIdle: Bool { query.isEmpty }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(Array(results.enumerated()), id: \.element.id) { i, track in
-                    SongRow(track: track, queue: results, index: i)
+        VStack(spacing: 0) {
+            VStack(spacing: 14) {
+                if isIdle {
+                    Text("What do you want to hear?")
+                        .font(.largeTitle.bold())
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                SearchBar(text: $query, isLoading: isLoading, focused: $fieldFocused) { schedule(query, delay: .zero) }
+                if !unhealthy.isEmpty {
+                    Label("\(unhealthy.map { $0.source == "jiosaavn" ? "JioSaavn" : "YouTube Music" }.joined(separator: ", ")) unavailable — showing the rest",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
-        .overlay {
-            if isLoading && results.isEmpty {
-                ProgressView().controlSize(.large)
-            } else if failed {
-                ContentUnavailableView("Can't reach your server", systemImage: "wifi.exclamationmark",
-                                       description: Text("Is the backend running at \(API.baseURL.absoluteString)?"))
-            } else if query.isEmpty {
-                ContentUnavailableView("Find something to play", systemImage: "music.note",
-                                       description: Text("Search JioSaavn and YouTube Music at once."))
-            } else if results.isEmpty && !isLoading {
-                ContentUnavailableView.search(text: query)
+            .padding(.horizontal, 24)
+            .padding(.top, isIdle ? 120 : 18)
+            .padding(.bottom, 10)
+
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(results.enumerated()), id: \.element.id) { i, track in
+                        SongRow(track: track, queue: results, index: i)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
+            .overlay {
+                if failed {
+                    ContentUnavailableView("Can't reach your server", systemImage: "wifi.exclamationmark",
+                                           description: Text("Is the backend running at \(API.baseURL.absoluteString)?"))
+                } else if isIdle {
+                    Text("Search JioSaavn and YouTube Music at once.  ⌘F")
+                        .font(.callout).foregroundStyle(.tertiary)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                } else if results.isEmpty && !isLoading {
+                    ContentUnavailableView.search(text: query)
+                }
             }
         }
-        .safeAreaInset(edge: .top) {
-            if !unhealthy.isEmpty {
-                Label("\(unhealthy.map { $0.source == "jiosaavn" ? "JioSaavn" : "YouTube Music" }.joined(separator: ", ")) unavailable — showing the rest",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .glassEffect(.regular, in: .capsule)
-                    .padding(.top, 8)
-            }
-        }
+        .animation(.spring(response: 0.45, dampingFraction: 0.86), value: isIdle)
         .navigationTitle("Search")
-        .searchable(text: $query, placement: .toolbar, prompt: "Songs, artists, albums")
         .onChange(of: query) { _, new in schedule(new, delay: .milliseconds(350)) }
-        .onSubmit(of: .search) { schedule(query, delay: .zero) }
+        .onAppear { fieldFocused = true }
+        // ⌘F from anywhere in the window focuses the bar (an invisible button that only holds the shortcut)
+        .background { Button("") { fieldFocused = true }.keyboardShortcut("f", modifiers: .command).hidden() }
     }
 
     /// Debounce: wait until typing pauses, and cancel the previous search if a new one starts.
@@ -152,5 +167,38 @@ struct SongListView: View {
         }
         .navigationTitle(item.title)
         .task { await library.refresh() }
+    }
+}
+
+
+/// The big centred search bar: Liquid Glass capsule, icon, field, a spinner while searching, a clear button.
+struct SearchBar: View {
+    @Binding var text: String
+    var isLoading: Bool
+    var focused: FocusState<Bool>.Binding
+    var onSubmit: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            TextField("Songs, artists, albums", text: $text)
+                .textFieldStyle(.plain)
+                .font(.title3)
+                .focused(focused)
+                .onSubmit(onSubmit)
+            if isLoading {
+                ProgressView().controlSize(.small)
+            } else if !text.isEmpty {
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
+                    .buttonStyle(.plain)
+                    .help("Clear")
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 13)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .frame(maxWidth: 580)
     }
 }

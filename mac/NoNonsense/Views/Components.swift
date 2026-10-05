@@ -33,12 +33,19 @@ struct Backdrop: View {
     var body: some View {
         ZStack {
             Color(nsColor: .windowBackgroundColor)
-            if let url = track?.image {
-                AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
-                    .blur(radius: 90)
-                    .opacity((scheme == .dark ? 0.30 : 0.40) * strength)
-                    .transition(.opacity)
-            }
+            // The image fills the area but must never SET its size: a square cover scaled to fill a wide
+            // window is taller than the window, and it pushed the whole screen off-screen (5 Oct).
+            // Color.clear takes the given size; the image is only drawn on top of it, then clipped.
+            Color.clear
+                .overlay {
+                    if let url = track?.image {
+                        AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                            .transition(.opacity)
+                    }
+                }
+                .clipped()
+                .blur(radius: 90)
+                .opacity((scheme == .dark ? 0.30 : 0.40) * strength)
             LinearGradient(colors: [tint.opacity(0.45 * strength), tint.opacity(0.12 * strength)],
                            startPoint: .top, endPoint: .bottom)
         }

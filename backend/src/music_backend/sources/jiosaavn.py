@@ -69,3 +69,7 @@ def decrypt_media_url(encrypted: str) -> str:
     encrypted_bytes = base64.b64decode(encrypted)
     url_bytes = des_cipher.decrypt(encrypted_bytes)
     return url_bytes.decode()
+
+def is_expired(song_url: str) -> bool:
+    #jioSaavn never expires
+    return False
