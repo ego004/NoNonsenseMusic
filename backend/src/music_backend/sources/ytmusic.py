@@ -1,17 +1,20 @@
 import asyncio
 import logging
+import re
 
 import httpx
+import time
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
-
+from music_backend.settings import settings
 from music_backend.models import Listing
 from music_backend.sources import SongNotFound, SourceUnavailable
 
 SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"
 WATCH_URL = "https://music.youtube.com/watch?v="
-# "bestaudio" makes yt-dlp pick one audio-only format and put its direct link in info["url"]
-YTDLP_OPTIONS = {"format" : "bestaudio", "quiet" : True, "no_warnings" : True}
+# yt-dlp picks one audio-only format and puts its direct link in info["url"].
+# m4a (AAC) first: Apple's AVPlayer cannot play YouTube's default WebM/Opus; fall back to anything else
+YTDLP_OPTIONS = {"format" : "bestaudio[ext=m4a]/bestaudio", "quiet" : True, "no_warnings" : True}
 CLIENT = {"clientName" : "WEB_REMIX", "clientVersion" : "1.20250101.01.00", "hl" : "en"}
 SONGS_ONLY = "EgWKAQIIAWoKEAkQBRAKEAMQBA=="
 SEPARATOR = " • "
@@ -69,6 +72,7 @@ def to_listing(item: dict) -> Listing:
         album = album,
         duration = to_seconds(parts[-1][0]["text"]),
         popularity = to_count(plays[0]["text"]) if plays else None,
+        image = artwork(item),
     )
 
 
@@ -81,6 +85,15 @@ VIDEO_ID_PATHS = [
     ("navigationEndpoint", "watchEndpoint", "videoId"),
     ("overlay", "musicItemThumbnailOverlayRenderer", "content", "musicPlayButtonRenderer", "playNavigationEndpoint", "watchEndpoint", "videoId"),
 ]
+
+
+def artwork(item: dict) -> str | None:
+    """The row's cover image, rewritten from the 60/120 px search thumbnail to 544 px."""
+    thumbnails = item.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [])
+    if not thumbnails:
+        return None
+    # the size lives in the URL itself: ...=w120-h120-l90-rj
+    return re.sub(r"=w\d+-h\d+", "=w544-h544", thumbnails[-1]["url"])
 
 
 def video_id(item: dict) -> str:
@@ -149,7 +162,15 @@ def extract_audio_url(song_id: str) -> str:
         # "This video is unavailable" (missing, private, blocked) is an ExtractorError marked expected=True;
         # a network failure is a TransportError.
         inner = e.exc_info[1] if e.exc_info else None
+        # YouTube blocking this IP ("Sign in to confirm you're not a bot") is ALSO expected=True, but the song
+        # is fine: the source is what's unavailable. yt-dlp has no separate error type for it, so the message
+        # is the only signal. Checked first, so it never becomes a 404 (seen 5 Oct 2026).
+        if "not a bot" in str(e):
+            raise SourceUnavailable("YouTube Music: bot check on this IP") from e
         if isinstance(inner, ExtractorError) and inner.expected:
             raise SongNotFound(song_id) from e
         raise SourceUnavailable(f"YouTube Music: {e}") from e
     return info["url"]
+
+def is_expired(song_url: str) -> bool:
+    return int(re.search(r'[?&]expire=(\d+)', song_url).group(1)) - int(time.time()) <= settings.youtube_cache_expiry_threshold * 60

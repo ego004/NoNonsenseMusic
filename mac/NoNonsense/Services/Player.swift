@@ -1,0 +1,354 @@
+import AppKit
+import AVFoundation
+import MediaPlayer
+import Observation
+
+/// Playback: the queue, AVPlayer, media keys and Control Center (Now Playing), play/skip/finish
+/// events for your taste data, Discord presence, and falling back to another copy when one fails.
+@Observable
+final class Player {
+    private(set) var queue: [Track] = []
+    private(set) var index = 0
+    private(set) var isPlaying = false
+    private(set) var position: Double = 0
+    private(set) var isBuffering = false
+    private(set) var errorMessage: String?
+    var showNowPlaying = false
+    private(set) var nextPresses = 0                     // every skip, by any means: the buttons bounce on these
+    private(set) var previousPresses = 0
+    @ObservationIgnored var barFrame: CGRect = .zero     // the player bar, in window coordinates (top-left origin)
+    @ObservationIgnored private var swipeMonitor: Any?
+    @ObservationIgnored private var swipeTravel: CGFloat = 0
+    @ObservationIgnored private var swipeDone = false
+
+    var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
+    var duration: Double { Double(current?.duration ?? 0) }
+    var upNext: [Track] { queue.indices.contains(index + 1) ? Array(queue[(index + 1)...]) : [] }
+
+    @ObservationIgnored private let player = AVPlayer()
+    @ObservationIgnored private let library: LibraryStore
+    @ObservationIgnored private let presence: Presence
+    @ObservationIgnored private var timeObserver: Any?
+    @ObservationIgnored private var endObserver: NSObjectProtocol?
+    @ObservationIgnored private var statusObservation: NSKeyValueObservation?
+    @ObservationIgnored private var keyMonitor: Any?
+    @ObservationIgnored private var fallbacksTried = 0
+    private(set) var playingListing: Listing?                         // the copy AVPlayer is playing right now
+    private(set) var volume: Float = UserDefaults.standard.object(forKey: "volume") as? Float ?? 1   // 0...1, remembered
+    private(set) var isMuted = false
+    @ObservationIgnored private var freshRetried: Set<String> = []   // listing keys already retried with serve_fresh
+    @ObservationIgnored private var messageTimer: Task<Void, Never>?
+    @ObservationIgnored private var artwork: [String: MPMediaItemArtwork] = [:]
+
+    init(library: LibraryStore, presence: Presence) {
+        self.library = library
+        self.presence = presence
+        // start as soon as audio arrives, instead of first buffering several seconds (the CDN answers in ~0.26 s)
+        player.automaticallyWaitsToMinimizeStalling = false
+        player.volume = volume
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+                                                      queue: .main) { [weak self] time in
+            MainActor.assumeIsolated { self?.tick(time.seconds) }
+        }
+        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
+                                                             object: nil, queue: .main) { [weak self] note in
+            let item = note.object as? AVPlayerItem
+            MainActor.assumeIsolated { self?.itemEnded(item) }
+        }
+        setUpRemoteCommands()
+    }
+
+    // MARK: - controls
+
+    func play(_ tracks: [Track], startAt i: Int = 0) {
+        guard tracks.indices.contains(i) else { return }
+        reportSkipIfNeeded()
+        queue = tracks
+        index = i
+        startCurrent()
+    }
+
+    func playNext(_ track: Track) {
+        guard current != nil else { play([track]); return }
+        queue.insert(track, at: index + 1)
+    }
+
+    func togglePlayPause() {
+        guard current != nil else { return }
+        isPlaying ? player.pause() : player.play()
+        isPlaying.toggle()
+        publish()
+    }
+
+    func next() {
+        guard current != nil else { return }
+        nextPresses += 1
+        reportSkipIfNeeded()
+        advance(by: 1)
+    }
+
+    func previous() {
+        previousPresses += 1
+        if position > 3 { seek(to: 0); return }     // like every player: first press restarts the song
+        reportSkipIfNeeded()
+        advance(by: -1)
+    }
+
+    func jump(to i: Int) {
+        guard queue.indices.contains(i) else { return }
+        reportSkipIfNeeded()
+        index = i
+        startCurrent()
+    }
+
+    /// 0...1. The app's own volume, under the Mac's; remembered between launches.
+    func setVolume(_ level: Float) {
+        volume = min(1, max(0, level))
+        player.volume = volume
+        if isMuted { isMuted = false; player.isMuted = false }
+        UserDefaults.standard.set(volume, forKey: "volume")
+    }
+
+    func toggleMute() {
+        isMuted.toggle()
+        player.isMuted = isMuted
+    }
+
+    func seek(to seconds: Double) {
+        position = seconds
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+        publish()
+    }
+
+    /// Space plays/pauses anywhere in the window, except while typing in a text field.
+    func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let isPlainSpace = event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
+            guard isPlainSpace else { return event }
+            let handled = MainActor.assumeIsolated { () -> Bool in
+                guard let self, self.current != nil, !(NSApp.keyWindow?.firstResponder is NSText) else { return false }
+                self.togglePlayPause()
+                return true
+            }
+            return handled ? nil : event
+        }
+    }
+
+    /// Two-finger swipe across the player bar: left = next song, right = previous. One skip per swipe;
+    /// the coasting after you lift your fingers is ignored. Vertical swipes still scroll whatever is underneath.
+    func installSwipeMonitor() {
+        guard swipeMonitor == nil else { return }
+        swipeMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            // decide on the main actor, return a plain Bool (an NSEvent cannot cross isolation), consume outside
+            let consumed = MainActor.assumeIsolated { () -> Bool in
+                // an event with no window attached carries a screen location: find the window under it
+                guard let self, event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty,
+                      let window = event.window ?? NSApp.windows.first(where: { $0.isVisible && $0.frame.contains(event.locationInWindow) }),
+                      let content = window.contentView else { return false }
+                let inWindow = event.window == nil ? window.convertPoint(fromScreen: event.locationInWindow) : event.locationInWindow
+                let point = CGPoint(x: inWindow.x, y: content.bounds.height - inWindow.y)
+                guard self.barFrame.contains(point) else { return false }
+                if event.phase == .began { self.swipeTravel = 0; self.swipeDone = false }
+                guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return false }
+                // the fingers' direction, whatever the "natural scrolling" setting
+                self.swipeTravel += event.isDirectionInvertedFromDevice ? event.scrollingDeltaX : -event.scrollingDeltaX
+                if !self.swipeDone, abs(self.swipeTravel) > 60 {
+                    self.swipeDone = true
+                    self.swipeTravel < 0 ? self.next() : self.previous()
+                }
+                return true                                  // a sideways swipe over the bar is ours
+            }
+            return consumed ? nil : event
+        }
+    }
+
+    // MARK: - loading
+
+    private func advance(by step: Int) {
+        let target = index + step
+        guard queue.indices.contains(target) else {
+            player.pause(); isPlaying = false; seek(to: 0)   // end of the queue: stop on the last song
+            return
+        }
+        index = target
+        startCurrent()
+    }
+
+    private func startCurrent() {
+        guard let track = current else { return }
+        fallbacksTried = 0
+        freshRetried = []
+        load(track.best)
+        report("play", track, at: 0)
+        // ask the server for the NEXT song's audio URL now, so it is ready (and cached) when that song starts
+        if let next = upNext.first { Task { await API.warm(next.best) } }
+    }
+
+    private func load(_ listing: Listing, fresh: Bool = false) {
+        position = 0
+        isBuffering = true                                        // the spinner, until audio arrives
+        playingListing = listing
+        let item = AVPlayerItem(url: API.playURL(listing, fresh: fresh))   // the server redirects to the audio file
+        // @Sendable: KVO calls this on whatever thread changed the status, not necessarily the main one
+        statusObservation = item.observe(\.status) { @Sendable [weak self] item, _ in
+            let status = item.status
+            Task { @MainActor in self?.statusChanged(status) }
+        }
+        player.replaceCurrentItem(with: item)
+        player.play()
+        isPlaying = true
+        publish()
+    }
+
+    /// A copy would not play (MUS-1, rule 7). The server is asked for a fresh URL of the failed copy: that fixes
+    /// its cache for next time, and its answer says WHY the copy failed, which the message then tells you.
+    private func statusChanged(_ status: AVPlayerItem.Status) {
+        guard status == .failed, let track = current, let failed = playingListing else { return }
+        let others = track.listings.filter { $0.key != track.best.key }
+
+        // another copy exists: switch to it at once, then say why the first one failed
+        if fallbacksTried < others.count {
+            let next = others[fallbacksTried]
+            fallbacksTried += 1
+            load(next)
+            Task {
+                let answer = await API.refresh(failed)
+                guard current?.id == track.id else { return }                 // you have moved on: say nothing
+                show("\(Self.reason(answer, failed)) Playing the \(next.sourceName) copy.", seconds: 6)
+            }
+            return
+        }
+
+        // the only copy: ask for a fresh URL first; play it if one comes back, otherwise say why not
+        if track.listings.count == 1, !freshRetried.contains(failed.key) {
+            freshRetried.insert(failed.key)
+            isBuffering = true
+            Task {
+                let answer = await API.refresh(failed)
+                guard current?.id == track.id, playingListing?.key == failed.key else { return }
+                if answer?.status == 307 { load(failed) } else { giveUp(track, because: Self.reason(answer, failed)) }
+            }
+            return
+        }
+
+        Task { await API.refresh(failed) }                                       // still fix the cache for next time
+        giveUp(track, because: nil)
+    }
+
+    private func giveUp(_ track: Track, because reason: String?) {
+        show("Couldn't play “\(track.title)”." + (reason.map { " " + $0 } ?? ""), seconds: 6)
+        isBuffering = false
+        advance(by: 1)
+    }
+
+    /// Why a copy failed, from the server's answer to the fresh request, as a sentence.
+    private static func reason(_ answer: (status: Int, detail: String?)?, _ listing: Listing) -> String {
+        switch answer?.status {
+        case 502?: "\(listing.sourceName) is unavailable right now."
+        case 404?: "\(listing.sourceName) doesn't have it any more."
+        case 307?: "The \(listing.sourceName) link had expired."
+        case nil: "The server didn't answer."
+        default: "The \(listing.sourceName) copy didn't load."
+        }
+    }
+
+    /// A message above the player bar for a few seconds (a newer one replaces it).
+    private func show(_ message: String, seconds: Double = 4) {
+        errorMessage = message
+        messageTimer?.cancel()
+        messageTimer = Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            if !Task.isCancelled { errorMessage = nil }
+        }
+    }
+
+    private func tick(_ seconds: Double) {
+        guard seconds.isFinite else { return }
+        position = seconds
+        if player.timeControlStatus == .playing { isBuffering = false }
+    }
+
+    private func itemEnded(_ item: AVPlayerItem?) {
+        guard item === player.currentItem, let track = current else { return }
+        report("finish", track, at: track.duration)
+        advance(by: 1)
+    }
+
+    // MARK: - taste data (events)
+
+    private func reportSkipIfNeeded() {
+        guard let track = current, position > 0 || isPlaying else { return }
+        // finishing is reported by itemEnded; leaving any earlier is a skip, and WHEN matters
+        if position < Double(track.duration) - 3 { report("skip", track, at: Int(position)) }
+    }
+
+    private func report(_ type: String, _ track: Track, at second: Int) {
+        let listings = track.listings
+        Task {
+            try? await API.event(listings, type: type, position: second)
+            if type == "play" { await library.refresh() }      // keeps "Recently Played" current
+        }
+    }
+
+    // MARK: - Now Playing (Control Center, media keys) + Discord
+
+    private func publish() {
+        let center = MPNowPlayingInfoCenter.default()
+        guard let track = current else {
+            center.nowPlayingInfo = nil
+            center.playbackState = .stopped
+            presence.update(nil, isPlaying: false, position: 0)
+            return
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: track.title,
+            MPMediaItemPropertyArtist: track.artistLine,
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+        ]
+        if let album = track.best.album { info[MPMediaItemPropertyAlbumTitle] = album }
+        if let art = artwork[track.id] { info[MPMediaItemPropertyArtwork] = art } else { loadArtwork(track) }
+        center.nowPlayingInfo = info
+        center.playbackState = isPlaying ? .playing : .paused
+        presence.update(track, isPlaying: isPlaying, position: position)
+    }
+
+    private func loadArtwork(_ track: Track) {
+        guard let url = track.image else { return }
+        Task {
+            guard let (data, _) = try? await URLSession.shared.data(from: url), let image = NSImage(data: data) else { return }
+            // @Sendable: macOS asks for the image from its own background queue (this crashed on 5 Oct
+            // when the closure was inferred main-thread-only)
+            artwork[track.id] = MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in image }
+            if current?.id == track.id { publish() }
+        }
+    }
+
+    private func setUpRemoteCommands() {
+        let commands = MPRemoteCommandCenter.shared()
+        // @Sendable: media-key handlers are not guaranteed to run on the main thread; each hops there with Task
+        commands.togglePlayPauseCommand.addTarget { @Sendable [weak self] _ in
+            Task { @MainActor in self?.togglePlayPause() }; return .success
+        }
+        commands.playCommand.addTarget { @Sendable [weak self] _ in
+            Task { @MainActor in if self?.isPlaying == false { self?.togglePlayPause() } }; return .success
+        }
+        commands.pauseCommand.addTarget { @Sendable [weak self] _ in
+            Task { @MainActor in if self?.isPlaying == true { self?.togglePlayPause() } }; return .success
+        }
+        commands.nextTrackCommand.addTarget { @Sendable [weak self] _ in
+            Task { @MainActor in self?.next() }; return .success
+        }
+        commands.previousTrackCommand.addTarget { @Sendable [weak self] _ in
+            Task { @MainActor in self?.previous() }; return .success
+        }
+        commands.changePlaybackPositionCommand.addTarget { @Sendable [weak self] event in
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            let time = event.positionTime
+            Task { @MainActor in self?.seek(to: time) }
+            return .success
+        }
+    }
+}

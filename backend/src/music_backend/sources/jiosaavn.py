@@ -43,6 +43,8 @@ def to_listing(result: dict) -> Listing:
         # both arrive as text ("200", "38250621"); Listing's int fields convert them
         duration = info["duration"],
         popularity = result.get("play_count") or None,
+        # the search gives a 150x150 cover; the same URL with 500x500 is the large one
+        image = result["image"].replace("150x150", "500x500") if result.get("image") else None,
     )
 
 async def get_song_url(song_id: str, kbps : str = "320") -> str:
@@ -67,3 +69,7 @@ def decrypt_media_url(encrypted: str) -> str:
     encrypted_bytes = base64.b64decode(encrypted)
     url_bytes = des_cipher.decrypt(encrypted_bytes)
     return url_bytes.decode()
+
+def is_expired(song_url: str) -> bool:
+    #jioSaavn never expires
+    return False
