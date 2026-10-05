@@ -161,10 +161,41 @@ Start with redirect. Proxy is the stretch goal.
 
 ---
 
-## MUS-5 · Spotify import (moved up: solves cold start)
+## MUS-5 · Spotify import (solves cold start)
 
-Log in with Spotify (OAuth, the standard "allow this app to access your account" flow), page through your liked songs and playlists, and add each track to your library: Spotify gives **ISRCs**, so resolve each track to a playable listing by searching your sources and matching with MUS-3's `same_recording`. Your taste exists on day one instead of an empty library.
+**Why:** an empty library teaches autoplay and recommendations nothing. Your Spotify history is years of taste.
 
+**Step 0, a decision (checked 5 Oct 2026, second-hand):** since February 2026, registering a Spotify developer app reportedly **requires Spotify Premium**, and development-mode apps allow at most 5 users. Redirect URIs must use `http://127.0.0.1:<port>`; `localhost` is rejected (enforced since 27 Nov 2025). So pick a path:
+
+| Path | Needs | You learn |
+|---|---|---|
+| **A. Web API** | Premium on the account that creates the app | OAuth 2.0 (Authorization Code flow), tokens and refresh, pagination, rate limits |
+| **B. Data export** | Nothing: Spotify account → Privacy → *Download your data* (arrives in days) | Parsing a large export, the same matching problem without OAuth |
+
+Both end in the same place: **for each Spotify track, find the song in your sources and like it.**
+
+**Build (path A)**
+
+| # | Piece | Who | Done when |
+|---|---|---|---|
+| A1 | Create the app at developer.spotify.com, redirect URI `http://127.0.0.1:8000/spotify/callback`. Client ID and secret go in `backend/.env`, which is **gitignored** (the repo is public) | You (your login) | `.env` exists, `git status` does not show it |
+| A2 | `GET /spotify/login`: redirect to Spotify's authorize page with scopes `user-library-read playlist-read-private` and a random `state` | You | The browser shows Spotify's "Allow access?" page |
+| A3 | `GET /spotify/callback`: check `state`, exchange the `code` for tokens, store them (a small table) | You | Tokens in the database |
+| A4 | Refresh: access tokens last one hour; use the refresh token when one expires | You | A call after an hour still works |
+| A5 | Page through `GET /me/tracks` (50 per page, follow `next`) | You | Count equals your liked-songs count |
+| A6 | **Match each track** (the real problem): search your sources with "title artist", run MUS-3's grouping, keep the song whose best listing passes `same_recording` against the Spotify track, then `resolve_song` + `like` | **You**, the core | Most of your likes land in the library |
+| A7 | Throttle: at most 4 searches at a time (`asyncio.Semaphore`), so 500 tracks do not get you rate-limited by JioSaavn or YouTube | You | No 429 errors in the log |
+| A8 | `GET /spotify/import/status`: done, matched, unmatched (with the list) | Claude | The app can show progress |
+
+**Acceptance checks**
+- [ ] Login → callback → tokens stored; a wrong `state` is refused.
+- [ ] At least 90% of your liked songs end up in your library; the misses are listed, not silently dropped.
+- [ ] Running the import twice does not duplicate anything (MUS-4's `resolve_song` should make this free).
+- [ ] `git log -p | grep -i secret` finds nothing: the secret never entered the repo.
+
+**Docs:** [Spotify: Authorization Code flow](https://developer.spotify.com/documentation/web-api/tutorials/code-flow) · [Redirect URIs](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri) · [Get User's Saved Tracks](https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks) · [Get Playlist Items](https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks) · [OAuth 2.0 in plain words (oauth.com)](https://www.oauth.com/oauth2-servers/server-side-apps/authorization-code/) · [`asyncio.Semaphore`](https://docs.python.org/3/library/asyncio-sync.html#asyncio.Semaphore) · [pydantic-settings for `.env`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+
+**Path B instead:** B1 request the export (you); B2 `POST /spotify/import` that accepts the export's library JSON; then A6–A8 unchanged.
 ---
 
 ## MUS-6 · The app v1
@@ -173,10 +204,26 @@ Search, results (MUS-3 songs), tap to play, next/previous, like. Platform decide
 
 ---
 
-## MUS-7 · Shuffle
+## MUS-7 · Shuffle (you write all of it: a pure algorithm, then your first Swift)
 
-Fisher–Yates first (true random), then Spotify's 2014 approach: spread each artist's songs across the playlist with some jitter, because true random clumps and feels broken.
+**Why:** true random **clumps** (three songs by one artist in a row feels broken). Spotify moved away from it in 2014.
 
+| # | Piece | Who | Done when |
+|---|---|---|---|
+| 1 | `backend/src/music_backend/shuffle.py`: `fisher_yates(items, rng) -> list`: walk from the end, swap each item with a random one at or before it. Return a **new** list (your bug class #3: do not shuffle the caller's list) | You | Tests below pass |
+| 2 | Test it is **fair**: shuffle `[1, 2, 3]` 60,000 times with a seeded `random.Random`; each of the 6 orders should appear about 10,000 times | You | Every order within 9,500–10,500 |
+| 3 | `artist_spread(tracks, rng)`: group by main artist; an artist with *k* songs gets positions `offset + i/k` (`offset` random in `[0, 1/k)`) plus a little jitter; sort everything by position | You | Tests below pass |
+| 4 | Measure clumping: count adjacent same-artist pairs over 1,000 shuffles of a real library, `fisher_yates` vs `artist_spread` | You | A number you can quote ("x clumps per shuffle → y") |
+| 5 | **Port `artist_spread` to Swift** in `mac/NoNonsense/Services/Shuffle.swift` and use it for the Shuffle button (it calls `tracks.shuffled()` today) | You, with Claude explaining Swift line by line | The app's Shuffle never puts one artist twice in a row when it can be avoided |
+
+**Acceptance checks**
+- [ ] Same elements in, same elements out, every time (no losses, no duplicates).
+- [ ] Fisher–Yates fairness test passes.
+- [ ] 3 artists × 4 songs: `artist_spread` never puts the same artist twice in a row.
+- [ ] One artist only: still works (nothing to spread).
+- [ ] Clumping numbers written in the PR description.
+
+**Docs:** [Fisher–Yates shuffle (Wikipedia: the modern algorithm section)](https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle) · [Python `random.Random`](https://docs.python.org/3/library/random.html#random.Random) · [Why Spotify shuffle is not truly random](https://www.howtogeek.com/847793/why-spotify-shuffle-is-not-truly-random/) · Swift: [A Swift Tour](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/guidedtour/) (read *Simple Values* to *Functions and Closures*) · [`RandomNumberGenerator`](https://developer.apple.com/documentation/swift/randomnumbergenerator)
 ---
 
 ## MUS-8 · Autoplay v1

@@ -127,7 +127,7 @@ struct SongListView: View {
                     Button { player.play(tracks) } label: { Label("Play", systemImage: "play.fill") }
                         .buttonStyle(.glassProminent)
                         .disabled(tracks.isEmpty)
-                    Button { player.play(tracks.shuffled()) } label: { Label("Shuffle", systemImage: "shuffle") }
+                    Button { player.play(Shuffle.tracks(tracks)) } label: { Label("Shuffle", systemImage: "shuffle") }
                         .buttonStyle(.glass)
                         .disabled(tracks.isEmpty)
                 }
