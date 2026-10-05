@@ -201,37 +201,64 @@ final class Player {
         publish()
     }
 
-    /// A copy would not play (MUS-1, rule 7).
+    /// A copy would not play (MUS-1, rule 7). The server is asked for a fresh URL of the failed copy: that fixes
+    /// its cache for next time, and its answer says WHY the copy failed, which the message then tells you.
     private func statusChanged(_ status: AVPlayerItem.Status) {
         guard status == .failed, let track = current, let failed = playingListing else { return }
-        if track.listings.count > 1 {
-            // another copy exists: switch to it now, and tell the server this URL is bad so its cache is
-            // fixed for next time (in the background; nobody waits for it)
-            Task { await API.refresh(failed) }
-            let others = track.listings.filter { $0.key != track.best.key }
-            if fallbacksTried < others.count {
-                let listing = others[fallbacksTried]
-                fallbacksTried += 1
-                load(listing)
-                return
+        let others = track.listings.filter { $0.key != track.best.key }
+
+        // another copy exists: switch to it at once, then say why the first one failed
+        if fallbacksTried < others.count {
+            let next = others[fallbacksTried]
+            fallbacksTried += 1
+            load(next)
+            Task {
+                let answer = await API.refresh(failed)
+                guard current?.id == track.id else { return }                 // you have moved on: say nothing
+                show("\(Self.reason(answer, failed)) Playing the \(next.sourceName) copy.", seconds: 6)
             }
-        } else if !freshRetried.contains(failed.key) {
-            // the only copy: its cached URL may be stale, so ask once for a fresh one and play that
-            freshRetried.insert(failed.key)
-            load(failed, fresh: true)
             return
         }
-        show("Couldn't play “\(track.title)”.")
+
+        // the only copy: ask for a fresh URL first; play it if one comes back, otherwise say why not
+        if track.listings.count == 1, !freshRetried.contains(failed.key) {
+            freshRetried.insert(failed.key)
+            isBuffering = true
+            Task {
+                let answer = await API.refresh(failed)
+                guard current?.id == track.id, playingListing?.key == failed.key else { return }
+                if answer?.status == 307 { load(failed) } else { giveUp(track, because: Self.reason(answer, failed)) }
+            }
+            return
+        }
+
+        Task { await API.refresh(failed) }                                       // still fix the cache for next time
+        giveUp(track, because: nil)
+    }
+
+    private func giveUp(_ track: Track, because reason: String?) {
+        show("Couldn't play “\(track.title)”." + (reason.map { " " + $0 } ?? ""), seconds: 6)
         isBuffering = false
         advance(by: 1)
     }
 
-    /// A message under the window's content for 4 seconds (a newer one replaces it).
-    private func show(_ message: String) {
+    /// Why a copy failed, from the server's answer to the fresh request, as a sentence.
+    private static func reason(_ answer: (status: Int, detail: String?)?, _ listing: Listing) -> String {
+        switch answer?.status {
+        case 502?: "\(listing.sourceName) is unavailable right now."
+        case 404?: "\(listing.sourceName) doesn't have it any more."
+        case 307?: "The \(listing.sourceName) link had expired."
+        case nil: "The server didn't answer."
+        default: "The \(listing.sourceName) copy didn't load."
+        }
+    }
+
+    /// A message above the player bar for a few seconds (a newer one replaces it).
+    private func show(_ message: String, seconds: Double = 4) {
         errorMessage = message
         messageTimer?.cancel()
         messageTimer = Task {
-            try? await Task.sleep(for: .seconds(4))
+            try? await Task.sleep(for: .seconds(seconds))
             if !Task.isCancelled { errorMessage = nil }
         }
     }

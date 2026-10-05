@@ -4,6 +4,12 @@ import SwiftUI
 struct PlayerBar: View {
     var glass: Namespace.ID
     @Environment(Player.self) private var player
+    @Environment(ThemeStore.self) private var theme
+
+    /// Settings › Colours › Player bar: the glass itself, tinted; System leaves it clear.
+    private var barGlass: Glass {
+        if let tint = theme.color(.playerBar) { .regular.tint(tint.opacity(0.35)).interactive() } else { .regular.interactive() }
+    }
 
     var body: some View {
         if let track = player.current {
@@ -24,7 +30,6 @@ struct PlayerBar: View {
                 TransportControls(size: .title3, playSize: .title)
                 Spacer(minLength: 8)
 
-                if player.isBuffering { ProgressView().controlSize(.small) }
                 VolumeControl()
                 LikeButton(track: track, font: .title3)
                 Button { player.showNowPlaying = true } label: { Image(systemName: "list.bullet").font(.title3) }
@@ -39,7 +44,7 @@ struct PlayerBar: View {
                     .padding(.horizontal, 22)
                     .offset(y: 4)
             }
-            .glassEffect(.regular.interactive(), in: .capsule)   // interactive: the glass reacts to hover and press
+            .glassEffect(barGlass, in: .capsule)                 // interactive: the glass reacts to hover and press
             .glassEffectID("bar", in: glass)
             .glassEffectTransition(.materialize)
             .frame(maxWidth: 860)
@@ -54,6 +59,7 @@ struct PlayerBar: View {
 struct TransportControls: View {
     var size: Font = .title3
     var playSize: Font = .title
+    var spinnerSize: ControlSize = .small
     @Environment(Player.self) private var player
 
     var body: some View {
@@ -64,10 +70,17 @@ struct TransportControls: View {
                 .help("Previous (⌘←)")
                 .accessibilityLabel("Previous")
             Button { player.togglePlayPause() } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(playSize)
-                    .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 34)
+                // while a song loads (up to ~3 s for YouTube) the button is a spinner, so you know it is coming
+                ZStack {
+                    if player.isBuffering {
+                        ProgressView().controlSize(spinnerSize)
+                    } else {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(playSize)
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                }
+                .frame(width: 34, height: 34)
             }
             .help("Play / Pause (Space)")
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
@@ -86,10 +99,8 @@ struct NowPlayingView: View {
     @Environment(Player.self) private var player
     @Environment(\.colorScheme) private var scheme
     @AppStorage("artStrength") private var artStrength = Look.artStrength
-    @State private var coverGlow: Color?                 // the cover's vivid colour, for the light under the artwork
-    @AppStorage(Theme.modeKey) private var colorMode = "song"
-    @AppStorage(Theme.accentKey) private var customAccent = Theme.defaultAccent
-    private var glow: Color? { colorMode == "custom" ? Color(hex: customAccent) : coverGlow }
+    @Environment(ThemeStore.self) private var theme
+    private var glow: Color? { theme.color(.playing) }    // the light under the artwork: Settings › Colours › Playing song
 
     var body: some View {
         GeometryReader { geo in
@@ -129,12 +140,13 @@ struct NowPlayingView: View {
                                 .animation(.snappy(duration: 0.3), value: Int(player.position))
                             }
                             .frame(width: side)
-                            TransportControls(size: .title, playSize: .system(size: 44))
+                            TransportControls(size: .title, playSize: .system(size: 44), spinnerSize: .regular)
                                 .frame(width: side)
                             HStack(spacing: 10) {                     // like Apple Music: quiet speaker, slider, loud speaker
                                 Image(systemName: "speaker.fill").foregroundStyle(.secondary)
                                 Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }),
                                        in: 0...1)
+                                    .tint(theme.color(.volume))
                                     .accessibilityLabel("Volume")
                                 Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
                             }
@@ -149,10 +161,6 @@ struct NowPlayingView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .animation(.spring(response: 0.5, dampingFraction: 0.85), value: track.id)
-                    .task(id: track.image) {
-                        let next = await ArtworkCache.shared.accent(for: track.image, dark: scheme == .dark)
-                        withAnimation(.easeInOut(duration: 0.8)) { coverGlow = next }
-                    }
                 }
 
                 Button { player.showNowPlaying = false } label: {

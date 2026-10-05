@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import SwiftUI
 
 /// Debug builds only, and only when started with `NN_SELFTEST=<folder>`:
 /// draws the main window into `<folder>/window.png`, reports which view a click on each sidebar row would reach,
@@ -22,7 +23,8 @@ enum SelfTest {
             report("window \(window.frame.size), key: \(window.isKeyWindow)")
             // the see-through background: the window must be non-opaque, with a blur view that samples what is BEHIND it
             let blurs = descendants(of: frame).compactMap { $0 as? NSVisualEffectView }
-            report("window opaque: \(window.isOpaque) | behind-window blur views: \(blurs.filter { $0.blendingMode == .behindWindow }.count) of \(blurs.count) blur views")
+            let behind = blurs.filter { $0.blendingMode == .behindWindow }
+            report("window opaque: \(window.isOpaque), background alpha \(window.backgroundColor.alphaComponent) | behind-window blur views: \(behind.count), blur amount \(behind.first.map { String(format: "%.2f", $0.alphaValue) } ?? "-")")
             let effectish = Set(descendants(of: frame).map { String(describing: type(of: $0)) }
                 .filter { $0.range(of: "effect|glass|backdrop|material|vibran", options: [.regularExpression, .caseInsensitive]) != nil })
             report("effect-type views: \(effectish.sorted().joined(separator: ", "))")
@@ -110,7 +112,17 @@ enum SelfTest {
             let badBest = listing("selftest-missing-2")
             let twoCopies = Track(best: badBest, listings: [badBest, listing("fW-Mxsnu")])   // fW-Mxsnu: Blinding Lights
             if !player.isMuted { player.toggleMute() }               // tests stay silent
-            player.play([onlyCopy, twoCopies])
+            // NN_SELFTEST_LISTINGS="ytmusic:ID,jiosaavn:ID": one song with exactly these copies, the first as default
+            if let spec = ProcessInfo.processInfo.environment["NN_SELFTEST_LISTINGS"] {
+                let copies = spec.split(separator: ",").map { part -> Listing in
+                    let bits = part.split(separator: ":", maxSplits: 1).map(String.init)
+                    return Listing(source: bits[0], id: bits[1], title: "Self-test \(bits[1])", artists: ["Self-test"], album: nil,
+                                   duration: 200, popularity: nil, image: nil)
+                }
+                player.play([Track(best: copies[0], listings: copies)])
+            } else {
+                player.play([onlyCopy, twoCopies])
+            }
             for second in 1...10 {
                 try? await Task.sleep(for: .seconds(1))
                 if second == 4, ProcessInfo.processInfo.environment["NN_SELFTEST_SWIPE"] != nil { swipeTest(player: player) }
@@ -144,6 +156,78 @@ enum SelfTest {
         Task {
             try? await Task.sleep(for: .milliseconds(400))
             report("swipe: next() ran \(player.nextPresses - before) time(s) (expected 1)")
+        }
+    }
+
+    /// With `NN_SELFTEST_PRESENCE=1` (and `-discordEnabled NO`, so nothing is sent): what Discord would get,
+    /// playing and paused in each mode. Your own "when paused" choice is put back afterwards.
+    static func runPresenceCheckIfAsked(presence: Presence) {
+        guard ProcessInfo.processInfo.environment["NN_SELFTEST_PRESENCE"] != nil else { return }
+        let original = presence.whenPaused
+        let track = Track(best: Listing(source: "jiosaavn", id: "t", title: "Blinding Lights", artists: ["The Weeknd"],
+                                        album: "After Hours", duration: 200, popularity: nil, image: "https://example.com/cover.jpg"), listings: [])
+        let coverless = Track(best: Listing(source: "jiosaavn", id: "u", title: "No Cover Song", artists: ["Someone"],
+                                            album: nil, duration: 200, popularity: nil, image: nil), listings: [])
+        func describe(_ a: DiscordIPC.Activity?) -> String {
+            guard let a else { return "nothing (status cleared)" }
+            return "details: \(a.details ?? "-") | state: \(a.state ?? "-") | time bar: \(a.start != nil ? "yes" : "no") | picture: \(a.image.map { $0.hasPrefix("http") ? "cover URL" : $0 } ?? "-") | badge: \(a.smallImage ?? "-")"
+        }
+        report("playing           -> " + describe(presence.activity(for: track, isPlaying: true, position: 30)))
+        report("playing, no cover -> " + describe(presence.activity(for: coverless, isPlaying: true, position: 30)))
+        for mode in ["message", "keep", "clear"] {
+            presence.whenPaused = mode
+            report("paused, \(mode.padding(toLength: 8, withPad: " ", startingAt: 0))  -> " + describe(presence.activity(for: track, isPlaying: false, position: 30)))
+        }
+        presence.whenPaused = original
+        // listing order: the default copy sits in the middle of what the server sent
+        func listing(_ source: String, _ id: String, _ popularity: Int) -> Listing {
+            Listing(source: source, id: id, title: "T", artists: ["A"], album: nil, duration: 200, popularity: popularity, image: nil)
+        }
+        let sent = [listing("ytmusic", "yt-big", 9_000_000), listing("jiosaavn", "js-low", 10), listing("jiosaavn", "js-default", 50),
+                    listing("jiosaavn", "js-high", 99)]
+        let ordered = Track(best: sent[2], listings: sent).listings.map(\.id)
+        report("listings as sent: \(sent.map(\.id)) -> shown: \(ordered)")
+        NSApp.terminate(nil)
+    }
+
+    /// With `NN_SELFTEST_THEME=1`: what each element's colour resolves to in each mode, with a green "song" colour.
+    /// Your own colour settings are put back afterwards.
+    static func runThemeCheckIfAsked(theme: ThemeStore) {
+        guard ProcessInfo.processInfo.environment["NN_SELFTEST_THEME"] != nil else { return }
+        let saved = ThemeStore.Element.allCases.map { ($0, theme.mode($0), theme.hex($0)) }
+        theme.songColor = Color(hex: "#34C759")
+        for mode in ThemeStore.Mode.allCases {
+            theme.setAll(mode)
+            report("\(mode.label.padding(toLength: 6, withPad: " ", startingAt: 0)) -> " + ThemeStore.Element.allCases
+                .map { "\($0.rawValue) \(theme.color($0)?.hexString ?? "system")" }.joined(separator: " | "))
+        }
+        for (element, mode, hex) in saved { theme.setMode(mode, for: element); theme.setHex(hex, for: element) }
+        NSApp.terminate(nil)
+    }
+
+    /// With `NN_SELFTEST_LIKE="<search>"`: search like the app, take the first song, send the like exactly as
+    /// API.like encodes it, and print the JSON sent and the server's whole answer. Point it at the test server.
+    static func runLikeCheckIfAsked() {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_LIKE"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            do {
+                let found = try await API.search(query)
+                guard let song = found.songs.first else { report("like: no results"); NSApp.terminate(nil); return }
+                let track = Track(song)
+                struct Body: Encodable { let listings: [Listing] }
+                let body = try JSONEncoder().encode(Body(listings: track.listings))
+                report("like: sending \(String(decoding: body, as: UTF8.self).replacingOccurrences(of: #"https?:[^"]*"#, with: "<url>", options: .regularExpression))")
+                var request = URLRequest(url: API.baseURL.appending(path: "liked"))
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = body
+                let (data, response) = try await URLSession.shared.data(for: request)
+                report("like: server answered \((response as? HTTPURLResponse)?.statusCode ?? 0): \(String(decoding: data, as: UTF8.self).prefix(400))")
+            } catch {
+                report("like: failed: \(error)")
+            }
+            NSApp.terminate(nil)
         }
     }
 

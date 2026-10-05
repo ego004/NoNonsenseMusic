@@ -8,8 +8,12 @@ struct SongRow: View {
     let index: Int
     @Environment(Player.self) private var player
     @Environment(LibraryStore.self) private var library
+    @Environment(ThemeStore.self) private var theme
     @State private var hovering = false
     @State private var expanded = false
+
+    /// Settings › Colours › Playing song; System is your Mac's accent.
+    private var highlight: AnyShapeStyle { theme.color(.playing).map(AnyShapeStyle.init) ?? AnyShapeStyle(Color.accentColor) }
 
     /// True for any copy of this song: playing a chosen listing changes `best`, not the song.
     private var isCurrent: Bool { player.current.map { $0.isSameSong(as: track) } ?? false }
@@ -41,9 +45,13 @@ struct SongRow: View {
                     .overlay {
                         if hovering || isCurrent {
                             RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.black.opacity(0.35))
-                            Image(systemName: isCurrent && player.isPlaying ? "speaker.wave.2.fill" : "play.fill")
-                                .foregroundStyle(.white)
-                                .symbolEffect(.variableColor.iterative, isActive: isCurrent && player.isPlaying)
+                            if isCurrent && player.isBuffering {
+                                ProgressView().controlSize(.small).tint(.white)          // loading this song
+                            } else {
+                                Image(systemName: isCurrent && player.isPlaying ? "speaker.wave.2.fill" : "play.fill")
+                                    .foregroundStyle(.white)
+                                    .symbolEffect(.variableColor.iterative, isActive: isCurrent && player.isPlaying)
+                            }
                         }
                     }
             }
@@ -53,7 +61,7 @@ struct SongRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title)
                     .font(.body.weight(.medium))
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    .foregroundStyle(isCurrent ? highlight : AnyShapeStyle(.primary))
                     .lineLimit(1)
                 Text(track.artistLine).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -114,6 +122,7 @@ struct ListingRow: View {
     let isDefault: Bool
     let isPlaying: Bool
     let play: () -> Void
+    @Environment(ThemeStore.self) private var theme
     @State private var hovering = false
 
     var body: some View {
@@ -121,7 +130,7 @@ struct ListingRow: View {
             HStack(spacing: 10) {
                 Image(systemName: isPlaying ? "speaker.wave.2.fill" : "play.fill")
                     .font(.caption)
-                    .foregroundStyle(isPlaying ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(isPlaying ? (theme.color(.playing).map(AnyShapeStyle.init) ?? AnyShapeStyle(Color.accentColor)) : AnyShapeStyle(.secondary))
                     .symbolEffect(.variableColor.iterative, isActive: isPlaying)
                     .opacity(isPlaying || hovering ? 1 : 0)
                     .frame(width: 16)

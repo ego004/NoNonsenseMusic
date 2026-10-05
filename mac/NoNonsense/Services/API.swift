@@ -38,10 +38,15 @@ enum API {
         return fresh ? url.appending(queryItems: [URLQueryItem(name: "serve_fresh", value: "true")]) : url
     }
 
-    /// Tell the server a listing's URL failed: it fetches a fresh one into its cache. The reply is ignored
-    /// (the redirect is not followed), so no audio is downloaded.
-    static func refresh(_ listing: Listing) async {
-        _ = try? await noRedirect.data(from: playURL(listing, fresh: true))
+    /// Tell the server a listing's URL failed: it fetches a fresh one into its cache. The redirect is not followed,
+    /// so no audio is downloaded. Returns the server's answer (307 = a fresh URL is ready, 404, 502 + its detail),
+    /// so the player can say why a copy failed; nil when the server did not answer.
+    @discardableResult
+    static func refresh(_ listing: Listing) async -> (status: Int, detail: String?)? {
+        guard let (data, response) = try? await noRedirect.data(from: playURL(listing, fresh: true)),
+              let http = response as? HTTPURLResponse else { return nil }
+        let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
+        return (http.statusCode, detail)
     }
 
     /// Ask the server to resolve a listing's audio URL in advance, without downloading any audio:

@@ -4,17 +4,7 @@ import SwiftUI
 enum Look {
     static let windowOpacity = 0.5      // half see-through
     static let artStrength = 0.7        // how strongly the cover colours the window
-}
-
-/// Colours: taken from the playing song's cover, or the three you choose (Settings › Appearance).
-enum Theme {
-    static let modeKey = "colorMode"                 // "song" or "custom"
-    static let accentKey = "customAccent"            // sliders, the progress line, the playing song, buttons
-    static let heartKey = "customHeart"              // the liked heart
-    static let backgroundKey = "customBackground"    // the window's wash
-    static let defaultAccent = "#0A84FF"             // the system blue
-    static let defaultHeart = "#FF375F"              // the system pink
-    static let defaultBackground = "#5E5CE6"         // the system indigo
+    static let windowBlur = 0.85        // 0 = clear (the desktop sharp), 1 = frosted
 }
 
 enum Appearance: String, CaseIterable, Identifiable {
@@ -35,19 +25,17 @@ struct SettingsView: View {
             DiscordSettings().tabItem { Label("Discord", systemImage: "person.wave.2") }
             ServerSettings().tabItem { Label("Server", systemImage: "server.rack") }
         }
-        .frame(width: 540)
+        .frame(width: 620)
     }
 }
 
 private struct AppearanceSettings: View {
     @AppStorage("appearance") private var appearance = Appearance.system
     @AppStorage("windowOpacity") private var windowOpacity = Look.windowOpacity
+    @AppStorage("windowBlur") private var windowBlur = Look.windowBlur
     @AppStorage("artStrength") private var artStrength = Look.artStrength
     @AppStorage("animateBackdrop") private var animateBackdrop = true
-    @AppStorage(Theme.modeKey) private var colorMode = "song"
-    @AppStorage(Theme.accentKey) private var customAccent = Theme.defaultAccent
-    @AppStorage(Theme.heartKey) private var customHeart = Theme.defaultHeart
-    @AppStorage(Theme.backgroundKey) private var customBackground = Theme.defaultBackground
+    @Environment(ThemeStore.self) private var theme
 
     var body: some View {
         Form {
@@ -57,7 +45,8 @@ private struct AppearanceSettings: View {
                 }
                 .pickerStyle(.segmented)
                 LabeledContent("Transparency") { RangeSlider(value: $windowOpacity, low: "See-through", high: "Solid") }
-                LabeledContent("Colour strength") { RangeSlider(value: $artStrength, low: "None", high: "Vivid") }
+                LabeledContent("Blur") { RangeSlider(value: $windowBlur, low: "Clear", high: "Frosted") }
+                LabeledContent("Colour strength") { RangeSlider(value: $artStrength, low: "Soft", high: "Vivid") }
                 Toggle("Moving background", isOn: $animateBackdrop)
             } footer: {
                 Text("Reduce Motion and Reduce Transparency in System Settings › Accessibility override these.")
@@ -65,30 +54,23 @@ private struct AppearanceSettings: View {
             }
 
             Section {
-                Picker("Colours", selection: $colorMode) {
-                    Text("From the song").tag("song")
-                    Text("Custom").tag("custom")
-                }
-                .pickerStyle(.segmented)
-                if colorMode == "custom" {
-                    HexColorField(title: "Accent", hex: $customAccent)
-                    HexColorField(title: "Heart", hex: $customHeart)
-                    HexColorField(title: "Background", hex: $customBackground)
-                }
+                ForEach(ThemeStore.Element.allCases) { ThemeRow(element: $0) }
+            } header: {
+                Text("Colours")
             } footer: {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(colorMode == "song"
-                         ? "The volume, the progress line, the playing song, the heart and the background take the cover's colours."
-                         : "Type a hex code (#RRGGBB) or click a swatch to pick.")
+                    Text("Song: the playing cover's colour. Custom: type a hex code or click the swatch.")
                     Spacer()
+                    Menu("Set all") {
+                        ForEach(ThemeStore.Mode.allCases) { mode in Button("All \(mode.label)") { theme.setAll(mode) } }
+                    }
+                    .fixedSize()
                     Button("Reset all") {
                         windowOpacity = Look.windowOpacity
+                        windowBlur = Look.windowBlur
                         artStrength = Look.artStrength
                         animateBackdrop = true
-                        colorMode = "song"
-                        customAccent = Theme.defaultAccent
-                        customHeart = Theme.defaultHeart
-                        customBackground = Theme.defaultBackground
+                        theme.reset()
                     }
                 }
                 .foregroundStyle(.secondary)
@@ -96,6 +78,37 @@ private struct AppearanceSettings: View {
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// One coloured element: System, Song or Custom. Song shows the colour it is taking now; Custom adds a hex code and a swatch.
+private struct ThemeRow: View {
+    let element: ThemeStore.Element
+    @Environment(ThemeStore.self) private var theme
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 10) {
+                switch theme.mode(element) {
+                case .custom:
+                    HexColorControl(hex: Binding(get: { theme.hex(element) }, set: { theme.setHex($0, for: element) }))
+                case .song:
+                    Circle().fill(theme.songColor ?? Color.secondary.opacity(0.3)).frame(width: 14, height: 14)
+                        .help(theme.songColor == nil ? "No colourful cover playing: the system's colour is used" : "The playing cover's colour")
+                case .system:
+                    EmptyView()
+                }
+                Picker(element.title, selection: Binding(get: { theme.mode(element) }, set: { theme.setMode($0, for: element) })) {
+                    ForEach(ThemeStore.Mode.allCases) { Text($0.label).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+        } label: {
+            Text(element.title)
+            Text(element.detail)
+        }
     }
 }
 
@@ -123,17 +136,23 @@ private struct TrackpadSettings: View {
 
 private struct DiscordSettings: View {
     @Environment(Presence.self) private var presence
+    @State private var idDraft = ""                      // applied on Return: each change means a new Discord handshake
+    @State private var messageDraft = ""                 // applied on Return: each change is a command to Discord
 
     var body: some View {
         @Bindable var presence = presence
         Form {
             Section {
                 Toggle("Show what I'm listening to", isOn: Binding(get: { presence.enabled }, set: { presence.setEnabled($0) }))
-                TextField("Application ID", text: Binding(get: { presence.clientID }, set: { presence.setClientID($0) }),
-                          prompt: Text("e.g. 1291000000000000000"))
+                TextField("Application ID", text: $idDraft, prompt: Text("e.g. 1291000000000000000"))
+                    .onSubmit { presence.setClientID(idDraft) }
+                    .onAppear { idDraft = presence.clientID }
                 LabeledContent("Status") { Text(presence.status).foregroundStyle(.secondary) }
-                Button("Send a test status") { presence.sendTest() }
-                    .disabled(presence.clientID.isEmpty)
+                Button("Send a test status") {
+                    presence.setClientID(idDraft)            // a pasted ID counts even without Return
+                    presence.sendTest()
+                }
+                .disabled(idDraft.isEmpty)
             } footer: {
                 Text("Needs the Discord app open. Create an application at discord.com/developers → New Application; its name is what people see after “Listening to”. Paste its Application ID here.")
                     .foregroundStyle(.secondary)
@@ -148,8 +167,25 @@ private struct DiscordSettings: View {
                 Toggle("The song", isOn: $presence.shareSong)
                 Toggle("The artist", isOn: $presence.shareArtist)
                 Toggle("The cover", isOn: $presence.shareArt)
+                Toggle("The NoNonsense logo", isOn: $presence.shareLogo)
                 Toggle("The time bar", isOn: $presence.shareTime)
-                Toggle("Keep it while paused", isOn: $presence.showWhenPaused)
+                Picker("When paused", selection: $presence.whenPaused) {
+                    Text("Show a message").tag("message")
+                    Text("Keep the song").tag("keep")
+                    Text("Clear the status").tag("clear")
+                }
+                if presence.whenPaused == "message" {
+                    TextField("Message", text: $messageDraft, prompt: Text("Nothing playing"))
+                        .onSubmit { presence.pausedMessage = messageDraft }
+                        .onAppear { messageDraft = presence.pausedMessage }
+                }
+            }
+
+            Section {
+                EmptyView()
+            } footer: {
+                Text("The logo needs one upload: discord.com/developers › your application › Rich Presence › Art Assets › add the icon named “nononsense”. It shows as the picture while paused, and as a small badge on the cover while playing.")
+                    .foregroundStyle(.secondary)
             }
 
             Section("What friends see") {
@@ -267,28 +303,24 @@ private struct RangeSlider: View {
     }
 }
 
-/// A colour as a swatch (the system colour picker) and as a hex code, kept in step: change either one.
-/// A hex code that does not parse is put back to the current colour when you press Return.
-struct HexColorField: View {
-    let title: String
+/// A colour as a hex code and a swatch (the system colour picker), kept in step: change either one.
+/// A code that does not parse is put back to the current colour when you press Return.
+struct HexColorControl: View {
     @Binding var hex: String
     @State private var draft = ""
 
     var body: some View {
-        LabeledContent(title) {
-            HStack(spacing: 10) {
-                TextField(title, text: $draft, prompt: Text("#RRGGBB"))
-                    .labelsHidden()
-                    .font(.body.monospaced())
-                    .frame(width: 96)
-                    .onSubmit { if let color = Color(hex: draft) { hex = color.hexString } else { draft = hex } }
-                ColorPicker(title, selection: Binding(get: { Color(hex: hex) ?? .accentColor }, set: { hex = $0.hexString }),
-                            supportsOpacity: false)
-                    .labelsHidden()
-            }
+        HStack(spacing: 8) {
+            TextField("Hex", text: $draft, prompt: Text("#RRGGBB"))
+                .labelsHidden()
+                .font(.body.monospaced())
+                .frame(width: 92)
+                .onSubmit { if let color = Color(hex: draft) { hex = color.hexString } else { draft = hex } }
+            ColorPicker("Colour", selection: Binding(get: { Color(hex: hex) ?? .accentColor }, set: { hex = $0.hexString }),
+                        supportsOpacity: false)
+                .labelsHidden()
         }
         .onAppear { draft = hex }
         .onChange(of: hex) { _, new in draft = new }
     }
 }
-

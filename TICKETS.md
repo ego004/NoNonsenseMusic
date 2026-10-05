@@ -13,6 +13,8 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 > **Renumbered 5 Oct 2026.** Done and removed: resilient search, play, merge + rank, library, shuffle, and the Mac app v1. Git history and old commit messages use the old numbers. Old → new: 16 → 1 (and 4), 15 → 2, 8 → 3, 5 → 5, 9 → 6, 10 → 7, 6 + 11 → 8, 12 → 9, 13 → 10, 14 → 11.
 
+> **Order (decided 5 Oct 2026):** MUS-2 playlists → MUS-1 steps 2, 2b, 3 (single-flight, back-off, prefetch) → MUS-3 autoplay → MUS-13 YouTube. Then lyrics and the rest.
+
 | Ticket | What you can show at the end | Who | Size |
 |---|---|---|---|
 | MUS-1 | A YouTube song starts instantly the second time, and the next song is ready before you get there | **You** (backend) · Claude (app, tests after) | M |
@@ -27,6 +29,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 | MUS-10 | About 1 in 5 autoplay songs is new to you, and it learns which new ones you skip | **You** | M |
 | MUS-11 | Your own "people who played X played Y" model, beating or losing to YouTube radio on your skip rate | **Pair** | L |
 | MUS-12 | Lyrics in Now Playing, lit line by line in time with the song | **You** (backend) · Claude (app) | M |
+| MUS-13 | Songs that exist only on plain YouTube, found with a "Search YouTube" switch | **You** (backend) · Claude (app) | M |
 
 ---
 
@@ -59,6 +62,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 |---|---|---|
 | 1 ✅ | The cache in memory: the rule, the margin, `serve_fresh` | Done 5 Oct: YouTube 1,786 ms → **3.7 ms**, JioSaavn 497.6 ms → **0.9 ms** on the second play; expired URLs refetched (tests) |
 | 2 | Single-flight | Two requests at once for one listing make one source call |
+| 2b | **Back off from a blocked source.** After YouTube's bot check (5 Oct: it came back the same evening), stop asking YouTube for a while and answer 502 at once. Today every blocked song costs 2 more YouTube requests (play + `serve_fresh`), which can lengthen the block, and step 3 will add prefetches | During the pause, a YouTube `/play` answers 502 without calling the source (fake source, fake clock); after it, the source is tried again |
 | 3 | The prefetch endpoint: take the window, answer at once, fetch in the background with the rules above | Search, wait 10 s, click the top result: a cache hit |
 | 4 ✅ | The cache survives a restart (a table) | Done 5 Oct: after a restart, 5 songs from the table, 0 source calls, 0.37 ms per table hit; both levels LRU (`hit_at`); a hit costs 0.83 ms with 6,000 rows |
 | App | Claude: send the window; the failure handling above; show "Couldn't play …" (today it is silent); delete `warm` | Claude starts after your step 1 (failures) and step 3 (window) |
@@ -66,6 +70,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 **Decisions that are yours**
 - The margin: anything from 10 minutes to 5 hours (a long song plus seeks; 30 minutes suggested).
 - Where the cache and the "running" dict live.
+- Step 2b: how long to back off, and whether it grows when blocks repeat.
 - The prefetch endpoint's path, method and body.
 - The table in step 4: its columns. It must also hold search-result listings, which have no `listings` row.
 - What the prefetch worker does when a lookup fails.
@@ -295,6 +300,37 @@ Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens
 - [ ] pytest: LRC parsing (times, blank lines, a line with two timestamps), the source order, matching (fake HTTP; no network, no real lyrics).
 
 **Docs:** LRCLIB's API (the two endpoints above, checked live) · [LRC format](https://en.wikipedia.org/wiki/LRC_(file_format)) · your own `jiosaavn.py` for the request pattern · [`re` for the `[mm:ss.xx]` tag](https://docs.python.org/3/library/re.html) (mechanics, not judgement)
+
+---
+
+## MUS-13 · Plain YouTube as a source
+
+**Problem:** some songs are on YouTube but not on YouTube Music: uploads, leaks, edits, underground releases. Search never shows them.
+
+**Facts already checked (5 Oct 2026)**
+- `ytmusic.py` searches with `SONGS_ONLY` (line 19) through the `WEB_REMIX` client: YouTube Music's catalogue of official songs only. That filter is why these songs never appear; it is working as designed.
+- A YouTube video plays through the same yt-dlp path as a YouTube Music song (format 140, AAC 128 kbps): only the watch URL differs (`www.youtube.com/watch?v=` instead of `music.youtube.com`).
+- Plain YouTube titles are noisy ("Artist - Song (Official Video) [HD]", "slowed + reverb"), and video durations differ from the song's (29 Sep: an official video 263 s, the song 200 s). `same_recording` will rarely merge a video with a song, so they show as separate results. For songs that are missing elsewhere, that is what you want.
+- It is the same IP as YouTube Music: every YouTube search adds to the bot-check risk (blocked twice on 5 Oct). **Needs MUS-1 step 2b (back-off) first.**
+- Your rule: no keyword lists for judgement. Cleaning video titles ("(Official Video)") is judgement: show the raw title, or parse it with an LLM later.
+
+**Deliverables**
+1. A third source, `youtube`: search and play, through the same interface as the other two (`search`, `get_song_url`, `is_expired`) and in `SourceName`.
+2. **Off unless asked:** a switch next to the search bar ("Search YouTube"), and its default in Settings (Claude builds both).
+3. With the switch off, no request goes to YouTube's search (the log shows it).
+4. YouTube results rank below the music sources, or by your rule: they are noisier.
+
+**Decisions that are yours**
+- How the app asks for it: `GET /search?q=…&youtube=true`, or a list of sources.
+- Plain YouTube search (the `WEB` client, a different reply shape) or YouTube Music's own *videos* filter (the same reply shape, maybe less coverage): measure which finds your missing songs.
+- How YouTube results rank against the others, and whether a video may ever join a song's listings.
+
+**Done when**
+- [ ] A song that is only on YouTube is found with the switch on, and plays.
+- [ ] Switch off: zero YouTube search requests in the log.
+- [ ] pytest for the reply parser with a saved reply (titles only; no URLs, no IP).
+
+**Docs:** your own `ytmusic.py` (the same InnerTube pattern) · yt-dlp's `ytsearchN:` with `extract_flat`, if you want a slower fallback
 
 ---
 

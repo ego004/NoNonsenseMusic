@@ -32,4 +32,6 @@ targets:
         CODE_SIGN_IDENTITY: "-"   # ad-hoc signature: runs on this Mac, no developer account needed
         CODE_SIGN_STYLE: Manual
         MARKETING_VERSION: "0.1"
+        # the app icon: NoNonsense/Assets.xcassets/AppIcon (drawn by Icon/make_icon.swift)
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CURRENT_PROJECT_VERSION: "1"
