@@ -66,9 +66,10 @@ CREATE INDEX IF NOT EXISTS events_song_id_at_idx ON events (song_id, at);
 
 CREATE TABLE IF NOT EXISTS playlists (
     id         uuid        PRIMARY KEY DEFAULT uuidv7(),
-    name       text        NOT NULL CHECK (name <> ''),
+    name       text        UNIQUE NOT NULL CHECK (name <> ''),
     -- path of an uploaded cover (MUS-2, cover image part 2); empty means "build a 2x2 grid from the first songs"
     image      text,
+    position   text        COLLATE "C" NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 

@@ -89,67 +89,136 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 ---
 
-## MUS-2 · Playlists (one big task)
+## MUS-2 · Playlists
 
-**Problem:** you can like songs, but you cannot group them. You want playlists you can create, fill, reorder, rename, delete and give a cover image.
+**Goal:** playlists you can create, fill, order, rename and delete. A cover image comes last.
 
-**Already in place:** the `playlists` and `playlist_items` tables in `schema.sql` (UUIDv7 ids, `ON DELETE CASCADE`, `position text COLLATE "C"`, the `(playlist_id, position)` index). The `fractional-indexing` library generates position keys.
+**Decided (5 Oct 2026)**
+- A playlist holds **songs**. The app sends a song's listings. The server finds or creates the song with `library.resolve_song`, the same as `/liked`.
+- The same song can be in a playlist twice. Each row in `playlist_items` has its own id: the **item id**.
+- You choose the order of your playlists, and the order of the songs in each one. Both use a `position` key from `fractional-indexing`.
+- A move sends the new neighbours: the item above and the item below. One row changes.
+- The server computes song count and duration.
+- No play counts yet. (Later: `events` gets a `playlist_id`.)
+- New file `playlists.py`, the same pattern as `library.py`: `main.py` opens the connection, `playlists.py` runs the SQL.
 
-**Deliverables**
-1. Create a playlist; list all playlists with their song counts.
-2. Open one playlist: its songs in order, each shown through its best listing (like Liked Songs).
-3. Add a song (from search results, so: listings in, a stored song out) at the end.
-4. Move a song to any position by updating **one row**.
-5. Remove one song; rename a playlist; delete a playlist (its items go, the songs stay).
-6. Cover image, part 1: none stored, the app shows a 2×2 grid of the first four songs' artwork.
-7. Cover image, part 2: upload an image; it is checked, cleaned and stored safely, and served to the app.
-8. The app: a Playlists section in the sidebar, a playlist screen, "Add to playlist" in a song's right-click menu, drag to reorder. (Claude builds the Swift with you; the backend is yours.)
+### Step 0 · Set up
 
-**Facts already decided (5 Oct 2026)**
-- Image safety rules: open with Pillow and re-save as JPEG (rejects non-images, strips EXIF/GPS); reject over 5 MB; never use the uploaded filename; only your devices can reach the server.
-- Likes stay in their own table.
-- Playing a playlist is a queue: MUS-1's prefetch window covers it, no extra prefetch work.
+1. Run `uv add fractional-indexing`. Use: `from fractional_indexing import generate_key_between`.
 
-**Your design note (5 Oct), reviewed** — paths are yours to rename; the methods and the item ids are the review:
+   | Call | Gives |
+   |---|---|
+   | `generate_key_between(None, None)` | `a0` (the first key) |
+   | `generate_key_between("a0", None)` | `a1` (after `a0`) |
+   | `generate_key_between("a0", "a1")` | `a0V` (between them) |
+   | `generate_key_between(None, "a0")` | `Zz` (before `a0`) |
+   | `generate_key_between("a1", "a0")` | raises `FIError` (wrong order) |
 
-| Endpoint | Does | Reply |
-|---|---|---|
-| `POST /playlists` `{name}` | Create (a GET must never change anything: browsers and retries repeat GETs) | The playlist |
-| `GET /playlists` | Every playlist: id, name, song count, **thumbnail URL** (`null` = no cover: the app draws a 2×2 grid) | A list |
-| `GET /playlists/{id}` | One playlist: its items in order, each a song shown through its best listing | The playlist + items |
-| `PATCH /playlists/{id}` `{name}` | Rename | The playlist |
-| `DELETE /playlists/{id}` | Delete it (its items go, the songs stay) | 204 |
-| `POST /playlists/{id}/items` `{listings}` | Add a song at the end (listings in, like `/liked`: search results have no song id) | The item (its own id) |
-| `DELETE /playlists/{id}/items/{item_id}` | Remove one item (by **item** id: the same song may appear twice) | 204 |
-| `PATCH /playlists/{id}/items/{item_id}` | Move one item: **one row** updated | The item |
-| `GET` / `POST` / `DELETE /playlists/{id}/thumbnail` | Serve / replace (after the safety checks) / remove the cover | Image / 204 |
+2. `schema.sql`: playlists get a position. Add the column in **two** places:
+   - Inside `CREATE TABLE playlists`: `position text COLLATE "C" NOT NULL,`
+   - After it: `ALTER TABLE playlists ADD COLUMN IF NOT EXISTS position text COLLATE "C" NOT NULL;`
+   The table already exists, so `CREATE TABLE IF NOT EXISTS` skips it. The `ALTER` line adds the column. `NOT NULL` works because both databases have 0 playlists. The server runs `schema.sql` on every start.
 
-**One catch with thumbnail URLs:** the app caches every image by its URL (the cover cache). If a new cover keeps the old URL, the app keeps showing the old one. Make the URL change when the cover changes (e.g. `…/thumbnail?v=<when it was uploaded>`).
+3. `models.py`: the playlist models must be these.
 
-**Steps** (each one runs and shows something on its own; Claude writes the tests after each)
+   | Model | Fields | Change from now |
+   |---|---|---|
+   | `PlaylistRequest` | `name: str = Field(min_length=1)` | Rename `PlaylistCreationRequest`. Rename uses it too. |
+   | `PlaylistMetadata` | `id: UUID`, `name: str`, `song_count: int`, `duration: int`, `thumbnail: str \| None = None` | Add `song_count`. Delete `num_plays`. |
+   | `PlaylistsResponse` | `playlists: list[PlaylistMetadata]` | No change. |
+   | `PlaylistItem` | `item_id: UUID`, `song: LibrarySong` | New. |
+   | `PlaylistDetail(PlaylistMetadata)` | `items: list[PlaylistItem]` | New. |
+   | `MoveRequest` | `top_neighbour_id: UUID \| None = None`, `bottom_neighbour_id: UUID \| None = None` | Was `PlaylistSongReorderRequest`. Delete `song_id`: it goes in the URL. Both are optional: the top has nothing above it. |
 
-| Step | Build | Done when |
-|---|---|---|
-| 1 | Create and list | A new playlist appears in `GET /playlists` with 0 songs; an empty name answers 422 |
-| 2 | Add and open | Add 3 songs from search results; `GET /playlists/{id}` shows them in order; an unknown playlist answers 404 |
-| 3 | Remove, rename, delete | Deleting a playlist removes its items; the songs are still in `songs` |
-| 4 | Move | Move the 3rd song to the top: the order changes and **exactly one row** was updated |
-| 5 | Cover | A text file renamed `.jpg` is rejected; a phone photo comes back without EXIF; replacing the cover changes its URL |
-| App | Claude: Playlists in the sidebar, the playlist screen, "Add to playlist" (right-click), drag to reorder, the cover or the 2×2 grid. Then: the playlist's name in the Discord status (a setting), and Settings regrouped into collapsible sections | After step 2 (list, open, add) and step 4 (drag) |
+   Delete `PlaylistSongAdditionRequest` (use `ListingsRequest`) and `PlaylistSongRemovalRequest` (the item id goes in the URL).
 
-**Decisions that are yours**
-- Every endpoint's path, method, body and reply.
-- Where uploaded images live on disk, and how the app gets them.
-- What "move" receives: a target index, or the ids of the new neighbours? (One of them is much easier to make correct when two devices edit at once.)
-- What happens when the same song is added twice.
+**Done when:** the server starts.
 
-**Done when**
-- [ ] Add 3 songs, move the third to the top: the order changes, and the database shows exactly one row updated.
-- [ ] Delete a playlist: its items are gone, the songs are still in `songs`.
-- [ ] Uploading a text file renamed `.jpg` is rejected; a phone photo comes back without EXIF data.
-- [ ] pytest against `music_test` for all of the above.
+### The endpoints
 
-**Docs:** [fractional-indexing for Python](https://github.com/httpie/fractional-indexing-python) · [PostgreSQL transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html) · FastAPI [Request Files](https://fastapi.tiangolo.com/tutorial/request-files/) · FastAPI [Static Files](https://fastapi.tiangolo.com/tutorial/static-files/) · [Pillow](https://pillow.readthedocs.io/en/stable/reference/Image.html)
+| Endpoint | Body | Reply | Step |
+|---|---|---|---|
+| `POST /playlists` | `PlaylistRequest` | 201 · `PlaylistMetadata` | 1 |
+| `GET /playlists` | — | `PlaylistsResponse`, in your order | 1 |
+| `POST /playlists/{playlist_id}/items` | `ListingsRequest` | 201 · `PlaylistItem` | 2 |
+| `GET /playlists/{playlist_id}` | — | `PlaylistDetail` | 2 |
+| `PATCH /playlists/{playlist_id}` | `PlaylistRequest` | `PlaylistMetadata` | 3 |
+| `DELETE /playlists/{playlist_id}` | — | 204 | 3 |
+| `DELETE /playlists/{playlist_id}/items/{item_id}` | — | 204 | 3 |
+| `POST /playlists/{playlist_id}/items/{item_id}/move` | `MoveRequest` | 204 | 4 |
+| `POST /playlists/{playlist_id}/move` | `MoveRequest` | 204 | 4 |
+
+- `{playlist_id}` in the path plus `playlist_id: UUID` in the function: FastAPI checks it is a UUID (422 if not).
+- An id that does not exist: `raise HTTPException(status_code=404, detail="Playlist not found")`.
+- 201: `@app.post("/playlists", status_code=201)`.
+
+### Step 1 · Create and list
+
+- A new playlist goes at the bottom: its position comes after the largest one so far. With no playlists yet, "the largest" is `None`.
+- One query for all playlists with their song count and duration. The same query, limited to one id, gives the reply for create, rename and open.
+- Traps (each one has a test):
+  - A playlist with no songs must still be in the list. Some joins drop rows that have no match.
+  - For that empty playlist, `count(*)` gives **1**. Counting a column from the joined table gives 0.
+  - A `sum` over no rows is `NULL`, not 0. The model wants an `int`.
+
+**Done when:**
+```bash
+curl -s -X POST localhost:8000/playlists -H 'content-type: application/json' -d '{"name":"Gym"}'
+curl -s localhost:8000/playlists
+curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8000/playlists -H 'content-type: application/json' -d '{"name":""}'
+```
+Gym appears with `song_count` 0. The empty name gives 422.
+
+### Step 2 · Add a song, open a playlist
+
+- Add: the playlist must exist (404). The listings become a song the same way `/liked` does it. The item goes at the bottom of **this** playlist, not of all items.
+- Open: `library` already has a function that turns song rows into `LibrarySong`s. Read what columns it expects.
+- Traps (each one has a test):
+  - The same song added twice: open must show **two** items.
+  - Two adds at the same moment can get the same position. The order must still be stable. (What else sorts by time?)
+
+**Done when:**
+```bash
+P=<the Gym id>
+curl -s 'localhost:8000/search?q=tum%20hi%20ho' > /tmp/search.json
+for n in 0 1 2; do jq "{listings: .songs[$n].listings}" /tmp/search.json | curl -s -X POST localhost:8000/playlists/$P/items -H 'content-type: application/json' -d @-; done
+curl -s localhost:8000/playlists/$P | jq '.items[].song.title'
+```
+One search, then 3 songs added from it (searching 3 times risks YouTube's bot check). Open shows them in that order. An unknown id gives 404.
+
+### Step 3 · Rename, delete, remove
+
+- Each one is a single statement. You already know how to tell "changed 1 row" from "changed nothing" (the cache used it): nothing changed → 404.
+- Deleting a playlist must delete its items, and must **not** delete the songs. Read what `schema.sql` already does for you.
+- Trap: removing an item must check it belongs to the playlist in the URL. Otherwise `DELETE /playlists/A/items/<an item of B>` removes from B.
+
+**Done when:** you delete a playlist with 3 songs. Its items are gone from `playlist_items`, and the 3 songs are still in `songs`.
+
+### Step 4 · Move
+
+The same logic twice: songs in a playlist, and playlists in the list. Write it for songs first.
+- The new position goes between the two neighbours' positions. A missing neighbour is `None`.
+- Exactly one row changes.
+- Traps (each one has a test):
+  - A neighbour from a different playlist.
+  - Neighbours in the wrong order (what does `generate_key_between` do then?).
+  - Both neighbours missing.
+
+**Done when:** songs A B C. Move C with `bottom_neighbour_id` = A and no top: the order is C A B, and one row changed.
+
+### Step 5 · Cover image (after the app work)
+
+- `GET` / `POST` / `DELETE /playlists/{playlist_id}/thumbnail`. `thumbnail` in `PlaylistMetadata` becomes that URL. `null` means no cover: the app draws a 2×2 grid of the first four songs.
+- Safety: open the upload with Pillow and save it again as JPEG (this rejects non-images and removes EXIF/GPS). Reject files over 5 MB. Never use the uploaded filename.
+- The app caches images by URL. Change the URL when the cover changes: `…/thumbnail?v=<upload time>`.
+
+**Done when:** a text file renamed `.jpg` is rejected; a phone photo comes back without EXIF; a new cover has a new URL.
+
+### After each step
+
+Claude writes the pytest tests (against `music_test`). The app work (sidebar, playlist screen, "Add to playlist", drag to reorder) starts after step 2, when you say.
+
+**Docs:** [fractional-indexing](https://github.com/httpie/fractional-indexing-python) · FastAPI [path parameters](https://fastapi.tiangolo.com/tutorial/path-params/) · FastAPI [Request Files](https://fastapi.tiangolo.com/tutorial/request-files/) · [Pillow](https://pillow.readthedocs.io/en/stable/reference/Image.html)
 
 ---
 

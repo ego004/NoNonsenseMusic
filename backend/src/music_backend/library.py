@@ -7,13 +7,13 @@ import logging
 from types import SimpleNamespace
 from uuid import UUID
 
+from fractional_indexing import generate_key_between
 from psycopg import AsyncConnection
 
 from music_backend.matching import normalise, pick_best, same_recording
-from music_backend.models import EventType, LibrarySong, Listing
+from music_backend.models import EventType, LibrarySong, Listing, PlaylistMetadata
 
 logger = logging.getLogger(__name__)
-
 
 async def resolve_song(conn: AsyncConnection, listings: list[Listing]) -> UUID:
     """The stored song these listings are copies of: found, or created. New listings get linked.
@@ -28,6 +28,7 @@ async def resolve_song(conn: AsyncConnection, listings: list[Listing]) -> UUID:
     """
     first = listings[0]
     async with conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [normalise(first.title)])
         linked = await (await conn.execute(
             """SELECT DISTINCT s.id, s.created_at
                  FROM listings l
@@ -134,3 +135,29 @@ async def _with_listings(conn: AsyncConnection, rows: list[dict]) -> list[Librar
             best = best, listings = listings, liked = r["liked"], at = r["at"],
         ))
     return songs
+
+async def create_playlist(conn: AsyncConnection, name : str) -> UUID:
+    """A new playlist at the bottom of your list. A name already in use raises psycopg's UniqueViolation."""
+    # the bottom = after the largest position so far (None when there are no playlists: then the first key, "a0")
+    last = (await (await conn.execute("SELECT max(position) AS last FROM playlists")).fetchone())["last"]
+    row = await (await conn.execute(
+        "INSERT INTO playlists (name, position) VALUES (%s, %s) RETURNING id",
+        [name, generate_key_between(last, None)],
+    )).fetchone()
+    return row["id"]
+
+async def get_playlists(conn: AsyncConnection) -> list[PlaylistMetadata]:
+    cur = await conn.execute("SELECT id, name FROM playlists ORDER BY position ASC")
+    result = []
+    while True:
+        row = await cur.fetchone()
+        if row is None:
+            break
+        # AS: the keys become the model's field names. COALESCE: an empty playlist's SUM is NULL, and duration is an int
+        totals = await (await conn.execute(
+            """SELECT COUNT(*) AS song_count, COALESCE(SUM(duration), 0) AS duration
+                 FROM songs s JOIN playlist_items p ON s.id = p.song_id
+                WHERE p.playlist_id = %s""", [row["id"]])).fetchone()
+        result.append(PlaylistMetadata(id = row["id"], name = row["name"], **totals))
+    return result
+

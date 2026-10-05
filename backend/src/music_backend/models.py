@@ -65,26 +65,26 @@ class EventRequest(ListingsRequest):
 class SongRef(BaseModel):
     song_id : UUID
 
-class PlaylistCreationRequest(BaseModel):
+class PlaylistRequest(BaseModel):
     name : str = Field(min_length=1)
 
 class PlaylistMetadata(BaseModel):
     id : UUID
     name : str
-    duration : int #should we compute the duration on server? i say yes;
+    song_count : int
     thumbnail : str | None = None
-    num_plays : int = 0 #no of plays?
+    duration : int
 
 class PlaylistsResponse(BaseModel):
     playlists : list[PlaylistMetadata]
 
-class PlaylistSongAdditionRequest(BaseModel):
-    song_id : UUID
+class MoveRequest(BaseModel):
+    top_neighbour_id : UUID | None = None
+    bottom_neighbour_id : UUID | None = None
 
-class PlaylistSongRemovalRequest(BaseModel):
-    song_id : UUID
+class PlaylistItem(BaseModel):
+    item_id : UUID
+    song: LibrarySong
 
-class PlaylistSongReorderRequest(BaseModel):
-    song_id : UUID
-    top_neighbour_id : UUID
-    bottom_neighbour_id : UUID
+class PlaylistItems(PlaylistMetadata):
+    items : list[PlaylistItem]
