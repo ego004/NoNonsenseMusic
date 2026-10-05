@@ -110,6 +110,33 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 - Likes stay in their own table.
 - Playing a playlist is a queue: MUS-1's prefetch window covers it, no extra prefetch work.
 
+**Your design note (5 Oct), reviewed** — paths are yours to rename; the methods and the item ids are the review:
+
+| Endpoint | Does | Reply |
+|---|---|---|
+| `POST /playlists` `{name}` | Create (a GET must never change anything: browsers and retries repeat GETs) | The playlist |
+| `GET /playlists` | Every playlist: id, name, song count, **thumbnail URL** (`null` = no cover: the app draws a 2×2 grid) | A list |
+| `GET /playlists/{id}` | One playlist: its items in order, each a song shown through its best listing | The playlist + items |
+| `PATCH /playlists/{id}` `{name}` | Rename | The playlist |
+| `DELETE /playlists/{id}` | Delete it (its items go, the songs stay) | 204 |
+| `POST /playlists/{id}/items` `{listings}` | Add a song at the end (listings in, like `/liked`: search results have no song id) | The item (its own id) |
+| `DELETE /playlists/{id}/items/{item_id}` | Remove one item (by **item** id: the same song may appear twice) | 204 |
+| `PATCH /playlists/{id}/items/{item_id}` | Move one item: **one row** updated | The item |
+| `GET` / `POST` / `DELETE /playlists/{id}/thumbnail` | Serve / replace (after the safety checks) / remove the cover | Image / 204 |
+
+**One catch with thumbnail URLs:** the app caches every image by its URL (the cover cache). If a new cover keeps the old URL, the app keeps showing the old one. Make the URL change when the cover changes (e.g. `…/thumbnail?v=<when it was uploaded>`).
+
+**Steps** (each one runs and shows something on its own; Claude writes the tests after each)
+
+| Step | Build | Done when |
+|---|---|---|
+| 1 | Create and list | A new playlist appears in `GET /playlists` with 0 songs; an empty name answers 422 |
+| 2 | Add and open | Add 3 songs from search results; `GET /playlists/{id}` shows them in order; an unknown playlist answers 404 |
+| 3 | Remove, rename, delete | Deleting a playlist removes its items; the songs are still in `songs` |
+| 4 | Move | Move the 3rd song to the top: the order changes and **exactly one row** was updated |
+| 5 | Cover | A text file renamed `.jpg` is rejected; a phone photo comes back without EXIF; replacing the cover changes its URL |
+| App | Claude: Playlists in the sidebar, the playlist screen, "Add to playlist" (right-click), drag to reorder, the cover or the 2×2 grid. Then: the playlist's name in the Discord status (a setting), and Settings regrouped into collapsible sections | After step 2 (list, open, add) and step 4 (drag) |
+
 **Decisions that are yours**
 - Every endpoint's path, method, body and reply.
 - Where uploaded images live on disk, and how the app gets them.

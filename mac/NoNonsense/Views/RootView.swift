@@ -60,7 +60,7 @@ struct RootView: View {
                         Color(nsColor: .windowBackgroundColor)
                         Backdrop(track: player.current, strength: artStrength)
                     }
-                    .opacity(windowOpacity)
+                    .opacity(max(windowOpacity, Look.minWindowOpacity))   // a value saved before the floor existed may be lower
                 }
                 .ignoresSafeArea()
             }
