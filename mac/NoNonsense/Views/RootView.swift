@@ -7,6 +7,13 @@ struct RootView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(ServerLauncher.self) private var server
     @State private var selection: SidebarItem? = .search
+    @AppStorage("windowOpacity") private var windowOpacity = Look.windowOpacity   // 0 = see-through, 1 = solid
+    @AppStorage("artStrength") private var artStrength = Look.artStrength         // how strongly the cover colours the window
+    @AppStorage(Theme.modeKey) private var colorMode = "song"                     // colours from the song, or custom
+    @AppStorage(Theme.accentKey) private var customAccent = Theme.defaultAccent
+    @Environment(\.colorScheme) private var scheme
+    @State private var accent: Color?
+    @Namespace private var glass                                    // lets the message and the player bar morph into each other
 
     var body: some View {
         NavigationSplitView {
@@ -23,13 +30,40 @@ struct RootView: View {
                 }
                 .safeAreaPadding(.bottom, player.current == nil ? 0 : 88)   // lists scroll clear of the bar
 
-                PlayerBar()
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 18)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                // One glass container: shapes closer than `spacing` blend like liquid, so the message
+                // grows out of the player bar and sinks back into it.
+                GlassEffectContainer(spacing: 24) {
+                    VStack(spacing: 10) {
+                        if let message = player.errorMessage {
+                            Label(message, systemImage: "exclamationmark.triangle.fill")
+                                .font(.callout)
+                                .padding(.horizontal, 14).padding(.vertical, 8)
+                                .glassEffect(.regular, in: .capsule)
+                                .glassEffectID("message", in: glass)
+                                .glassEffectTransition(.materialize)
+                        }
+                        PlayerBar(glass: glass)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 18)
             }
+            .animation(.spring(response: 0.45, dampingFraction: 0.8), value: player.errorMessage)
             // a background takes the size of what it is behind and can never enlarge it
-            .background { Backdrop(track: player.current) }
+            // the desktop, blurred (WindowBlur), under a wash of the playing song's artwork (Backdrop)
+            .background {
+                ZStack {
+                    WindowBlur()
+                    // Everything over the blur is ONE layer with ONE opacity: playing a song changes the colour,
+                    // never how see-through the window is (stacked layers made it nearly opaque before, 5 Oct).
+                    ZStack {
+                        Color(nsColor: .windowBackgroundColor)
+                        Backdrop(track: player.current, strength: artStrength)
+                    }
+                    .opacity(windowOpacity)
+                }
+                .ignoresSafeArea()
+            }
             // see-through title bar: the backdrop shows under it, and lists fade softly as they scroll beneath it
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .scrollEdgeEffectStyle(.soft, for: .top)
@@ -42,6 +76,12 @@ struct RootView: View {
             }
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.9), value: player.showNowPlaying)
+        // sliders, the progress line and the heart take the playing cover's most vivid colour
+        .tint(colorMode == "custom" ? Color(hex: customAccent) : accent)
+        .task(id: [player.current?.image?.absoluteString ?? "", scheme == .dark ? "dark" : "light"]) {
+            let next = await ArtworkCache.shared.accent(for: player.current?.image, dark: scheme == .dark)
+            withAnimation(.easeInOut(duration: 0.8)) { accent = next }
+        }
         .task {
             await server.ensureRunning()     // starts the backend if nothing answers (Services/ServerLauncher.swift)
             await library.refresh()

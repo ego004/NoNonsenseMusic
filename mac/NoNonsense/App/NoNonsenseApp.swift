@@ -27,8 +27,10 @@ struct NoNonsenseApp: App {
                 .frame(minWidth: 900, minHeight: 580)
                 .onAppear {
                     player.installKeyMonitor()
+                    player.installSwipeMonitor()
                     #if DEBUG
                     SelfTest.runIfAsked()
+                    SelfTest.runPlaybackIfAsked(player: player)
                     #endif
                 }
         }
@@ -57,6 +59,10 @@ struct PlaybackCommands: Commands {
             Button(player.isPlaying ? "Pause" : "Play") { player.togglePlayPause() }   // Space: see Player.installKeyMonitor
             Button("Next") { player.next() }.keyboardShortcut(.rightArrow, modifiers: .command)
             Button("Previous") { player.previous() }.keyboardShortcut(.leftArrow, modifiers: .command)
+            Divider()
+            Button("Volume Up") { player.setVolume(player.volume + 0.1) }.keyboardShortcut(.upArrow, modifiers: .command)
+            Button("Volume Down") { player.setVolume(player.volume - 0.1) }.keyboardShortcut(.downArrow, modifiers: .command)
+            Button(player.isMuted ? "Unmute" : "Mute") { player.toggleMute() }
             Divider()
             Button("Like / Unlike") {
                 if let track = player.current { Task { await library.toggleLike(track) } }

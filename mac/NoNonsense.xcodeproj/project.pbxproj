@@ -17,9 +17,9 @@
 		613193FB7E14FC5C4BB443D8 /* Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB8186E89FB9026CB640031 /* Player.swift */; };
 		775849477665E5B0397C9BEE /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73F3F3979510A3CCDB133168 /* API.swift */; };
 		7C3F83393CA321A64FA0909C /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C646EB60CF5521894381A0AB /* RootView.swift */; };
-		7FB89D2D2CC81072D011896A /* Palette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3086DF81F782A80C2C5F9033 /* Palette.swift */; };
 		84686E9E5E599CE8BF15A495 /* ServerLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA9BFC4261D1B1DA125FFCA /* ServerLauncher.swift */; };
 		A66DC6D35E35B04108B7EA14 /* NoNonsenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 990E0DB832F7D7C8D25D4453 /* NoNonsenseApp.swift */; };
+		C2EDC8457EA6AA7AA6B0C1C3 /* ArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF34CE64DF6A78F1C8313C22 /* ArtworkCache.swift */; };
 		D044B7F4E4BE1BD07AC6E6B1 /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C3D0063CBD5878029E2E727 /* SelfTest.swift */; };
 		F0E2C30026FE94064660905F /* SongRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78598E531205B9DEC5A58465 /* SongRow.swift */; };
 		F72DD52D3A19BE855522588B /* PlayerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE09B7F546BD239B2AFD81C /* PlayerViews.swift */; };
@@ -29,7 +29,6 @@
 		187B65FDE5C1D9B4300ACE83 /* Screens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screens.swift; sourceTree = "<group>"; };
 		1ED8D65E869B635E8873CD76 /* NoNonsense.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NoNonsense.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		292804CD0EB5D2B5A39CF640 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
-		3086DF81F782A80C2C5F9033 /* Palette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Palette.swift; sourceTree = "<group>"; };
 		3BE09B7F546BD239B2AFD81C /* PlayerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViews.swift; sourceTree = "<group>"; };
 		4EA9BFC4261D1B1DA125FFCA /* ServerLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLauncher.swift; sourceTree = "<group>"; };
 		57E61BBC7E329399CCCFF251 /* Shuffle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shuffle.swift; sourceTree = "<group>"; };
@@ -44,6 +43,7 @@
 		AEB8186E89FB9026CB640031 /* Player.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Player.swift; sourceTree = "<group>"; };
 		B5C8CE53A38023E1F773BDBD /* Presence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Presence.swift; sourceTree = "<group>"; };
 		C646EB60CF5521894381A0AB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		CF34CE64DF6A78F1C8313C22 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -109,8 +109,8 @@
 			isa = PBXGroup;
 			children = (
 				73F3F3979510A3CCDB133168 /* API.swift */,
+				CF34CE64DF6A78F1C8313C22 /* ArtworkCache.swift */,
 				93FF752447B1866FD59A5D9D /* LibraryStore.swift */,
-				3086DF81F782A80C2C5F9033 /* Palette.swift */,
 				AEB8186E89FB9026CB640031 /* Player.swift */,
 				B5C8CE53A38023E1F773BDBD /* Presence.swift */,
 				4EA9BFC4261D1B1DA125FFCA /* ServerLauncher.swift */,
@@ -186,11 +186,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				775849477665E5B0397C9BEE /* API.swift in Sources */,
+				C2EDC8457EA6AA7AA6B0C1C3 /* ArtworkCache.swift in Sources */,
 				3DDD48B03F42672DEF183122 /* Components.swift in Sources */,
 				06ED42D3B0F7A7FD121A2AC7 /* LibraryStore.swift in Sources */,
 				5630B8DC8F8427B02858E427 /* Models.swift in Sources */,
 				A66DC6D35E35B04108B7EA14 /* NoNonsenseApp.swift in Sources */,
-				7FB89D2D2CC81072D011896A /* Palette.swift in Sources */,
 				613193FB7E14FC5C4BB443D8 /* Player.swift in Sources */,
 				F72DD52D3A19BE855522588B /* PlayerViews.swift in Sources */,
 				2378FEC447BD5BF1FCB49A4C /* Presence.swift in Sources */,

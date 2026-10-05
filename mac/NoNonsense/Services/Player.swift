@@ -14,6 +14,12 @@ final class Player {
     private(set) var isBuffering = false
     private(set) var errorMessage: String?
     var showNowPlaying = false
+    private(set) var nextPresses = 0                     // every skip, by any means: the buttons bounce on these
+    private(set) var previousPresses = 0
+    @ObservationIgnored var barFrame: CGRect = .zero     // the player bar, in window coordinates (top-left origin)
+    @ObservationIgnored private var swipeMonitor: Any?
+    @ObservationIgnored private var swipeTravel: CGFloat = 0
+    @ObservationIgnored private var swipeDone = false
 
     var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
     var duration: Double { Double(current?.duration ?? 0) }
@@ -27,6 +33,11 @@ final class Player {
     @ObservationIgnored private var statusObservation: NSKeyValueObservation?
     @ObservationIgnored private var keyMonitor: Any?
     @ObservationIgnored private var fallbacksTried = 0
+    private(set) var playingListing: Listing?                         // the copy AVPlayer is playing right now
+    private(set) var volume: Float = UserDefaults.standard.object(forKey: "volume") as? Float ?? 1   // 0...1, remembered
+    private(set) var isMuted = false
+    @ObservationIgnored private var freshRetried: Set<String> = []   // listing keys already retried with serve_fresh
+    @ObservationIgnored private var messageTimer: Task<Void, Never>?
     @ObservationIgnored private var artwork: [String: MPMediaItemArtwork] = [:]
 
     init(library: LibraryStore, presence: Presence) {
@@ -34,6 +45,7 @@ final class Player {
         self.presence = presence
         // start as soon as audio arrives, instead of first buffering several seconds (the CDN answers in ~0.26 s)
         player.automaticallyWaitsToMinimizeStalling = false
+        player.volume = volume
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
                                                       queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.tick(time.seconds) }
@@ -70,11 +82,13 @@ final class Player {
 
     func next() {
         guard current != nil else { return }
+        nextPresses += 1
         reportSkipIfNeeded()
         advance(by: 1)
     }
 
     func previous() {
+        previousPresses += 1
         if position > 3 { seek(to: 0); return }     // like every player: first press restarts the song
         reportSkipIfNeeded()
         advance(by: -1)
@@ -85,6 +99,19 @@ final class Player {
         reportSkipIfNeeded()
         index = i
         startCurrent()
+    }
+
+    /// 0...1. The app's own volume, under the Mac's; remembered between launches.
+    func setVolume(_ level: Float) {
+        volume = min(1, max(0, level))
+        player.volume = volume
+        if isMuted { isMuted = false; player.isMuted = false }
+        UserDefaults.standard.set(volume, forKey: "volume")
+    }
+
+    func toggleMute() {
+        isMuted.toggle()
+        player.isMuted = isMuted
     }
 
     func seek(to seconds: Double) {
@@ -108,6 +135,34 @@ final class Player {
         }
     }
 
+    /// Two-finger swipe across the player bar: left = next song, right = previous. One skip per swipe;
+    /// the coasting after you lift your fingers is ignored. Vertical swipes still scroll whatever is underneath.
+    func installSwipeMonitor() {
+        guard swipeMonitor == nil else { return }
+        swipeMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            // decide on the main actor, return a plain Bool (an NSEvent cannot cross isolation), consume outside
+            let consumed = MainActor.assumeIsolated { () -> Bool in
+                // an event with no window attached carries a screen location: find the window under it
+                guard let self, event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty,
+                      let window = event.window ?? NSApp.windows.first(where: { $0.isVisible && $0.frame.contains(event.locationInWindow) }),
+                      let content = window.contentView else { return false }
+                let inWindow = event.window == nil ? window.convertPoint(fromScreen: event.locationInWindow) : event.locationInWindow
+                let point = CGPoint(x: inWindow.x, y: content.bounds.height - inWindow.y)
+                guard self.barFrame.contains(point) else { return false }
+                if event.phase == .began { self.swipeTravel = 0; self.swipeDone = false }
+                guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return false }
+                // the fingers' direction, whatever the "natural scrolling" setting
+                self.swipeTravel += event.isDirectionInvertedFromDevice ? event.scrollingDeltaX : -event.scrollingDeltaX
+                if !self.swipeDone, abs(self.swipeTravel) > 60 {
+                    self.swipeDone = true
+                    self.swipeTravel < 0 ? self.next() : self.previous()
+                }
+                return true                                  // a sideways swipe over the bar is ours
+            }
+            return consumed ? nil : event
+        }
+    }
+
     // MARK: - loading
 
     private func advance(by step: Int) {
@@ -123,17 +178,18 @@ final class Player {
     private func startCurrent() {
         guard let track = current else { return }
         fallbacksTried = 0
+        freshRetried = []
         load(track.best)
         report("play", track, at: 0)
         // ask the server for the NEXT song's audio URL now, so it is ready (and cached) when that song starts
         if let next = upNext.first { Task { await API.warm(next.best) } }
     }
 
-    private func load(_ listing: Listing) {
+    private func load(_ listing: Listing, fresh: Bool = false) {
         position = 0
-        isBuffering = true
-        errorMessage = nil
-        let item = AVPlayerItem(url: API.playURL(listing))      // the server redirects to the audio file
+        isBuffering = true                                        // the spinner, until audio arrives
+        playingListing = listing
+        let item = AVPlayerItem(url: API.playURL(listing, fresh: fresh))   // the server redirects to the audio file
         // @Sendable: KVO calls this on whatever thread changed the status, not necessarily the main one
         statusObservation = item.observe(\.status) { @Sendable [weak self] item, _ in
             let status = item.status
@@ -145,18 +201,38 @@ final class Player {
         publish()
     }
 
+    /// A copy would not play (MUS-1, rule 7).
     private func statusChanged(_ status: AVPlayerItem.Status) {
-        guard status == .failed, let track = current else { return }
-        // the best copy would not play: try the song's other copies before giving up
-        let others = track.listings.filter { $0.key != track.best.key }
-        if fallbacksTried < others.count {
-            let listing = others[fallbacksTried]
-            fallbacksTried += 1
-            load(listing)
-        } else {
-            errorMessage = "Couldn't play “\(track.title)”."
-            isBuffering = false
-            advance(by: 1)
+        guard status == .failed, let track = current, let failed = playingListing else { return }
+        if track.listings.count > 1 {
+            // another copy exists: switch to it now, and tell the server this URL is bad so its cache is
+            // fixed for next time (in the background; nobody waits for it)
+            Task { await API.refresh(failed) }
+            let others = track.listings.filter { $0.key != track.best.key }
+            if fallbacksTried < others.count {
+                let listing = others[fallbacksTried]
+                fallbacksTried += 1
+                load(listing)
+                return
+            }
+        } else if !freshRetried.contains(failed.key) {
+            // the only copy: its cached URL may be stale, so ask once for a fresh one and play that
+            freshRetried.insert(failed.key)
+            load(failed, fresh: true)
+            return
+        }
+        show("Couldn't play “\(track.title)”.")
+        isBuffering = false
+        advance(by: 1)
+    }
+
+    /// A message under the window's content for 4 seconds (a newer one replaces it).
+    private func show(_ message: String) {
+        errorMessage = message
+        messageTimer?.cancel()
+        messageTimer = Task {
+            try? await Task.sleep(for: .seconds(4))
+            if !Task.isCancelled { errorMessage = nil }
         }
     }
 

@@ -26,6 +26,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 | MUS-9 | Every played song gets a "sounds like" vector | Claude (model setup) · **You** (background job) | M |
 | MUS-10 | About 1 in 5 autoplay songs is new to you, and it learns which new ones you skip | **You** | M |
 | MUS-11 | Your own "people who played X played Y" model, beating or losing to YouTube radio on your skip rate | **Pair** | L |
+| MUS-12 | Lyrics in Now Playing, lit line by line in time with the song | **You** (backend) · Claude (app) | M |
 
 ---
 
@@ -258,6 +259,42 @@ A bandit (start with Thompson sampling) decides when to slip in a song that is n
 ## MUS-11 · Your own collaborative filtering
 
 Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens, CC0), map its MusicBrainz IDs to your songs, and A/B it against YouTube radio in autoplay using your skip rate. Expect thin coverage of Indian music in ListenBrainz (unverified): measure it first.
+
+---
+
+## MUS-12 · Lyrics, synced when possible
+
+**Problem:** Now Playing shows no words. You want the lyrics, and when timings exist, the current line lit up as it is sung.
+
+**Facts already checked (5 Oct 2026)**
+- **LRCLIB** (`lrclib.net`), an open lyrics database used by music players: no key, no sign-up. `GET /api/get?track_name=…&artist_name=…&duration=…` answered in 198–529 ms. *Blinding Lights*: 40 synced lines; *Tum Hi Ho*: 46 synced lines; *Fake_0pps* (KANKAN): found, plain text only. Its durations matched yours within 1 s.
+- Synced lyrics are **LRC**: one line per lyric, each starting with its time, `[mm:ss.xx] text`. Plain lyrics are just text.
+- *Tum Hi Ho* is found under **Arijit Singh**; your library stores **Mithoon** first. Asking with the first artist only would miss it.
+- **JioSaavn** has lyrics for some songs: `more_info.has_lyrics` in song details, then `__call=lyrics.getLyrics&lyrics_id=<the song id>` (its own `lyrics_id` field was empty). Plain text with `<br>` line breaks, no timings, plus a `lyrics_copyright` field.
+- Musixmatch (synced only on paid plans; the free API returns about 30% of a song's lyrics) and Genius (its API gives metadata and a page link, not the text): second-hand, from their published plans. Not used.
+- The repo is public: never save real lyrics into `samples/` or tests (they are copyrighted). Tests use short made-up LRC.
+
+**Deliverables**
+1. An endpoint the app calls for a song's lyrics: synced lines (each with its time), or plain text, or "none".
+2. The order: LRCLIB synced → LRCLIB plain → JioSaavn plain → none.
+3. Matching that survives your data: try each of the song's artists, use the duration, fall back to LRCLIB's `/api/search`.
+4. Lyrics do not change: cache them, so a song's lyrics are fetched once.
+5. The app (Claude): Now Playing shows the lyrics, the current line bright and larger, the rest dimmed, scrolling smoothly with the song; click a line to jump there. Plain lyrics just scroll.
+
+**Decisions that are yours**
+- Where LRC becomes lines (server or app), and the reply's shape.
+- How close a duration must be to count as the same song.
+- Where the cache lives (memory, a table, both), and whether "no lyrics" is cached too.
+- Whether lyrics join the prefetch window (MUS-1 step 3).
+
+**Done when**
+- [ ] *Blinding Lights*: synced lines, lit in time.
+- [ ] *Tum Hi Ho*: found, although Mithoon is the first artist.
+- [ ] *Fake_0pps*: plain lyrics shown.
+- [ ] The second request for a song's lyrics never leaves the server.
+- [ ] pytest: LRC parsing (times, blank lines, a line with two timestamps), the source order, matching (fake HTTP; no network, no real lyrics).
+
+**Docs:** LRCLIB's API (the two endpoints above, checked live) · [LRC format](https://en.wikipedia.org/wiki/LRC_(file_format)) · your own `jiosaavn.py` for the request pattern · [`re` for the `[mm:ss.xx]` tag](https://docs.python.org/3/library/re.html) (mechanics, not judgement)
 
 ---
 

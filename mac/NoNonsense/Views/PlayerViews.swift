@@ -2,6 +2,7 @@ import SwiftUI
 
 /// The floating Liquid Glass capsule at the bottom of the window. Hidden until something plays.
 struct PlayerBar: View {
+    var glass: Namespace.ID
     @Environment(Player.self) private var player
 
     var body: some View {
@@ -24,11 +25,13 @@ struct PlayerBar: View {
                 Spacer(minLength: 8)
 
                 if player.isBuffering { ProgressView().controlSize(.small) }
+                VolumeControl()
                 LikeButton(track: track, font: .title3)
                 Button { player.showNowPlaying = true } label: { Image(systemName: "list.bullet").font(.title3) }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .help("Up Next")
+                    .accessibilityLabel("Up Next")
             }
             .padding(.leading, 10).padding(.trailing, 18).padding(.vertical, 10)
             .overlay(alignment: .bottom) {
@@ -36,8 +39,12 @@ struct PlayerBar: View {
                     .padding(.horizontal, 22)
                     .offset(y: 4)
             }
-            .glassEffect(.regular, in: .capsule)
-            .frame(maxWidth: 760)
+            .glassEffect(.regular.interactive(), in: .capsule)   // interactive: the glass reacts to hover and press
+            .glassEffectID("bar", in: glass)
+            .glassEffectTransition(.materialize)
+            .frame(maxWidth: 860)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { player.barFrame = $0 }
+            .simultaneousGesture(MagnifyGesture().onEnded { if $0.magnification > 1.15 { player.showNowPlaying = true } })
             .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
         }
     }
@@ -51,8 +58,11 @@ struct TransportControls: View {
 
     var body: some View {
         HStack(spacing: 22) {
-            Button { player.previous() } label: { Image(systemName: "backward.fill").font(size) }
+            Button { player.previous() } label: {
+                Image(systemName: "backward.fill").font(size).symbolEffect(.bounce.byLayer, value: player.previousPresses)
+            }
                 .help("Previous (⌘←)")
+                .accessibilityLabel("Previous")
             Button { player.togglePlayPause() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(playSize)
@@ -60,8 +70,12 @@ struct TransportControls: View {
                     .frame(width: 34)
             }
             .help("Play / Pause (Space)")
-            Button { player.next() } label: { Image(systemName: "forward.fill").font(size) }
+            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+            Button { player.next() } label: {
+                Image(systemName: "forward.fill").font(size).symbolEffect(.bounce.byLayer, value: player.nextPresses)
+            }
                 .help("Next (⌘→)")
+                .accessibilityLabel("Next")
         }
         .buttonStyle(.plain)
     }
@@ -70,18 +84,26 @@ struct TransportControls: View {
 /// Full-window Now Playing: huge artwork (as Jon Hicks asked Apple for), blended background, Up Next.
 struct NowPlayingView: View {
     @Environment(Player.self) private var player
+    @Environment(\.colorScheme) private var scheme
+    @AppStorage("artStrength") private var artStrength = Look.artStrength
+    @State private var coverGlow: Color?                 // the cover's vivid colour, for the light under the artwork
+    @AppStorage(Theme.modeKey) private var colorMode = "song"
+    @AppStorage(Theme.accentKey) private var customAccent = Theme.defaultAccent
+    private var glow: Color? { colorMode == "custom" ? Color(hex: customAccent) : coverGlow }
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
-                Backdrop(track: player.current, strength: 1.8)
+                // a thick material hides the screen below; the artwork's wash goes on top of it
+                Backdrop(track: player.current, strength: min(1, artStrength * 1.4), base: AnyShapeStyle(.ultraThickMaterial))
 
                 if let track = player.current {
                     let side = min(geo.size.height * 0.62, geo.size.width * 0.42, 560)
                     HStack(alignment: .center, spacing: 48) {
                         VStack(alignment: .leading, spacing: 22) {
                             ArtworkView(url: track.image, size: side, radius: 18)
-                                .shadow(color: .black.opacity(0.28), radius: 40, y: 22)
+                                // the cover lights the space under it in its own colour
+                                .shadow(color: (glow ?? .black).opacity(glow == nil ? 0.28 : 0.55), radius: 50, y: 24)
                                 .id(track.id)
                                 .transition(.scale(scale: 0.94).combined(with: .opacity))
                             VStack(alignment: .leading, spacing: 6) {
@@ -103,10 +125,22 @@ struct NowPlayingView: View {
                                 }
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
+                                .contentTransition(.numericText())          // the digits roll
+                                .animation(.snappy(duration: 0.3), value: Int(player.position))
                             }
                             .frame(width: side)
                             TransportControls(size: .title, playSize: .system(size: 44))
                                 .frame(width: side)
+                            HStack(spacing: 10) {                     // like Apple Music: quiet speaker, slider, loud speaker
+                                Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+                                Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }),
+                                       in: 0...1)
+                                    .accessibilityLabel("Volume")
+                                Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+                            }
+                            .font(.callout)
+                            .frame(width: side * 0.7)
+                            .frame(width: side)
                         }
 
                         UpNextView()
@@ -115,6 +149,10 @@ struct NowPlayingView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .animation(.spring(response: 0.5, dampingFraction: 0.85), value: track.id)
+                    .task(id: track.image) {
+                        let next = await ArtworkCache.shared.accent(for: track.image, dark: scheme == .dark)
+                        withAnimation(.easeInOut(duration: 0.8)) { coverGlow = next }
+                    }
                 }
 
                 Button { player.showNowPlaying = false } label: {
@@ -122,11 +160,12 @@ struct NowPlayingView: View {
                 }
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .circle)
-                .keyboardShortcut(.cancelAction)                      // Esc closes
+                .keyboardShortcut(.cancelAction)                      // Esc closes, and so does a pinch in (below)
                 .help("Close (Esc)")
                 .padding(24)
             }
         }
+        .simultaneousGesture(MagnifyGesture().onEnded { if $0.magnification < 0.85 { player.showNowPlaying = false } })
     }
 }
 
