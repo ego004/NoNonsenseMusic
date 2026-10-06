@@ -1,7 +1,12 @@
 from collections import OrderedDict
 import asyncio
-from music_backend.settings import settings
+import logging
+import time
 
+from music_backend.settings import settings
+from music_backend.sources import SourceBlocked
+
+logger = logging.getLogger(__name__)
 
 class ListingURLCache:
     """Audio URLs per listing (source, song_id), in two levels: memory, and the listing_urls table.
@@ -18,6 +23,9 @@ class ListingURLCache:
         self.max_size_in_db = settings.cache_max_size_in_db
         self.pool = pool
         self.running = {}
+        # MUS-1 step 2b, the backoff ("circuit breaker"). Per SOURCE: a bot check blocks our IP, not one song.
+        self.blocked_until: dict[str, float] = {}   # source -> Unix time before which we do not ask it
+        self.strikes: dict[str, int] = {}           # source -> bot checks in a row; each one doubles the pause
 
     async def _db_hit(self, source: str, song_id: str) -> None:
         # the table's own "recently used" mark: the trim in _set_db drops the oldest hit_at first
@@ -93,10 +101,31 @@ class ListingURLCache:
     async def _lookup(self, source: str, song_id: str) -> str:
         """The real lookup, run as a task, once per listing at a time: fetch, store, return the URL."""
         try:
-            # SongNotFound / SourceUnavailable pass straight through, so a failure is never stored
-            url = await self.sources[source].get_song_url(song_id)
+            # paused? then answer at once, without asking the source (this raise is NOT a new strike: we never asked)
+            self._refuse_if_paused(source)
+            try:
+                # SongNotFound / SourceUnavailable pass straight through, so a failure is never stored
+                url = await self.sources[source].get_song_url(song_id)
+            except SourceBlocked:
+                self._strike(source)        # the source itself said "blocked": pause it, then pass the error on
+                raise
+            self.strikes[source] = 0        # it answered: the next block starts again from the short pause
             await self.set(source, song_id, url)
             return url
         finally:
             # worked or failed: out of `running`, so the next request after this starts a fresh lookup
             del self.running[(source, song_id)]
+
+    def _refuse_if_paused(self, source: str) -> None:
+        """During a source's pause, raise SourceBlocked straight away: no request goes to the source."""
+        until = self.blocked_until.get(source, 0)
+        if time.time() < until:
+            raise SourceBlocked(f"{source} is paused after a bot check until {time.strftime('%H:%M:%S', time.localtime(until))}",
+                                until=until)
+
+    def _strike(self, source: str) -> None:
+        """One more bot check in a row: pause = START x 2^(strikes - 1), at most MAX."""
+        self.strikes[source] = self.strikes.get(source, 0) + 1
+        minutes = min(settings.backoff_max_minutes, settings.backoff_start_minutes * 2 ** (self.strikes[source] - 1))
+        self.blocked_until[source] = time.time() + minutes * 60
+        logger.warning("%s: bot check #%d in a row, asking it nothing for %.0f min", source, self.strikes[source], minutes)

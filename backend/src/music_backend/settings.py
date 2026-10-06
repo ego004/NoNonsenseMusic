@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     youtube_cache_expiry_threshold: int = 30
     # None: JioSaavn URLs carry no expiry
     jiosaavn_cache_expiry_threshold: int | None = None
+    # minutes: after a source's first bot check, ask it nothing for this long; each bot check in a row doubles it
+    backoff_start_minutes: float = 2
+    # minutes: the pause never grows past this, so a lifted block is noticed within this long
+    backoff_max_minutes: float = 60
     # entries in the cache's memory before the least recently used one is dropped
     cache_max_size_in_memory: int = 3000
     # rows in the listing_urls table: after each write, the oldest-fetched beyond this are deleted
