@@ -8,6 +8,7 @@ YouTube URLs carry their expiry in `expire=` (a Unix time). JioSaavn URLs have n
 
 Every test uses listing ids that are new on every run, so nothing cached (in memory or in a table) leaks between tests.
 """
+import asyncio
 import time
 from uuid import uuid4
 
@@ -15,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from music_backend import db
+from music_backend.cache import ListingURLCache
 from music_backend.sources import SourceUnavailable, jiosaavn, ytmusic
 
 TEST_URL = "postgresql:///music_test"
@@ -150,3 +152,78 @@ def test_failed_fresh_fetch_returns_the_error_not_the_old_url(client, youtube):
     play(client, f"/play/ytmusic/{song}")
     source.fail = True
     assert client.get(f"/play/ytmusic/{song}?serve_fresh=true", follow_redirects=False).status_code == 502
+
+
+# ---------- MUS-1 step 2: single-flight (one lookup per listing at a time) ----------
+
+class SlowSource:
+    """A source whose lookup takes 0.2 s, so requests really overlap. Counts calls; fails on demand."""
+
+    def __init__(self, fail=False):
+        self.calls = 0
+        self.fail = fail
+
+    async def get_song_url(self, song_id):
+        self.calls += 1
+        await asyncio.sleep(0.2)
+        if self.fail:
+            raise SourceUnavailable("fake outage")
+        return f"https://audio.example/{song_id}_{self.calls}.m4a"
+
+    def is_expired(self, url):
+        return False
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+@pytest.fixture
+async def pool():
+    pool = db.make_pool(TEST_URL)
+    await pool.open()
+    await db.apply_schema(pool)
+    yield pool
+    await pool.close()
+
+
+@pytest.mark.anyio
+async def test_two_requests_at_once_make_one_lookup(pool):
+    source = SlowSource()
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    song = new_id()
+    first, second = await asyncio.gather(cache("ytmusic", song), cache("ytmusic", song))
+    assert source.calls == 1
+    assert first == second
+    assert cache.running == {}                                  # nothing left behind
+
+
+@pytest.mark.anyio
+async def test_a_failed_lookup_reaches_every_waiter_and_is_not_kept(pool):
+    source = SlowSource(fail=True)
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    song = new_id()
+    results = await asyncio.gather(cache("ytmusic", song), cache("ytmusic", song), return_exceptions=True)
+    assert [type(r) for r in results] == [SourceUnavailable, SourceUnavailable]
+    assert source.calls == 1
+    assert cache.running == {}
+    source.fail = False
+    assert (await cache("ytmusic", song)).startswith("https://")   # the next request tries again
+    assert source.calls == 2
+
+
+@pytest.mark.anyio
+async def test_a_skipped_song_does_not_cancel_the_lookup_for_others(pool):
+    source = SlowSource()
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    song = new_id()
+    first = asyncio.create_task(cache("ytmusic", song))
+    second = asyncio.create_task(cache("ytmusic", song))
+    await asyncio.sleep(0.05)
+    first.cancel()                                              # the first request's song was skipped
+    assert (await second).startswith("https://")               # the other request still gets its URL
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert await cache("ytmusic", song) == await second        # and the lookup filled the cache
+    assert source.calls == 1
