@@ -7,6 +7,12 @@ struct PlayerBar: View {
     @Environment(ThemeStore.self) private var theme
 
     @AppStorage("nowPlayingPanel") private var panelRaw = NowPlayingPanel.upNext.rawValue
+    @AppStorage("barStyle") private var barStyle = BarStyle.glass        // Settings › Appearance › Surfaces › Player bar
+    @AppStorage("barBlur") private var barBlur = Look.barBlur
+    @AppStorage("barSolid") private var barSolid = Look.barSolid
+
+    /// A rounded rectangle, not a capsule: the middle is two rows tall now, and a capsule's round ends crowded the cover.
+    private let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
 
     /// Opens Now Playing with this panel beside the song (`.none`: the song alone, the centre of attention).
     private func open(_ panel: NowPlayingPanel, symbol: String, help: String) -> some View {
@@ -29,12 +35,11 @@ struct PlayerBar: View {
 
     var body: some View {
         if let track = player.current {
-            // The two sides take equal widths, so ⏮ ▶ ⏭ sit at the bar's exact centre. With a spacer on each side
-            // instead, the wider right side (volume, heart, list) pushed them 56 pt right of centre (5 Oct).
-            HStack(spacing: 14) {
-                HStack(spacing: 14) {
+            PlayerBarLayout {
+                // the song
+                HStack(spacing: 12) {
                     Button { player.showNowPlaying = true } label: {
-                        ArtworkView(url: track.image, size: 44, radius: 9)
+                        ArtworkView(url: track.image, size: 48, radius: 10)
                     }
                     .buttonStyle(.plain)
                     .help("Open Now Playing (⇧⌘F)")
@@ -43,40 +48,106 @@ struct PlayerBar: View {
                         Text(track.title).textStyle(.callout, weight: .semibold).lineLimit(1)
                         Text(track.artistLine).textStyle(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    .frame(minWidth: 120, maxWidth: 240, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .selfTestFrame("bar.song")
 
-                TransportControls(size: .title3, playSize: .title)
-                    .fixedSize()
-                    #if DEBUG
-                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { SelfTest.controlsFrame = $0 }
-                    #endif
-
-                HStack(spacing: 14) {
-                    VolumeControl()
-                    LikeButton(track: track, font: .title3)
-                    open(.lyrics, symbol: "quote.bubble", help: "Lyrics")
-                    open(.upNext, symbol: "list.bullet", help: "Up Next")
-                    open(.none, symbol: "arrow.up.left.and.arrow.down.right", help: "Now Playing (⇧⌘F)")
+                // ⏮ ▶ ⏭, and under them the progress line with the time on each side. It used to be a stripe
+                // along the bar's curved bottom edge, which looked stuck on (6 Oct).
+                VStack(spacing: 2) {
+                    TransportControls(size: .title3, playSize: .title)
+                        .fixedSize()
+                        #if DEBUG
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { SelfTest.controlsFrame = $0 }
+                        #endif
+                    HStack(spacing: 8) {
+                        Text(formatTime(player.position))
+                            .frame(width: 40, alignment: .trailing)
+                            .selfTestFrame("bar.elapsed")
+                        ProgressBar(position: player.position, duration: player.duration, onSeek: { player.seek(to: $0) })
+                            .selfTestFrame("bar.progress")
+                        Text("-" + formatTime(max(0, player.duration - player.position)))
+                            .frame(width: 40, alignment: .leading)
+                            .selfTestFrame("bar.remaining")
+                    }
+                    .textStyle(.caption2, monospacedDigit: true)
+                    .foregroundStyle(.secondary)
                 }
-                .padding(.trailing, 8)       // inside the side, so both sides stay equal: the list icon keeps its 18 pt from the edge
+                .selfTestFrame("bar.centre")
+
+                // the buttons; in a narrow window the volume slider goes first (the speaker still mutes)
+                ViewThatFits(in: .horizontal) {
+                    buttons(track, volumeSlider: true)
+                    buttons(track, volumeSlider: false)
+                }
                 .frame(maxWidth: .infinity, alignment: .trailing)
+                .selfTestFrame("bar.buttons")
             }
-            .padding(.horizontal, 10).padding(.vertical, 10)   // equal on both sides, or the centre moves
-            .overlay(alignment: .bottom) {
-                ProgressBar(position: player.position, duration: player.duration) { player.seek(to: $0) }
-                    .padding(.horizontal, 22)
-                    .offset(y: 4)
-            }
-            .glassEffect(barGlass, in: .capsule)                 // interactive: the glass reacts to hover and press
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background { fill }
+            .glassEffect(barStyle == .glass ? barGlass : .identity, in: shape)   // interactive: the glass reacts to hover and press
             .glassEffectID("bar", in: glass)
             .glassEffectTransition(.materialize)
-            .frame(maxWidth: 860)
+            .frame(maxWidth: 900)
+            .selfTestFrame("bar")
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { player.barFrame = $0 }
             .simultaneousGesture(MagnifyGesture().onEnded { if $0.magnification > 1.15 { player.showNowPlaying = true } })
             .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
         }
+    }
+
+    private func buttons(_ track: Track, volumeSlider: Bool) -> some View {
+        HStack(spacing: 14) {
+            VolumeControl(width: 76, slider: volumeSlider)
+            LikeButton(track: track, font: .title3)
+            open(.lyrics, symbol: "quote.bubble", help: "Lyrics")
+            open(.upNext, symbol: "list.bullet", help: "Up Next")
+            open(.none, symbol: "arrow.up.left.and.arrow.down.right", help: "Now Playing (⇧⌘F)")
+        }
+        .fixedSize()
+    }
+
+    /// Settings › Appearance › Surfaces › Player bar. Liquid Glass: an optional fill over the glass (0 = the glass
+    /// alone). Frosted: a blur of what is under the bar, the fill, and the Colours tint, with a hairline edge.
+    @ViewBuilder private var fill: some View {
+        switch barStyle {
+        case .glass:
+            if barSolid > 0.001 { shape.fill(Color(nsColor: .windowBackgroundColor).opacity(barSolid)) }
+        case .frosted:
+            ZStack {
+                SurfaceLayer(blur: barBlur, solid: Look.readable(solid: barSolid, blur: barBlur), blending: .withinWindow)
+                if let tint = theme.color(.playerBar) { tint.opacity(0.25) }
+            }
+            .clipShape(shape)
+            .overlay { shape.strokeBorder(.primary.opacity(0.1), lineWidth: 0.5) }
+        }
+    }
+}
+
+/// The bar's three parts: the song on the left, the controls in the exact centre, the buttons on the right.
+/// The centre gets what the sides leave (within `centre`); both sides always get the same width, so the centre
+/// is the bar's centre whatever the song's title is. The buttons are measured at their full size, so in a
+/// narrow window the centre shrinks to its minimum before the buttons give up the volume slider.
+struct PlayerBarLayout: Layout {
+    var spacing: CGFloat = 16
+    var centre: ClosedRange<CGFloat> = 280...480
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+        return CGSize(width: proposal.width ?? 860, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let buttons = subviews[2].sizeThatFits(.unspecified).width
+        let middle = min(centre.upperBound, max(centre.lowerBound, bounds.width - 2 * (buttons + spacing)))
+        let side = max(0, (bounds.width - middle) / 2 - spacing)
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
+                          proposal: ProposedViewSize(width: side, height: bounds.height))
+        subviews[1].place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center,
+                          proposal: ProposedViewSize(width: middle, height: bounds.height))
+        subviews[2].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing,
+                          proposal: ProposedViewSize(width: side, height: bounds.height))
     }
 }
 
@@ -162,8 +233,10 @@ enum NowPlayingPanel: String {
 /// centre. The panel you chose is remembered. Esc or a pinch in closes it; the corner button goes full screen.
 struct NowPlayingView: View {
     @Environment(Player.self) private var player
-    @AppStorage("artStrength") private var artStrength = Look.artStrength
     @AppStorage("nowPlayingPanel") private var panelRaw = NowPlayingPanel.upNext.rawValue
+    @AppStorage("nowPlayingBlur") private var surfaceBlur = Look.nowPlayingBlur        // Settings › Appearance › Surfaces › Now Playing
+    @AppStorage("nowPlayingSolid") private var surfaceSolid = Look.nowPlayingSolid
+    @AppStorage("nowPlayingColour") private var colourStrength = Look.nowPlayingColour
     @Environment(ThemeStore.self) private var theme
     @State private var isFullScreen = NSApp.keyWindow?.styleMask.contains(.fullScreen) ?? false
     private var glow: Color? { theme.color(.playing) }    // the light under the artwork: Settings › Colours › Playing song
@@ -172,8 +245,13 @@ struct NowPlayingView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
-                // a thick material hides the screen below; the artwork's wash goes on top of it
-                Backdrop(track: player.current, strength: min(1, artStrength * 1.4), base: AnyShapeStyle(.ultraThickMaterial))
+                // a blur and the window's colour hide the screen below; the artwork's wash goes on top of them
+                ZStack {
+                    SurfaceLayer(blur: surfaceBlur, solid: Look.readable(solid: surfaceSolid, blur: surfaceBlur), blending: .withinWindow)
+                        .selfTestFrame("nowPlaying.surface")
+                    Backdrop(track: player.current, strength: colourStrength)
+                }
+                .ignoresSafeArea()
 
                 if let track = player.current {
                     // the cover gets the height left after the top bar (~84 pt) and the controls under it (~250 pt);
@@ -331,35 +409,80 @@ struct UpNextView: View {
     @Environment(Player.self) private var player
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Up Next").textStyle(.headline).padding(.horizontal, 16).padding(.top, 16)
-            if player.upNext.isEmpty {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Up Next").textStyle(.headline)
+                Spacer()
+                if !player.upNextEntries.isEmpty {
+                    Button("Clear") { withAnimation(.snappy) { player.clearUpNext() } }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Empty Up Next; this song plays on")
+                }
+            }
+            .padding(.horizontal, 16).padding(.top, 16)
+            if player.upNextEntries.isEmpty {
                 Text("Nothing queued. Play a list, or right-click a song → Play Next.")
                     .textStyle(.callout).foregroundStyle(.secondary)
                     .padding(.horizontal, 16).padding(.bottom, 16)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(Array(player.upNext.enumerated()), id: \.offset) { offset, track in
-                            Button { player.jump(to: player.index + 1 + offset) } label: {
-                                HStack(spacing: 10) {
-                                    ArtworkView(url: track.image, size: 36, radius: 6)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(track.title).textStyle(.callout).lineLimit(1)
-                                        Text(track.artistLine).textStyle(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                    Spacer()
-                                }
-                                .padding(.horizontal, 10).padding(.vertical, 4)
-                                .contentShape(.rect)
-                            }
-                            .buttonStyle(.plain)
+                // a List, for drag to reorder; each row is an entry (a song queued twice is two rows)
+                List {
+                    ForEach(Array(player.upNextEntries.enumerated()), id: \.element.id) { offset, entry in
+                        UpNextRow(track: entry.track) {
+                            player.jump(to: player.index + 1 + offset)
+                        } remove: {
+                            withAnimation(.snappy) { player.removeFromUpNext(at: offset) }
                         }
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
                     }
-                    .padding(.horizontal, 6).padding(.bottom, 10)
+                    .onMove { player.moveUpNext(fromOffsets: $0, toOffset: $1) }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .animation(.snappy(duration: 0.3), value: player.upNextEntries.map(\.id))
+                .padding(.bottom, 8)
             }
         }
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
+    }
+}
+
+/// One song in Up Next: click plays it now; drag to move it; ✕ (on hover) or right-click removes it.
+private struct UpNextRow: View {
+    let track: Track
+    let play: () -> Void
+    let remove: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ArtworkView(url: track.image, size: 36, radius: 6)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(track.title).textStyle(.callout).lineLimit(1)
+                Text(track.artistLine).textStyle(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if hovering {
+                Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
+                    .buttonStyle(.plain)
+                    .help("Remove from Up Next")
+                    .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .background(hovering ? AnyShapeStyle(.primary.opacity(0.06)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 8, style: .continuous))
+        .contentShape(.rect)
+        .onTapGesture(perform: play)
+        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
+        .contextMenu {
+            Button("Play Now", action: play)
+            Button("Remove from Up Next", role: .destructive, action: remove)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Play \(track.title) now")
     }
 }

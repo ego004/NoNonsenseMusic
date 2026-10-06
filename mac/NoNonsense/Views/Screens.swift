@@ -1,13 +1,13 @@
 import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case home, search, liked, recent
+    case home, search, liked, recent, downloads
     var id: String { rawValue }
     var title: String {
-        switch self { case .home: "Home"; case .search: "Search"; case .liked: "Liked Songs"; case .recent: "Recently Played" }
+        switch self { case .home: "Home"; case .search: "Search"; case .liked: "Liked Songs"; case .recent: "Recently Played"; case .downloads: "Downloads" }
     }
     var symbol: String {
-        switch self { case .home: "house"; case .search: "magnifyingglass"; case .liked: "heart"; case .recent: "clock" }
+        switch self { case .home: "house"; case .search: "magnifyingglass"; case .liked: "heart"; case .recent: "clock"; case .downloads: "arrow.down.circle" }
     }
 }
 
@@ -20,19 +20,24 @@ enum Destination: Hashable {
 struct SidebarView: View {
     @Binding var selection: Destination?
     @Environment(LibraryStore.self) private var library
+    @Environment(DownloadStore.self) private var downloads
     @Environment(Player.self) private var player
+    @AppStorage("sidebarBlur") private var sidebarBlur = Look.sidebarBlur      // Settings › Appearance › Surfaces › Sidebar
+    @AppStorage("sidebarSolid") private var sidebarSolid = Look.sidebarSolid
 
     var body: some View {
         List(selection: $selection) {
             ForEach(SidebarItem.allCases) { item in
-                Label(item.title, systemImage: item.symbol)
-                    .badge(item == .liked ? library.liked.count : 0)
+                Label { Text(item.title).selfTestFrame("sidebar.title:\(item.title)") } icon: { Image(systemName: item.symbol).selfTestFrame("sidebar.icon:\(item.title)") }
+                    .badge(item == .liked ? library.liked.count : item == .downloads ? downloads.items.count : 0)
                     // .tag must come last: placed before .badge, the list could not see it and no row was selectable (5 Oct)
                     .tag(Destination.section(item))
             }
             Section {
                 ForEach(library.playlists) { playlist in
-                    Label(playlist.name, systemImage: "music.note.list")
+                    Label { Text(playlist.name).selfTestFrame("sidebar.title:\(playlist.name)") } icon: {
+                        Image(systemName: "music.note.list").selfTestFrame("sidebar.icon:\(playlist.name)")
+                    }
                         .symbolEffect(.bounce, value: playlist.songCount)     // a song just went in here: the icon hops
                         .contextMenu {
                             Button("Play") { Task { await play(playlist, shuffled: false) } }
@@ -45,17 +50,16 @@ struct SidebarView: View {
                 }
                 .onMove { from, to in Task { await library.movePlaylists(from: from, to: to) } }
                 .animation(.snappy(duration: 0.3), value: library.playlists.map(\.id))   // new and deleted playlists slide
-            } header: {
-                HStack {
-                    Text("Playlists")
-                    Spacer()
-                    Button { library.newPlaylistRequest = .init(track: nil) } label: {
-                        Image(systemName: "plus").font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .help("New Playlist (⌘N)")
-                    .accessibilityLabel("New Playlist")
+                // a row, not a + in the header: the header is wider than the rows, so a + there sat outside the
+                // rows' column, against the sidebar's edge (6 Oct). As a row it lines up by construction
+                Button { library.newPlaylistRequest = .init(track: nil) } label: {
+                    Label { Text("New Playlist").selfTestFrame("sidebar.title:New Playlist") } icon: { Image(systemName: "plus").selfTestFrame("sidebar.icon:New Playlist") }
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("New Playlist (⌘N)")
+            } header: {
+                Text("Playlists")
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -65,6 +69,9 @@ struct SidebarView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16).padding(.bottom, 14)
         }
+        // macOS draws the sidebar as a floating glass panel, and SwiftUI cannot change that glass (probed 6 Oct:
+        // NSContainerConcentricGlassEffectView). This frosts and fills over it, inside the panel; 0 / 0 draws nothing.
+        .background { SurfaceLayer(blur: sidebarBlur, solid: sidebarSolid, blending: .behindWindow).ignoresSafeArea() }
     }
 
     /// Play from the sidebar without opening the playlist: load its songs, then play them.
@@ -138,7 +145,7 @@ struct SearchView: View {
         .navigationTitle("Search")
         #if DEBUG
         .onChange(of: showsNoResults, initial: true) { _, now in SelfTest.noResultsShowing = now }
-        .onChange(of: results.count, initial: true) { _, n in SelfTest.searchResultCount = n }
+        .onChange(of: results.count, initial: true) { _, n in SelfTest.searchResultCount = n; SelfTest.searchTop = results.first?.best }
         // a self-test plays the first result exactly as a double-click on its row does
         .onReceive(NotificationCenter.default.publisher(for: .selfTestPlayFirstResult)) { _ in
             if !results.isEmpty { player.play(results, startAt: 0) }
@@ -151,6 +158,7 @@ struct SearchView: View {
             recentRaw = RecentSearches.adding(query, to: recentRaw)
         }
         .onAppear { fieldFocused = true }
+        .onDisappear { Prefetcher.shared.searchChanged([]) }
         // ⌘F from anywhere in the window focuses the bar (an invisible button that only holds the shortcut)
         .background { Button("") { fieldFocused = true }.keyboardShortcut("f", modifiers: .command).hidden() }
     }
@@ -159,7 +167,7 @@ struct SearchView: View {
     private func schedule(_ text: String, delay: Duration) {
         task?.cancel()
         let q = text.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { results = []; sources = []; failed = false; isLoading = false; return }
+        guard !q.isEmpty else { results = []; sources = []; failed = false; isLoading = false; Prefetcher.shared.searchChanged([]); return }
         // loading from the first keystroke, not after the 350 ms pause: "No Results" flashed in that gap (16 of 72
         // samples while typing "arijit", 6 Oct). Only the newest search turns it off: a cancelled one used to, as it died.
         isLoading = true
@@ -174,6 +182,7 @@ struct SearchView: View {
                     results = response.songs.map(Track.init)
                     sources = response.sources
                 }
+                Prefetcher.shared.searchChanged(results.prefix(5).map(\.best))   // the top results start at once if clicked
                 failed = false
             } catch {
                 if !Task.isCancelled { failed = true }
@@ -187,8 +196,16 @@ struct SongListView: View {
     let item: SidebarItem
     @Environment(LibraryStore.self) private var library
     @Environment(Player.self) private var player
+    @Environment(DownloadStore.self) private var downloads
+    @State private var confirmingRemoveAll = false
 
-    private var tracks: [Track] { item == .liked ? library.liked : library.recent }
+    private var tracks: [Track] {
+        switch item {
+        case .liked: library.liked
+        case .downloads: downloads.tracks            // from this Mac: there even with the server off
+        default: library.recent
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -196,7 +213,8 @@ struct SongListView: View {
                 HStack(alignment: .bottom, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(item.title).textStyle(.largeTitle, weight: .bold)
-                        Text("\(tracks.count) songs").textStyle(.body).foregroundStyle(.secondary)
+                        Text(item == .downloads ? "\(tracks.count) songs · \(formatBytes(downloads.totalBytes)) on this Mac" : "\(tracks.count) songs")
+                            .textStyle(.body).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button { player.playInOrder(tracks) } label: { Label("Play", systemImage: "play.fill") }
@@ -205,6 +223,11 @@ struct SongListView: View {
                     Button { player.shufflePlay(tracks) } label: { Label("Shuffle", systemImage: "shuffle") }
                         .buttonStyle(.glass)
                         .disabled(tracks.isEmpty)
+                    if item == .downloads {
+                        Button("Remove All", role: .destructive) { confirmingRemoveAll = true }
+                            .buttonStyle(.glass)
+                            .disabled(tracks.isEmpty)
+                    }
                 }
                 .controlSize(.large)
 
@@ -220,11 +243,21 @@ struct SongListView: View {
         }
         .overlay {
             if tracks.isEmpty {
-                ContentUnavailableView(item == .liked ? "No liked songs yet" : "Nothing played yet",
-                                       systemImage: item.symbol,
-                                       description: Text(item == .liked ? "Tap ♥ on any song to keep it here."
-                                                                       : "Songs you play show up here."))
+                switch item {
+                case .liked:
+                    ContentUnavailableView("No liked songs yet", systemImage: item.symbol, description: Text("Tap ♥ on any song to keep it here."))
+                case .downloads:
+                    ContentUnavailableView("Nothing downloaded yet", systemImage: item.symbol,
+                                           description: Text("Right-click a song › Download, or a playlist's ⋯ › Download Playlist. Downloads play without the server or the internet."))
+                default:
+                    ContentUnavailableView("Nothing played yet", systemImage: item.symbol, description: Text("Songs you play show up here."))
+                }
             }
+        }
+        .confirmationDialog("Remove all \(tracks.count) downloads?", isPresented: $confirmingRemoveAll) {
+            Button("Remove All", role: .destructive) { downloads.removeAll() }
+        } message: {
+            Text("They stay in your library and still play from the internet.")
         }
         .navigationTitle(item.title)
         .task { await library.refresh() }

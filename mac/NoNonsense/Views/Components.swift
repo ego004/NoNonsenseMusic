@@ -185,14 +185,16 @@ struct ProgressBar: View {
 
 /// The see-through window background: the desktop behind the window shows through, blurred. AppKit's
 /// behind-window blur, the mechanism Finder's sidebar uses. macOS makes it opaque when Reduce Transparency is on.
+/// `.withinWindow` blurs the app's own content under the view instead (the player bar over a list).
 struct WindowBlur: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .underWindowBackground
     var amount: Double = 1                     // 0 = no blur (the desktop shows sharp), 1 = fully frosted
+    var blending: NSVisualEffectView.BlendingMode = .behindWindow   // sample what is behind the window, not what is inside it
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
-        view.blendingMode = .behindWindow      // sample what is behind the window, not what is inside it
+        view.blendingMode = blending
         view.state = .active                   // stay see-through when the window is not in front
         view.alphaValue = amount
         return view
@@ -200,7 +202,36 @@ struct WindowBlur: NSViewRepresentable {
 
     func updateNSView(_ view: NSVisualEffectView, context: Context) {
         view.material = material
+        view.blendingMode = blending
         view.alphaValue = amount
+    }
+}
+
+/// One surface's background (Settings › Appearance › Surfaces): a blur, and over it the window's own colour.
+/// Both at 0 draw nothing at all, so a surface left at 0 / 0 looks exactly as it did before the setting existed.
+struct SurfaceLayer: View {
+    var blur: Double                           // 0 = clear, 1 = fully frosted
+    var solid: Double                          // 0 = see-through, 1 = the window's colour, opaque
+    var blending: NSVisualEffectView.BlendingMode = .withinWindow
+
+    var body: some View {
+        ZStack {
+            if blur > 0.001 { WindowBlur(amount: blur, blending: blending) }
+            if solid > 0.001 { Color(nsColor: .windowBackgroundColor).opacity(solid) }
+        }
+    }
+}
+
+extension View {
+    /// Debug builds: records where this view is, in window points, under `name` (SelfTest.frames). Self-tests
+    /// measure layout with it: pictures cannot draw lists or glass, and SwiftUI shows an in-app accessibility
+    /// walk nothing (6 Oct). Release builds: nothing.
+    func selfTestFrame(_ name: String) -> some View {
+        #if DEBUG
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { SelfTest.frames[name] = $0 }
+        #else
+        self
+        #endif
     }
 }
 
@@ -221,6 +252,7 @@ struct ClearWindow: NSViewRepresentable {
 /// Mute button and slider. The speaker's waves follow the level (an SF Symbols "variable value").
 struct VolumeControl: View {
     var width: CGFloat = 84
+    var slider = true                          // false: the speaker alone (a narrow player bar)
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
     @AppStorage("haptics") private var haptics = true
@@ -238,6 +270,7 @@ struct VolumeControl: View {
             .help(player.isMuted ? "Unmute" : "Mute")
             .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
 
+            if slider {
             Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }), in: 0...1)
                 .controlSize(.small)
                 .tint(theme.color(.volume))                    // Settings › Colours › Volume
@@ -245,6 +278,7 @@ struct VolumeControl: View {
                 .sensoryFeedback(.levelChange, trigger: Int((player.volume * 10).rounded())) { _, _ in haptics }   // a tick every 10%
                 .help("Volume (⌘↑ / ⌘↓)")
                 .accessibilityLabel("Volume")
+            }
         }
     }
 }

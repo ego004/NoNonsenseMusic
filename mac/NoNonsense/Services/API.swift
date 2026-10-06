@@ -55,8 +55,17 @@ enum API {
 
     /// Ask the server to resolve a listing's audio URL in advance, without downloading any audio:
     /// the redirect is not followed. Pays off once the server caches URLs; MUS-1 replaces it with a prefetch request.
-    static func warm(_ listing: Listing) async {
-        _ = try? await noRedirect.data(from: playURL(listing))
+    private struct PrefetchItem: Encodable {
+        let source: String
+        let sourceID: String
+        enum CodingKeys: String, CodingKey { case source; case sourceID = "source_id" }
+    }
+    private struct PrefetchBody: Encodable { let listings: [PrefetchItem] }
+
+    /// `POST /prefetch`: these listings come next. The server answers 202 at once and looks them up in the background.
+    static func prefetch(_ listings: [Listing]) async throws {
+        let items = listings.prefix(50).map { PrefetchItem(source: $0.source, sourceID: $0.id) }   // the server's maximum
+        try await sendNoContent("POST", path: "prefetch", body: PrefetchBody(listings: Array(items)))
     }
 
     private static let noRedirect = URLSession(configuration: .default, delegate: StopRedirects(), delegateQueue: nil)
@@ -190,7 +199,7 @@ private extension UUID {
     var path: String { uuidString.lowercased() }
 }
 
-/// Makes a URLSession stop at a redirect instead of following it (used by `API.warm`).
+/// Makes a URLSession stop at a redirect instead of following it (used by `API.refresh`).
 /// Top-level and callback-style: a nested class with an `async` version of this method crashed the Swift 6.4 compiler.
 nonisolated final class StopRedirects: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,

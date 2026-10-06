@@ -6,6 +6,7 @@ struct PlaylistView: View {
     let id: UUID
     @Environment(LibraryStore.self) private var library
     @Environment(Player.self) private var player
+    @Environment(DownloadStore.self) private var downloads
     @State private var gone = false
 
     private var detail: PlaylistDetail? { library.details[id] }
@@ -87,6 +88,9 @@ struct PlaylistView: View {
                     .buttonStyle(.glass)
                     .disabled(tracks.isEmpty)
                     Menu {
+                        Button("Download Playlist") { Task { await downloads.download(all: tracks, name: detail.name) } }
+                            .disabled(tracks.isEmpty)
+                        Divider()
                         Button("Rename…") { library.renameRequest = detail.summary }
                         Button("Delete…", role: .destructive) { library.deleteRequest = detail.summary }
                     } label: {

@@ -15,6 +15,7 @@ struct SongRow: View {
     @Environment(Player.self) private var player
     @Environment(LibraryStore.self) private var library
     @Environment(ThemeStore.self) private var theme
+    @Environment(DownloadStore.self) private var downloads
     @State private var hovering = false
     @State private var expanded = false
 
@@ -69,7 +70,15 @@ struct SongRow: View {
                     .textStyle(.body, weight: .medium)
                     .foregroundStyle(isCurrent ? highlight : AnyShapeStyle(.primary))
                     .lineLimit(1)
-                Text(track.artistLine).textStyle(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 5) {
+                    if downloads.isDownloading(track) {
+                        ProgressView().controlSize(.mini)
+                    } else if downloads.isDownloaded(track) {
+                        Image(systemName: "arrow.down.circle.fill").font(.caption).foregroundStyle(.secondary)
+                            .help("Downloaded: plays without the server or the internet")
+                    }
+                    Text(track.artistLine).textStyle(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
 
             Spacer(minLength: 12)
@@ -112,6 +121,13 @@ struct SongRow: View {
             Divider()
             Button(library.isLiked(track) ? "Remove from Liked" : "Like") { Task { await library.toggleLike(track) } }
             AddToPlaylistMenu(track: track)
+            if downloads.isDownloading(track) {
+                Button("Downloading…") {}.disabled(true)
+            } else if downloads.isDownloaded(track) {
+                Button("Remove Download") { downloads.remove(track) }
+            } else {
+                Button("Download") { Task { await downloads.download(track) } }
+            }
             if let remove {
                 Divider()
                 Button(removeLabel, role: .destructive, action: remove)
