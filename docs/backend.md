@@ -57,10 +57,11 @@ Files, in the order a request touches them:
 - **How:** runs `search_one` for every source at the same time (`asyncio.gather`), then `rank_songs`.
 - **Called by:** the app (`API.search`).
 
-### `play(source, song_id)` — `GET /play/{source}/{song_id}`
+### `play(source, source_id)` — `GET /play/{source}/{source_id}`
+- **`source_id`:** the source's own id for the listing (`fW-Mxsnu`, a YouTube video id), not our song UUID. Renamed from `song_id` on 6 Oct; the URL is unchanged.
 - **Does:** finds the audio file for one listing.
 - **Returns:** a 307 redirect to the audio URL. 404 if the song does not exist. 502 if the source is down. 422 if `source` is unknown.
-- **How:** `SOURCES[source].get_song_url(song_id)`. Translates `SongNotFound` → 404 and `SourceUnavailable` → 502.
+- **How:** `SOURCES[source].get_song_url(source_id)`. Translates `SongNotFound` → 404 and `SourceUnavailable` → 502.
 - **Called by:** the app's player (AVPlayer follows the redirect).
 
 ### `like_song(body, request)` — `POST /liked`
@@ -89,6 +90,26 @@ Files, in the order a request touches them:
 - **Called by:** the app's player on every start, skip and finish.
 
 ---
+
+### Playlists (MUS-2) — `/playlists`
+
+Every id is a UUID: a malformed one is 422 (FastAPI), an unknown one is 404 (ours).
+
+| Endpoint | Body | Reply | Errors |
+|---|---|---|---|
+| `POST /playlists` | `PlaylistRequest` `{name}` | 201 · `PlaylistMetadata`, at the bottom of your list | 409 name taken, 422 empty |
+| `GET /playlists` | — | `PlaylistsResponse`, in your order | — |
+| `GET /playlists/{playlist_id}` | — | `PlaylistItems`: the metadata + `items`, in order | 404 |
+| `PATCH /playlists/{playlist_id}` | `PlaylistRequest` | `PlaylistMetadata` (renamed) | 404, 409, 422 |
+| `DELETE /playlists/{playlist_id}` | — | 204. Its items go (`ON DELETE CASCADE`), the songs stay | 404 |
+| `POST /playlists/{playlist_id}/items` | `ListingsRequest` | 201 · `PlaylistItemRef` `{item_id, song_id}`, at the bottom | 404, 422 |
+| `DELETE /playlists/{playlist_id}/items/{item_id}` | — | 204 | 404 (also for an item of another playlist) |
+| `POST /playlists/{playlist_id}/items/{item_id}/move` | `MoveRequest` | 204. Exactly one row changes | 404 item/neighbour not in this playlist, 422 wrong order or own neighbour |
+| `POST /playlists/{playlist_id}/move` | `MoveRequest` (neighbours are playlist ids) | 204. Exactly one row changes | 404, 422 |
+
+- **Add** runs `resolve_song` and the insert in one transaction: a 404 also undoes the song it stored, and it is the fastest of the three ways measured (0.49 ms vs 0.52 ms per add, 6 Oct).
+- **Errors from the database are the judge:** a taken name is a `UniqueViolation` (409), an unknown playlist on add is a `ForeignKeyViolation` (404). No check-then-insert, so two requests at once cannot both pass a check.
+- **Move:** `MoveRequest` names the new neighbours, `top_neighbour_id` (above) and `bottom_neighbour_id` (below); either may be `null` (the top or the bottom of the list). Both `null` changes nothing (204).
 
 ## models.py
 
@@ -260,6 +281,17 @@ Every source module offers the same two functions, and reports failures with the
 - **How:** **one** query loads the listings of all the songs (`song_id = ANY(...)`), groups them by `song_id` in a dict, and shows each song through `pick_best`. One query for all songs, not one per song (this avoids the "N+1 query" problem).
 
 ---
+
+### Playlists (MUS-2)
+- **Positions:** `fractional-indexing` keys in `position text COLLATE "C"` (`a0`, `a1`, `a0V` between them, `Zz` before `a0`). A new playlist or song goes after the largest key so far. A move computes one key between the new neighbours, so one row changes.
+- `create_playlist(conn, name)` → the new id. A taken name raises `UniqueViolation`.
+- `get_playlists(conn)` → every `PlaylistMetadata`, in your order: one query for the list, then `_totals` per playlist (1 + N queries).
+- `_totals(conn, playlist_id)` → `{"song_count", "duration"}`. `COALESCE`: an empty playlist's `SUM` is `NULL`.
+- `get_playlist_metadata(conn, playlist_id)` → one `PlaylistMetadata`, or `None` (the 404).
+- `get_playlist_items(conn, playlist_id)` → the `PlaylistItem`s in order: one row per item (a song added twice is two items), `ORDER BY position, id` (the UUIDv7 id breaks ties), songs built by `_with_listings`.
+- `add_to_playlist(conn, playlist_id, song_id)` → the new item id. An unknown playlist raises `ForeignKeyViolation`.
+- `rename_playlist`, `delete_playlist`, `remove_from_playlist` → `True` if a row changed (`rowcount`). Remove matches the item **and** the playlist.
+- `move_item(conn, playlist_id, item_id, top_id, bottom_id)`, `move_playlist(conn, playlist_id, top_id, bottom_id)` → read the positions of the row and its neighbours, then `_move`: raises `NotInList` (404) if one is missing, `BadMove` (422) for a row named as its own neighbour or neighbours in the wrong order (`FIError`), else updates one row.
 
 ## db.py
 
