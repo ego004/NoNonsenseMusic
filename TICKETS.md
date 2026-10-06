@@ -13,12 +13,12 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 > **Renumbered 5 Oct 2026.** Done and removed: resilient search, play, merge + rank, library, shuffle, and the Mac app v1. Git history and old commit messages use the old numbers. Old → new: 16 → 1 (and 4), 15 → 2, 8 → 3, 5 → 5, 9 → 6, 10 → 7, 6 + 11 → 8, 12 → 9, 13 → 10, 14 → 11.
 
-> **Order (decided 5 Oct 2026):** MUS-2 playlists → MUS-1 steps 2, 2b, 3 (single-flight, back-off, prefetch) → MUS-3 autoplay → MUS-13 YouTube. Then lyrics and the rest.
+> **Order (decided 5 Oct, updated 6 Oct 2026):** ~~MUS-2 playlists~~ ✅ → MUS-1 steps 2, 2b, 3 (single-flight, back-off, prefetch) → a personal score for search (to discuss) → MUS-3 autoplay → MUS-13 YouTube. MUS-14 covers whenever you want a contained evening. Then lyrics and the rest.
 
 | Ticket | What you can show at the end | Who | Size |
 |---|---|---|---|
 | MUS-1 | A YouTube song starts instantly the second time, and the next song is ready before you get there | **You** (backend) · Claude (app, tests after) | M |
-| MUS-2 | Playlists: make, fill, reorder, cover image | **You** (backend) · Claude (app) | L |
+| MUS-2 ✅ | Playlists: make, fill, reorder (done 6 Oct; covers moved to MUS-14) | **You** (backend) · Claude (app) | L |
 | MUS-3 | When the queue ends, music keeps going, shaped by your skips | **You** (ranking, endpoint) · Claude (radio parser, app) | M |
 | MUS-4 | Choose JioSaavn or YouTube Music as the default copy | **You** | S |
 | MUS-5 | Your Spotify liked songs and playlists appear in your library | **You** (OAuth, API) · Claude (setup) | M |
@@ -30,6 +30,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 | MUS-11 | Your own "people who played X played Y" model, beating or losing to YouTube radio on your skip rate | **Pair** | L |
 | MUS-12 | Lyrics in Now Playing, lit line by line in time with the song | **You** (backend) · Claude (app) | M |
 | MUS-13 | Songs that exist only on plain YouTube, found with a "Search YouTube" switch | **You** (backend) · Claude (app) | M |
+| MUS-14 | Playlist covers: upload an image, checked and cleaned, served with a URL that changes when it does | **You** (backend) · Claude (app, tests) | S |
 
 ---
 
@@ -89,7 +90,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 ---
 
-## MUS-2 · Playlists
+## MUS-2 · Playlists ✅ (steps 1–4, 6 Oct 2026; step 5 is now MUS-14)
 
 **Goal:** playlists you can create, fill, order, rename and delete. A cover image comes last.
 
@@ -207,7 +208,7 @@ The same logic twice: songs in a playlist, and playlists in the list. Write it f
 
 **Done when:** songs A B C. Move C with `bottom_neighbour_id` = A and no top: the order is C A B, and one row changed.
 
-### Step 5 · Cover image (after the app work)
+### Step 5 · Cover image → moved to MUS-14 (below)
 
 - `GET` / `POST` / `DELETE /playlists/{playlist_id}/thumbnail`. `thumbnail` in `PlaylistMetadata` becomes that URL. `null` means no cover: the app draws a 2×2 grid of the first four songs.
 - Safety: open the upload with Pillow and save it again as JPEG (this rejects non-images and removes EXIF/GPS). Reject files over 5 MB. Never use the uploaded filename.
@@ -220,6 +221,28 @@ The same logic twice: songs in a playlist, and playlists in the list. Write it f
 Claude writes the pytest tests (against `music_test`). The app work (sidebar, playlist screen, "Add to playlist", drag to reorder) starts after step 2, when you say.
 
 **Docs:** [fractional-indexing](https://github.com/httpie/fractional-indexing-python) · FastAPI [path parameters](https://fastapi.tiangolo.com/tutorial/path-params/) · FastAPI [Request Files](https://fastapi.tiangolo.com/tutorial/request-files/) · [Pillow](https://pillow.readthedocs.io/en/stable/reference/Image.html)
+
+---
+
+## MUS-14 · Playlist covers
+
+**Problem:** a playlist's cover is its first four songs' covers in a 2×2 grid (or a coloured gradient when empty). You want to choose your own image.
+
+**Deliverables**
+- `POST /playlists/{playlist_id}/thumbnail` (upload), `GET` (serve), `DELETE` (back to the grid).
+- `thumbnail` in `PlaylistMetadata`: the cover's URL, or `null` for no cover.
+- The app (Claude): "Choose Image…" in the playlist's ⋯ menu and dropping an image on the cover.
+
+**Facts already decided**
+- Open the upload with Pillow and save it again as JPEG: this rejects files that are not images and removes EXIF/GPS. Reject files over 5 MB. Never use the uploaded filename.
+- The app caches images by URL: the URL must change when the cover changes (`…/thumbnail?v=<upload time>`).
+- New packages: `python-multipart` (FastAPI cannot read uploads without it) and `Pillow`.
+
+**Decisions that are yours**
+- Where the images live: a folder on disk (path in `playlists.image`, the column exists; the folder must be git-ignored, the repo is public) or the bytes in the database.
+- How big the stored image is (the app shows covers at up to ~640 pt).
+
+**Done when:** a text file renamed `.jpg` is rejected; a phone photo comes back without EXIF; a new cover has a new URL; deleting it brings the grid back. Claude writes the tests.
 
 ---
 
