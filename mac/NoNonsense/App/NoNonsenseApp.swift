@@ -5,7 +5,7 @@ struct NoNonsenseApp: App {
     @State private var library: LibraryStore
     @State private var presence: Presence
     @State private var player: Player
-    @State private var server = ServerLauncher()
+    @State private var server = ServerLauncher.shared
     @State private var theme = ThemeStore()
     @AppStorage("appearance") private var appearance = Appearance.system
 
@@ -36,6 +36,13 @@ struct NoNonsenseApp: App {
                     SelfTest.runPresenceCheckIfAsked(presence: presence)
                     SelfTest.runThemeCheckIfAsked(theme: theme)
                     SelfTest.runLikeCheckIfAsked()
+                    SelfTest.runSearchCheckIfAsked(player: player)
+                    SelfTest.runQueueCheckIfAsked()
+                    SelfTest.runPlaylistCheckIfAsked(library: library, player: player)
+                    SelfTest.runHomeCheckIfAsked(library: library, player: player)
+                    SelfTest.runNowPlayingCheckIfAsked(library: library, player: player, theme: theme)
+                    SelfTest.runSizesCheckIfAsked()
+                    SelfTest.runIdleIfAsked(player: player)
                     #endif
                 }
         }
@@ -61,10 +68,21 @@ struct PlaybackCommands: Commands {
     let library: LibraryStore
 
     var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Playlist…") { library.newPlaylistRequest = .init(track: nil) }
+                .keyboardShortcut("n", modifiers: .command)
+        }
         CommandMenu("Controls") {
             Button(player.isPlaying ? "Pause" : "Play") { player.togglePlayPause() }   // Space: see Player.installKeyMonitor
             Button("Next") { player.next() }.keyboardShortcut(.rightArrow, modifiers: .command)
             Button("Previous") { player.previous() }.keyboardShortcut(.leftArrow, modifiers: .command)
+            Divider()
+            Toggle("Shuffle", isOn: Binding(get: { player.isShuffled }, set: { _ in player.toggleShuffle() }))
+                .keyboardShortcut("s", modifiers: .command)
+            Button("Repeat: \(player.repeatMode.label)") {
+                player.cycleRepeat()
+            }
+            .keyboardShortcut("r", modifiers: .command)
             Divider()
             Button("Volume Up") { player.setVolume(player.volume + 0.1) }.keyboardShortcut(.upArrow, modifiers: .command)
             Button("Volume Down") { player.setVolume(player.volume - 0.1) }.keyboardShortcut(.downArrow, modifiers: .command)

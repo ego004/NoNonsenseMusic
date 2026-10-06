@@ -10,6 +10,8 @@ import SwiftUI
 ///     NN_SELFTEST=/tmp/nn mac/build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense
 enum SelfTest {
     private static var started = false
+    /// Any NN_SELFTEST… variable set: the window shows a "Self-test" label, so it cannot pass for your app.
+    static let isRunning = ProcessInfo.processInfo.environment.keys.contains { $0.hasPrefix("NN_SELFTEST") }
 
     static func runIfAsked() {
         guard !started, let folder = ProcessInfo.processInfo.environment["NN_SELFTEST"] else { return }
@@ -49,6 +51,27 @@ enum SelfTest {
                         try? await Task.sleep(for: .seconds(0.8))
                         report("settings tab now: \(settings.title), \(settings.frame.size)")
                         snapshot(settingsFrame, to: URL(filePath: folder).appending(path: "settings-appearance.png"))
+                        // do sections collapse? count the form's rows with Colours closed, then open (your setting is put back)
+                        @MainActor func rows() -> [Int] { descendants(of: settingsFrame).compactMap { $0 as? NSTableView }.map { $0.numberOfRows } }
+                        let keys = ["settings.open.colours", "settings.open.window", "settings.open.sizes"]
+                        let savedAll = keys.map { UserDefaults.standard.object(forKey: $0) }
+                        let saved = savedAll[0]
+                        UserDefaults.standard.set(false, forKey: "settings.open.colours")
+                        try? await Task.sleep(for: .seconds(0.6))
+                        let closed = rows(), closedHeight = settings.frame.height
+                        UserDefaults.standard.set(true, forKey: "settings.open.colours")
+                        try? await Task.sleep(for: .seconds(0.6))
+                        let open = rows(), openHeight = settings.frame.height
+                        _ = saved
+                        // twice: putting one back can make the page close another section (Colours opens on its own),
+                        // which saves that; the second pass, after the page settles, leaves exactly what was there
+                        for _ in 0..<2 {
+                            for (key, value) in zip(keys, savedAll) {
+                                if let value { UserDefaults.standard.set(value, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) }
+                            }
+                            try? await Task.sleep(for: .seconds(0.4))
+                        }
+                        report("settings: Colours closed: window \(Int(closedHeight)) pt; Colours open: window \(Int(openHeight)) pt (screen: \(Int(settings.screen?.visibleFrame.height ?? 0)) pt usable)\(closed.isEmpty && open.isEmpty ? "" : "; rows \(closed) / \(open)")")
                     }
                 } else {
                     report("settings window did not open")
@@ -92,6 +115,15 @@ enum SelfTest {
     }
 
     private static var startedPlayback = false
+    /// Where the bar's ⏮ ▶ ⏭ are, in window points (PlayerBar sets it): the playback test checks they sit at the bar's centre.
+    static var controlsFrame: CGRect = .zero
+    /// What SearchView draws right now (it sets these): the search check samples them.
+    static var noResultsShowing = false
+    /// How many of each card appeared on screen (debug builds count them in .onAppear): the Home check reports it.
+    static var appeared: [String: Int] = [:]
+    static var searchResultCount = 0
+    /// Where the playlist screen's "No songs yet" sits (PlaylistView sets it): the playlist check measures its centring.
+    static var emptyStateFrame: CGRect = .zero
 
     /// With `NN_SELFTEST_PLAY=1`: plays two songs built to fail, reports the player every second, then quits.
     /// 1. one copy that never plays  -> one serve_fresh retry, then "Couldn't play", then the next song
@@ -126,7 +158,13 @@ enum SelfTest {
             for second in 1...10 {
                 try? await Task.sleep(for: .seconds(1))
                 if second == 4, ProcessInfo.processInfo.environment["NN_SELFTEST_SWIPE"] != nil { swipeTest(player: player) }
-                report("t=\(second)s  song: \(player.current?.title ?? "-")  playing: \(player.isPlaying)  buffering: \(player.isBuffering)  message: \(player.errorMessage ?? "-")")
+                if second == 3 { snap("playing") }
+                if second == 2 {
+                    let bar = player.barFrame, controls = controlsFrame
+                    report(String(format: "centre: bar %.1f (width %.0f), play button %.1f, off by %+.1f pt",
+                                  bar.midX, bar.width, controls.midX, controls.midX - bar.midX))
+                }
+                report("t=\(second)s  song: \(player.current?.title ?? "-")  playing: \(player.isPlaying)  buffering: \(player.isBuffering)  message: \(player.errorMessage ?? "-")  problems (bar shakes): \(player.problems)")
             }
             NSApp.terminate(nil)
         }
@@ -163,6 +201,9 @@ enum SelfTest {
     /// playing and paused in each mode. Your own "when paused" choice is put back afterwards.
     static func runPresenceCheckIfAsked(presence: Presence) {
         guard ProcessInfo.processInfo.environment["NN_SELFTEST_PRESENCE"] != nil else { return }
+        // the switches save themselves into YOUR settings: remember which were never set, and unset them again after
+        let touched = ["discordWhenPaused", "discordSharePlaylist"]
+        let before = touched.map { UserDefaults.standard.object(forKey: $0) }
         let original = presence.whenPaused
         let track = Track(best: Listing(source: "jiosaavn", id: "t", title: "Blinding Lights", artists: ["The Weeknd"],
                                         album: "After Hours", duration: 200, popularity: nil, image: "https://example.com/cover.jpg"), listings: [])
@@ -179,6 +220,13 @@ enum SelfTest {
             report("paused, \(mode.padding(toLength: 8, withPad: " ", startingAt: 0))  -> " + describe(presence.activity(for: track, isPlaying: false, position: 30)))
         }
         presence.whenPaused = original
+        let wasSharing = presence.sharePlaylist
+        for on in [false, true] {
+            presence.sharePlaylist = on
+            report("from a playlist, playlist name \(on ? "on " : "off") -> " + describe(presence.activity(for: track, isPlaying: true, position: 30, playlist: "Gym")))
+        }
+        presence.sharePlaylist = wasSharing
+        for (key, value) in zip(touched, before) where value == nil { UserDefaults.standard.removeObject(forKey: key) }
         // listing order: the default copy sits in the middle of what the server sent
         func listing(_ source: String, _ id: String, _ popularity: Int) -> Listing {
             Listing(source: source, id: id, title: "T", artists: ["A"], album: nil, duration: 200, popularity: popularity, image: nil)
@@ -231,6 +279,367 @@ enum SelfTest {
         }
     }
 
+    /// With `NN_SELFTEST_SEARCH="<query>"`: types the query into the search bar one letter every 120 ms (like a person),
+    /// samples the window every 50 ms until 3 s after the last letter, and reports how often the "No Results" screen
+    /// showed and whether results arrived. One real search goes out: the debounce cancels the partial ones.
+    static func runSearchCheckIfAsked(player: Player) {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_SEARCH"] else { return }
+        // the rules of recent searches, on their own
+        var raw = RecentSearches.adding("Arijit", to: "")
+        raw = RecentSearches.adding("tum hi ho", to: raw)
+        raw = RecentSearches.adding("ARIJIT", to: raw)
+        report("search \(RecentSearches.list(raw) == ["ARIJIT", "tum hi ho"] ? "PASS" : "FAIL") recent searches: newest first, other capitals count once (got \(RecentSearches.list(raw)))")
+        for n in 0..<20 { raw = RecentSearches.adding("q\(n)", to: raw) }
+        report("search \(RecentSearches.list(raw).count == 12 && RecentSearches.list(raw).first == "q19" ? "PASS" : "FAIL") recent searches: at most 12")
+        report("search \(!RecentSearches.list(RecentSearches.removing("q19", from: raw)).contains("q19") ? "PASS" : "FAIL") recent searches: remove one")
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.search))   // the app opens on Home
+            try? await Task.sleep(for: .seconds(1))
+            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+                  let root = window.contentView?.superview,
+                  let field = descendants(of: root).compactMap({ $0 as? NSTextField })
+                      .first(where: { $0.placeholderString == "Songs, artists, albums" })
+            else { report("search: no search field"); NSApp.terminate(nil); return }
+
+            var samples = 0, noResults = 0, firstSeen: String?
+            @MainActor func sample(_ moment: String) {
+                samples += 1
+                if noResultsShowing {
+                    noResults += 1
+                    if firstSeen == nil { firstSeen = moment }
+                }
+            }
+            for n in 1...query.count {                         // type it: SwiftUI updates its binding from the delegate call
+                field.stringValue = String(query.prefix(n))
+                (field.delegate as? NSTextFieldDelegate)?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: field))
+                for _ in 0..<2 { try? await Task.sleep(for: .milliseconds(60)); sample("after typing \"\(query.prefix(n))\"") }
+            }
+            for i in 0..<60 { try? await Task.sleep(for: .milliseconds(50)); sample(String(format: "%.2f s after the last letter", Double(i + 1) * 0.05)) }
+            let rows = searchResultCount
+            report("search: \"No Results\" showed in \(noResults) of \(samples) samples\(firstSeen.map { ", first \($0)" } ?? ""); result rows at the end: \(rows)")
+            // play the first result (muted): the search should now be a recent search. Yours are put back after.
+            let savedRecent = UserDefaults.standard.object(forKey: "recentSearches")
+            UserDefaults.standard.removeObject(forKey: "recentSearches")
+            if API.baseURL.port != 8000 {
+                if !player.isMuted { player.toggleMute() }
+                NotificationCenter.default.post(name: .selfTestPlayFirstResult, object: nil)   // as a double-click on the first row
+                try? await Task.sleep(for: .seconds(1))
+                let recent = RecentSearches.list(UserDefaults.standard.string(forKey: "recentSearches") ?? "")
+                report("search \(recent == [query] ? "PASS" : "FAIL") playing a result makes the search recent (got \(recent))")
+            }
+            if let savedRecent { UserDefaults.standard.set(savedRecent, forKey: "recentSearches") } else { UserDefaults.standard.removeObject(forKey: "recentSearches") }
+            NSApp.terminate(nil)
+        }
+    }
+
+
+    /// With `NN_SELFTEST_QUEUE=1`: checks every PlayQueue rule (shuffle, repeat, play next, a playlist's edits
+    /// reaching its queue) on made-up songs, prints PASS/FAIL per rule, then quits. Plays no audio.
+    static func runQueueCheckIfAsked() {
+        guard ProcessInfo.processInfo.environment["NN_SELFTEST_QUEUE"] != nil else { return }
+        func song(_ name: String, by artist: String = "") -> Track {
+            Track(best: Listing(source: "jiosaavn", id: "selftest-\(name)", title: name, artists: [artist.isEmpty ? "Artist \(name)" : artist],
+                                album: nil, duration: 200, popularity: nil, image: nil), listings: [])
+        }
+        let abcde = ["a", "b", "c", "d", "e"].map { song($0) }
+        let keys = ["k-a", "k-b", "k-c", "k-d", "k-e"]
+        func names(_ q: PlayQueue) -> String { q.tracks.map(\.title).joined() }
+        var failures = 0
+        func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+            if !ok { failures += 1 }
+            report("queue \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+        }
+
+        var q = PlayQueue()
+        q.load(abcde, startAt: 0, shuffled: false)
+        q.move(to: 4)
+        check("repeat off: the end stops", q.indexAfterEnd() == nil && q.indexAfterNext() == nil)
+        q.repeatMode = .all
+        check("repeat all: the end starts over", q.indexAfterEnd() == 0 && q.indexAfterNext() == 0)
+        q.repeatMode = .one
+        check("repeat one: a song that ends plays again", q.indexAfterEnd() == 4)
+        check("repeat one: ⏭ still moves on", q.indexAfterNext() == 0)
+        q.move(to: 0); q.repeatMode = .off
+        check("⏮ on the first song, repeat off: nowhere to go", q.indexAfterPrevious() == nil)
+        q.repeatMode = .all
+        check("⏮ on the first song, repeat all: the last song", q.indexAfterPrevious() == 4)
+        check("repeat steps off → all → one → off", PlayQueue.Repeat.off.next == .all && PlayQueue.Repeat.all.next == .one && PlayQueue.Repeat.one.next == .off)
+
+        q = PlayQueue(); q.load(abcde, startAt: 2, shuffled: false)
+        q.setShuffle(true)
+        check("shuffle on: played songs and the current one stay", names(q).hasPrefix("abc") && q.index == 2, names(q))
+        check("shuffle on: the rest are the same songs", Set(names(q).dropFirst(3)) == Set("de"), names(q))
+        q.setShuffle(false)
+        check("shuffle off: your order again, on the same song", names(q) == "abcde" && q.current?.title == "c", names(q))
+
+        var shuffledLoad = PlayQueue(); shuffledLoad.load(abcde, startAt: 3, shuffled: true)
+        check("a new queue with shuffle on: your song first, every other song after", shuffledLoad.current?.title == "d" && shuffledLoad.index == 0 && Set(names(shuffledLoad)) == Set("abcde"), names(shuffledLoad))
+        var spread = PlayQueue()
+        let twoArtists = (0..<10).map { song("x\($0)", by: $0 < 5 ? "One" : "Two") }
+        var clumped = 0
+        for _ in 0..<200 {
+            spread.load(twoArtists, startAt: 0, shuffled: true)
+            let artists = spread.tracks.map { $0.artists[0] }
+            clumped += zip(artists, artists.dropFirst()).filter { $0 == $1 }.count
+        }
+        check("shuffle spreads each artist out (same artist back to back: \(String(format: "%.1f", Double(clumped) / 200)) of 9 per queue; random would be ~4)", Double(clumped) / 200 < 3)
+
+        q = PlayQueue(); q.load(abcde, startAt: 1, shuffled: false)
+        q.insertNext(song("X"))
+        check("play next: right after the current song", names(q) == "abXcde", names(q))
+        q.setShuffle(true); q.setShuffle(false)
+        check("play next: still after it once shuffle is off again", names(q) == "abXcde", names(q))
+
+        q = PlayQueue(); q.load(abcde, startAt: 0, keys: keys, source: "playlist:1", shuffled: false)
+        let item = { (k: String) in (key: k, track: abcde[keys.firstIndex(of: k)!]) }
+        q.sync(source: "playlist:1", items: ["k-a", "k-d", "k-b", "k-c", "k-e"].map(item))
+        check("your case: abcde → adbce while a plays, d is next", names(q) == "adbce" && q.current?.title == "a" && q.upNext.first?.title == "d", names(q))
+        q.sync(source: "playlist:1", items: ["k-d", "k-b", "k-a", "k-c", "k-e"].map(item))
+        check("moving the playing song: it plays on, and the next one follows its new place", names(q) == "dbace" && q.current?.title == "a" && q.upNext.first?.title == "c", names(q))
+        q.sync(source: "playlist:1", items: ["k-d", "k-b", "k-a", "k-e"].map(item))
+        check("removing a song that has not played: it leaves the queue", names(q) == "dbae", names(q))
+        q.sync(source: "playlist:1", items: ["k-d", "k-b", "k-e"].map(item))
+        check("removing the playing song: it plays on", names(q) == "dbae" && q.current?.title == "a", names(q))
+        q.sync(source: "playlist:1", items: ["k-d", "k-b", "k-e"].map(item) + [(key: "k-f", track: song("f"))])
+        check("adding a song: it joins the queue", names(q).contains("f") && q.current?.title == "a", names(q))
+        let before = names(q)
+        q.sync(source: "playlist:2", items: [item("k-e")])
+        check("another playlist's edit: this queue does not change", names(q) == before, names(q))
+
+        let twice = song("t")
+        q = PlayQueue(); q.load([abcde[0], twice, abcde[1], twice], startAt: 0, keys: ["i1", "i2", "i3", "i4"], source: "playlist:3", shuffled: false)
+        q.sync(source: "playlist:3", items: [(key: "i1", track: abcde[0]), (key: "i3", track: abcde[1]), (key: "i4", track: twice)])
+        check("a song in twice: removing one copy keeps the other", names(q) == "abt", names(q))
+
+        report("queue: \(failures == 0 ? "all rules pass" : "\(failures) FAILED")")
+        NSApp.terminate(nil)
+    }
+
+    /// With `NN_SELFTEST_PLAYLISTS="<search>"` (and a test server: `-serverURL http://127.0.0.1:8765`,
+    /// `DATABASE_URL=postgresql:///music_test`): the whole playlist flow through LibraryStore and the Player, checking
+    /// the app, the server and the playing queue agree at each step. Muted; one real search; snapshots with NN_SELFTEST_SNAP.
+    static func runPlaylistCheckIfAsked(library: LibraryStore, player: Player) {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_PLAYLISTS"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard API.baseURL.port != 8000 else { report("playlists: refusing to run against your own server (port 8000)"); NSApp.terminate(nil); return }
+            if !player.isMuted { player.toggleMute() }
+            // Play and Shuffle remember shuffle in YOUR settings (a test window shares them): put it back before quitting
+            let savedShuffle = UserDefaults.standard.object(forKey: "shuffle")
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("playlists \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            @MainActor func titles(_ tracks: [Track]) -> [String] { tracks.map(\.title) }
+
+            let name = "Self-test \(Int.random(in: 1000...9999))"
+            check("create", await library.createPlaylist(named: name) == nil)
+            guard let summary = library.playlists.first(where: { $0.name == name }) else { report("playlists: not in the list"); NSApp.terminate(nil); return }
+            let again = await library.createPlaylist(named: name)
+            check("the same name again: the server's reason comes back", again == "A playlist with this name already exists", again ?? "nil")
+
+            // the empty playlist first: is "No songs yet" centred in the screen beside the sidebar?
+            NotificationCenter.default.post(name: .selfTestOpen, object: summary.id)
+            try? await Task.sleep(for: .seconds(1.5))
+            if let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) {
+                let empty = emptyStateFrame
+                let sidebarWidth = descendants(of: window.contentView!).compactMap { $0 as? NSTableView }.map(\.frame.width).min() ?? 0
+                let detailMid = sidebarWidth + (window.frame.width - sidebarWidth) / 2
+                report("playlists: \"No songs yet\" centre x \(Int(empty.midX)), screen beside the sidebar centre x \(Int(detailMid)) (sidebar \(Int(sidebarWidth)) pt)")
+                check("\"No songs yet\" is centred (within 30 pt)", abs(empty.midX - detailMid) < 30, "\(Int(empty.midX - detailMid)) pt off")
+            }
+            guard let found = try? await API.search(query) else { report("playlists: search failed"); NSApp.terminate(nil); return }
+            let songs = found.songs.prefix(4).map(Track.init)
+            for song in songs { await library.add(song, to: summary) }
+            check("adding shows ✓ Added to …", library.message == "Added to “\(name)”" && library.messageSymbol == "checkmark.circle.fill", library.message ?? "nil")
+            await library.loadPlaylist(summary.id)
+            guard let detail = library.details[summary.id] else { report("playlists: did not load"); NSApp.terminate(nil); return }
+            check("4 songs, in the order added", titles(detail.tracks) == titles(songs), titles(detail.tracks).joined(separator: " | "))
+            check("the list shows the count", library.playlists.first { $0.id == summary.id }?.songCount == 4)
+
+            NotificationCenter.default.post(name: .selfTestOpen, object: summary.id)
+            player.playInOrder(detail.tracks, keys: detail.keys, source: detail.queueSource)
+            check("Play: the queue is the playlist", titles(player.queue) == titles(detail.tracks))
+            try? await Task.sleep(for: .seconds(3))
+            snap("playlist")
+            // pictures cannot show lists (their table views draw outside both snapshot methods), so count their rows
+            if let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }), let root = window.contentView?.superview {
+                let tables = descendants(of: root).compactMap { $0 as? NSTableView }.map(\.numberOfRows).sorted()
+                report("playlists: table views in the window, rows each: \(tables)")
+                check("the playlist screen has its header and 4 song rows", tables.contains(5), "\(tables)")
+            }
+
+            await library.moveItems(in: summary.id, from: IndexSet([3]), to: 1)          // the 4th song up to 2nd
+            let moved = library.details[summary.id].map { titles($0.tracks) } ?? []
+            let expected = [songs[0], songs[3], songs[1], songs[2]].map(\.title)
+            check("drag the 4th song up: the screen", moved == expected, moved.joined(separator: " | "))
+            check("… the playing queue follows, and the next song is the moved one", titles(player.queue) == expected && player.upNext.first?.title == songs[3].title)
+            await library.loadPlaylist(summary.id)
+            check("… the server agrees", library.details[summary.id].map { titles($0.tracks) } == expected)
+
+            if let entry = library.details[summary.id]?.items.last {
+                await library.remove(entry, from: summary.id)
+            }
+            check("remove the last song: 3 left, and out of the queue", library.details[summary.id]?.items.count == 3 && player.queue.count == 3)
+
+            let renamed = name + " renamed"
+            check("rename", await library.renamePlaylist(summary, to: renamed) == nil && library.playlists.contains { $0.name == renamed })
+            snap("playlist-after")
+
+            if let current = library.playlists.first(where: { $0.id == summary.id }) { await library.deletePlaylist(current) }
+            check("delete: gone from the list", !library.playlists.contains { $0.id == summary.id })
+            check("… and the server says 404", !(await library.loadPlaylist(summary.id)))
+
+            if let savedShuffle { UserDefaults.standard.set(savedShuffle, forKey: "shuffle") } else { UserDefaults.standard.removeObject(forKey: "shuffle") }
+            report("playlists: \(failures == 0 ? "all steps pass" : "\(failures) FAILED")")
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// With `NN_SELFTEST_HOME="<search>"` (test server only): fills the test library (a playlist of 4 songs, 3 liked
+    /// songs), waits on Home, reports what Home holds and snapshots it, then cleans up (unlikes, deletes the playlist).
+    static func runHomeCheckIfAsked(library: LibraryStore, player: Player) {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_HOME"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard API.baseURL.port != 8000 else { report("home: refusing to run against your own server (port 8000)"); NSApp.terminate(nil); return }
+            guard let found = try? await API.search(query) else { report("home: search failed"); NSApp.terminate(nil); return }
+            let songs = found.songs.prefix(6).map(Track.init)
+            let name = "Self-test Mix \(Int.random(in: 100...999))"
+            _ = await library.createPlaylist(named: name)
+            if let playlist = library.playlists.first(where: { $0.name == name }) {
+                for song in songs.prefix(4) { await library.add(song, to: playlist) }
+            }
+            var likedHere: [Track] = []
+            for song in songs.suffix(3) where !library.isLiked(song) { await library.toggleLike(song); likedHere.append(song) }
+            await library.refresh()
+            report("home: recent \(library.recent.count), liked \(library.liked.count), playlists \(library.playlists.count)")
+            try? await Task.sleep(for: .seconds(4))              // covers download, sections fade in
+            snap("home")
+            report("home: on screen: \(appeared.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", "))")
+            // window pictures cannot draw scroll views: draw the cards themselves, off screen, to see their design
+            let sample = VStack(alignment: .leading, spacing: 22) {
+                HStack(alignment: .top, spacing: 20) {
+                    ForEach(Array(library.recent.prefix(3)), id: \.id) { CoverTile(track: $0) {} }
+                    ForEach(library.playlists.prefix(2)) { PlaylistCard(playlist: $0, side: Look.cardSize) {} }
+                    PlaylistCover(images: PlaylistCover.images(of: library.liked + library.recent), size: Look.cardSize, seed: "grid")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(library.liked.prefix(3)), id: \.id) { CompactSongTile(track: $0, width: 300) {} }
+                }
+            }
+            .padding(28)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(library).environment(player)
+            let renderer = ImageRenderer(content: sample)
+            renderer.scale = 2
+            if let folder = ProcessInfo.processInfo.environment["NN_SELFTEST_SNAP"], let image = renderer.nsImage,
+               let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                let url = URL(filePath: folder).appending(path: "home-cards.png")
+                do { try png.write(to: url); report("wrote \(url.path)") } catch { report("could not write \(url.path)") }
+            }
+            if let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) {
+                report("home: window title \(window.title.isEmpty ? "-" : window.title)")
+            }
+            for song in likedHere { await library.toggleLike(song) }
+            if let playlist = library.playlists.first(where: { $0.name == name }) { await library.deletePlaylist(playlist) }
+            report("home: cleaned up")
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// With `NN_SELFTEST_NOWPLAYING="<search>"` (test server only, muted): plays 4 songs, then draws Now Playing off screen
+    /// in each layout (alone, Lyrics, Up Next) into `nowplaying-<layout>.png`. Your remembered layout is put back after.
+    static func runNowPlayingCheckIfAsked(library: LibraryStore, player: Player, theme: ThemeStore) {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_NOWPLAYING"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard API.baseURL.port != 8000 else { report("nowplaying: refusing to run against your own server (port 8000)"); NSApp.terminate(nil); return }
+            if !player.isMuted { player.toggleMute() }
+            guard let found = try? await API.search(query) else { report("nowplaying: search failed"); NSApp.terminate(nil); return }
+            player.play(found.songs.prefix(4).map(Track.init))
+            try? await Task.sleep(for: .seconds(3))                 // the cover downloads
+            // your remembered layout is put back before quitting (a defer would never run: terminate ends the app first)
+            let saved = UserDefaults.standard.string(forKey: "nowPlayingPanel")
+            for panel in [NowPlayingPanel.none, .lyrics, .upNext] {
+                UserDefaults.standard.set(panel.rawValue, forKey: "nowPlayingPanel")
+                let view = NowPlayingView().frame(width: 1200, height: 760)
+                    .environment(player).environment(library).environment(theme)
+                let renderer = ImageRenderer(content: view)
+                renderer.scale = 1
+                if let folder = ProcessInfo.processInfo.environment["NN_SELFTEST_SNAP"], let image = renderer.nsImage,
+                   let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                    let url = URL(filePath: folder).appending(path: "nowplaying-\(panel.rawValue).png")
+                    do { try png.write(to: url); report("wrote \(url.path)") } catch { report("could not write \(url.path)") }
+                }
+            }
+            if let saved { UserDefaults.standard.set(saved, forKey: "nowPlayingPanel") } else { UserDefaults.standard.removeObject(forKey: "nowPlayingPanel") }
+            report("nowplaying: song \(player.current?.title ?? "-"), up next \(player.upNext.count)")
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// With `NN_SELFTEST_SIZES=1`: measures text drawn with `textStyle` at text sizes 0.85, 1 and 1.3, and checks
+    /// scale 1 matches the Mac's own `.font(.body)` exactly. Needs no server.
+    static func runSizesCheckIfAsked() {
+        guard ProcessInfo.processInfo.environment["NN_SELFTEST_SIZES"] != nil else { return }
+        func width(_ view: some View) -> CGFloat { ImageRenderer(content: view.fixedSize()).nsImage?.size.width ?? -1 }
+        let mac = width(Text("Songs, artists, albums").font(.body))
+        let scaled = [0.85, 1.0, 1.3].map { s in width(Text("Songs, artists, albums").textStyle(.body).environment(\.textScale, s)) }
+        report("sizes: .font(.body) \(Int(mac)) pt; textStyle(.body) at 0.85 / 1 / 1.3: \(scaled.map { String(Int($0)) }.joined(separator: " / ")) pt")
+        report("sizes \(abs(scaled[1] - mac) < 1 ? "PASS" : "FAIL") scale 1 looks exactly as before")
+        report("sizes \(scaled[0] < scaled[1] && scaled[1] < scaled[2] ? "PASS" : "FAIL") smaller and larger really change the size")
+        NSApp.terminate(nil)
+    }
+
+    /// With `NN_SELFTEST_IDLE=<seconds>`: sits on Home that long, then (with NN_SELFTEST_IDLE_PLAY="<search>") plays a
+    /// song, muted, for as long again; then quits. Measure the app's CPU from outside while it runs.
+    static func runIdleIfAsked(player: Player) {
+        guard let seconds = ProcessInfo.processInfo.environment["NN_SELFTEST_IDLE"].flatMap(Double.init) else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            report("idle: on Home now")
+            try? await Task.sleep(for: .seconds(seconds))
+            if let query = ProcessInfo.processInfo.environment["NN_SELFTEST_IDLE_PLAY"], API.baseURL.port != 8000,
+               let found = try? await API.search(query) {
+                if !player.isMuted { player.toggleMute() }
+                player.play(found.songs.prefix(3).map(Track.init))
+                report("idle: playing now")
+                try? await Task.sleep(for: .seconds(seconds))
+            }
+            report("idle: done")
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// With `NN_SELFTEST_SNAP=<folder>`: saves the app's own window as `<folder>/<name>.png` (no screen recording:
+    /// the window draws itself into an image). Scenarios call it at the moments worth looking at.
+    static func snap(_ name: String) {
+        guard let folder = ProcessInfo.processInfo.environment["NN_SELFTEST_SNAP"],
+              let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+              let frame = window.contentView?.superview else { return }
+        snapshot(frame, to: URL(filePath: folder).appending(path: "\(name).png"))
+        // the same window drawn from its layers: lists (table views) draw into layers, which the method above can miss
+        if let layer = frame.layer {
+            let scale = window.backingScaleFactor
+            let size = CGSize(width: frame.bounds.width * scale, height: frame.bounds.height * scale)
+            if let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
+                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                ctx.scaleBy(x: scale, y: scale)
+                if frame.isFlipped { ctx.translateBy(x: 0, y: frame.bounds.height); ctx.scaleBy(x: 1, y: -1) }
+                layer.render(in: ctx)
+                if let image = ctx.makeImage() {
+                    let rep = NSBitmapImageRep(cgImage: image)
+                    let url = URL(filePath: folder).appending(path: "\(name)-layers.png")
+                    do { try rep.representation(using: .png, properties: [:])?.write(to: url); report("wrote \(url.path)") }
+                    catch { report("could not write \(url.path)") }
+                }
+            }
+        }
+    }
+
     private static func report(_ line: String) { print("SELFTEST", line) }
 
     private static func center(of r: NSRect) -> NSPoint { NSPoint(x: r.midX, y: r.midY) }
@@ -259,3 +668,10 @@ enum SelfTest {
     }
 }
 #endif
+
+extension Notification.Name {
+    /// A self-test asks RootView to show something (object: a playlist's UUID, or a Destination).
+    static let selfTestOpen = Notification.Name("NNSelfTestOpen")
+    /// A self-test asks SearchView to play its first result, as a double-click on that row would.
+    static let selfTestPlayFirstResult = Notification.Name("NNSelfTestPlayFirstResult")
+}

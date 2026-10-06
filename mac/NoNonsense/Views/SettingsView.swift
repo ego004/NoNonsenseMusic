@@ -3,8 +3,13 @@ import SwiftUI
 /// The look's defaults, in one place: the window and Settings must agree on them.
 enum Look {
     static let windowOpacity = 0.5      // half see-through
+    /// The most see-through the window gets. At 0 only the blur was left behind the text, and a video call
+    /// behind the window showed through enough to make the app unreadable (5 Oct).
+    static let minWindowOpacity = 0.3
     static let artStrength = 0.7        // how strongly the cover colours the window
     static let windowBlur = 0.85        // 0 = clear (the desktop sharp), 1 = frosted
+    static let cardSize: CGFloat = 148  // covers on Home and in shelves (Settings › Appearance › Card size)
+    static let textScale: CGFloat = 1   // the Mac's own text sizes (Settings › Appearance › Text size)
 }
 
 enum Appearance: String, CaseIterable, Identifiable {
@@ -35,49 +40,93 @@ private struct AppearanceSettings: View {
     @AppStorage("windowBlur") private var windowBlur = Look.windowBlur
     @AppStorage("artStrength") private var artStrength = Look.artStrength
     @AppStorage("animateBackdrop") private var animateBackdrop = true
+    @AppStorage("textScale") private var textScale = Look.textScale
+    @AppStorage("cardSize") private var cardSize = Double(Look.cardSize)
+    // which sections are open, remembered; Colours (seven rows) starts closed
+    @AppStorage("settings.open.window") private var openWindow = true
+    @AppStorage("settings.open.sizes") private var openSizes = true
+    @AppStorage("settings.open.colours") private var openColours = false
     @Environment(ThemeStore.self) private var theme
 
     var body: some View {
         Form {
-            Section {
+            Section(isExpanded: $openWindow) {
                 Picker("Theme", selection: $appearance) {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                LabeledContent("Transparency") { RangeSlider(value: $windowOpacity, low: "See-through", high: "Solid") }
+                LabeledContent("Transparency") { RangeSlider(value: $windowOpacity, in: Look.minWindowOpacity...1, low: "See-through", high: "Solid") }
                 LabeledContent("Blur") { RangeSlider(value: $windowBlur, low: "Clear", high: "Frosted") }
                 LabeledContent("Colour strength") { RangeSlider(value: $artStrength, low: "Soft", high: "Vivid") }
                 Toggle("Moving background", isOn: $animateBackdrop)
-            } footer: {
                 Text("Reduce Motion and Reduce Transparency in System Settings › Accessibility override these.")
-                    .foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(.secondary)
+            } header: {
+                Text("Window")
             }
 
-            Section {
-                ForEach(ThemeStore.Element.allCases) { ThemeRow(element: $0) }
+            Section(isExpanded: $openSizes) {
+                LabeledContent("Text size") { RangeSlider(value: $textScale, in: 0.85...1.4, low: "Smaller", high: "Larger") }
+                LabeledContent("Card size") { RangeSlider(value: $cardSize, in: 116...210, low: "Small", high: "Large") }
+                // the sizes, live: a song row and a card as they will look
+                HStack(alignment: .center, spacing: 16) {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(.linearGradient(colors: [.pink.opacity(0.7), .purple.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: cardSize * 0.45, height: cardSize * 0.45)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Song title").textStyle(.body, weight: .medium)
+                        Text("Artist").textStyle(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .environment(\.textScale, textScale)
+                .animation(.snappy(duration: 0.2), value: textScale)
+                .animation(.snappy(duration: 0.2), value: cardSize)
+                Text("Text in lists, cards, the player and Now Playing. The card is half its real size here.")
+                    .font(.caption).foregroundStyle(.secondary)
             } header: {
-                Text("Colours")
-            } footer: {
+                Text("Sizes")
+            }
+
+            Section(isExpanded: $openColours) {
+                ForEach(ThemeStore.Element.allCases) { ThemeRow(element: $0) }
                 HStack(alignment: .firstTextBaseline) {
                     Text("Song: the playing cover's colour. Custom: type a hex code or click the swatch.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Menu("Set all") {
                         ForEach(ThemeStore.Mode.allCases) { mode in Button("All \(mode.label)") { theme.setAll(mode) } }
                     }
                     .fixedSize()
+                }
+            } header: {
+                Text("Colours")
+            }
+
+            Section {
+                HStack {
+                    Text("Every setting on this page back to how it came").foregroundStyle(.secondary)
+                    Spacer()
                     Button("Reset all") {
                         windowOpacity = Look.windowOpacity
                         windowBlur = Look.windowBlur
                         artStrength = Look.artStrength
                         animateBackdrop = true
+                        textScale = Look.textScale
+                        cardSize = Double(Look.cardSize)
                         theme.reset()
                     }
                 }
-                .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
+        .animation(.snappy(duration: 0.25), value: [openWindow, openSizes, openColours])
+        // Colours opens on its own: with everything open the page was 1,165 pt tall (measured 6 Oct), taller than a
+        // MacBook's screen, so its bottom rows were off screen. One way or the other it now stays under ~800 pt.
+        .onChange(of: openColours) { _, open in if open { openWindow = false; openSizes = false } }
+        .onChange(of: openWindow) { _, open in if open { openColours = false } }
+        .onChange(of: openSizes) { _, open in if open { openColours = false } }
     }
 }
 
@@ -135,6 +184,8 @@ private struct TrackpadSettings: View {
 }
 
 private struct DiscordSettings: View {
+    @AppStorage("settings.open.share") private var openShare = true
+    @AppStorage("settings.open.preview") private var openPreview = true
     @Environment(Presence.self) private var presence
     @State private var idDraft = ""                      // applied on Return: each change means a new Discord handshake
     @State private var messageDraft = ""                 // applied on Return: each change is a command to Discord
@@ -158,7 +209,7 @@ private struct DiscordSettings: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Share") {
+            Section(isExpanded: $openShare) {
                 Picker("Your status line shows", selection: $presence.statusLine) {
                     Text("The song").tag(2)
                     Text("The artist").tag(1)
@@ -168,6 +219,10 @@ private struct DiscordSettings: View {
                 Toggle("The artist", isOn: $presence.shareArtist)
                 Toggle("The cover", isOn: $presence.shareArt)
                 Toggle("The NoNonsense logo", isOn: $presence.shareLogo)
+                Toggle(isOn: $presence.sharePlaylist) {
+                    Text("The playlist's name")
+                    Text("Adds “from Gym” after the artist when a song plays from a playlist").foregroundStyle(.secondary)
+                }
                 Toggle("The time bar", isOn: $presence.shareTime)
                 Picker("When paused", selection: $presence.whenPaused) {
                     Text("Show a message").tag("message")
@@ -179,6 +234,8 @@ private struct DiscordSettings: View {
                         .onSubmit { presence.pausedMessage = messageDraft }
                         .onAppear { messageDraft = presence.pausedMessage }
                 }
+            } header: {
+                Text("Share")
             }
 
             Section {
@@ -188,8 +245,10 @@ private struct DiscordSettings: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("What friends see") {
+            Section(isExpanded: $openPreview) {
                 DiscordPreview()
+            } header: {
+                Text("What friends see")
             }
         }
         .formStyle(.grouped)
@@ -217,7 +276,9 @@ private struct DiscordPreview: View {
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     if presence.shareSong { Text(title).font(.callout.weight(.semibold)).lineLimit(1) }
-                    if presence.shareArtist { Text("by \(artist)").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    let from = presence.sharePlaylist ? (presence.lastPlaylist ?? (track == nil ? "Gym" : nil)) : nil
+                    let state = [presence.shareArtist ? "by \(artist)" : nil, from.map { "from “\($0)”" }].compactMap { $0 }.joined(separator: " · ")
+                    if !state.isEmpty { Text(state).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                     if presence.shareTime {
                         HStack(spacing: 6) {
                             Text("1:12")
@@ -291,13 +352,21 @@ private struct ServerSettings: View {
 /// A slider with its two ends named: "See-through ⟷ Solid".
 private struct RangeSlider: View {
     @Binding var value: Double
+    let range: ClosedRange<Double>
     let low: String
     let high: String
+
+    init(value: Binding<Double>, in range: ClosedRange<Double> = 0...1, low: String, high: String) {
+        _value = value
+        self.range = range
+        self.low = low
+        self.high = high
+    }
 
     var body: some View {
         HStack(spacing: 8) {
             Text(low).font(.caption).foregroundStyle(.secondary)
-            Slider(value: $value, in: 0...1)
+            Slider(value: $value, in: range)
             Text(high).font(.caption).foregroundStyle(.secondary)
         }
     }

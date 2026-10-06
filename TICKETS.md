@@ -13,12 +13,12 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 > **Renumbered 5 Oct 2026.** Done and removed: resilient search, play, merge + rank, library, shuffle, and the Mac app v1. Git history and old commit messages use the old numbers. Old → new: 16 → 1 (and 4), 15 → 2, 8 → 3, 5 → 5, 9 → 6, 10 → 7, 6 + 11 → 8, 12 → 9, 13 → 10, 14 → 11.
 
-> **Order (decided 5 Oct 2026):** MUS-2 playlists → MUS-1 steps 2, 2b, 3 (single-flight, back-off, prefetch) → MUS-3 autoplay → MUS-13 YouTube. Then lyrics and the rest.
+> **Order (decided 5 Oct, updated 6 Oct 2026):** ~~MUS-2 playlists~~ ✅ → MUS-1 steps 2, 2b, 3 (single-flight, back-off, prefetch) → a personal score for search (to discuss) → MUS-3 autoplay → MUS-13 YouTube. MUS-14 covers whenever you want a contained evening. Then lyrics and the rest.
 
 | Ticket | What you can show at the end | Who | Size |
 |---|---|---|---|
 | MUS-1 | A YouTube song starts instantly the second time, and the next song is ready before you get there | **You** (backend) · Claude (app, tests after) | M |
-| MUS-2 | Playlists: make, fill, reorder, cover image | **You** (backend) · Claude (app) | L |
+| MUS-2 ✅ | Playlists: make, fill, reorder (done 6 Oct; covers moved to MUS-14) | **You** (backend) · Claude (app) | L |
 | MUS-3 | When the queue ends, music keeps going, shaped by your skips | **You** (ranking, endpoint) · Claude (radio parser, app) | M |
 | MUS-4 | Choose JioSaavn or YouTube Music as the default copy | **You** | S |
 | MUS-5 | Your Spotify liked songs and playlists appear in your library | **You** (OAuth, API) · Claude (setup) | M |
@@ -30,6 +30,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 | MUS-11 | Your own "people who played X played Y" model, beating or losing to YouTube radio on your skip rate | **Pair** | L |
 | MUS-12 | Lyrics in Now Playing, lit line by line in time with the song | **You** (backend) · Claude (app) | M |
 | MUS-13 | Songs that exist only on plain YouTube, found with a "Search YouTube" switch | **You** (backend) · Claude (app) | M |
+| MUS-14 | Playlist covers: upload an image, checked and cleaned, served with a URL that changes when it does | **You** (backend) · Claude (app, tests) | S |
 
 ---
 
@@ -89,40 +90,176 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 ---
 
-## MUS-2 · Playlists (one big task)
+## MUS-2 · Playlists ✅ (steps 1–4, 6 Oct 2026; step 5 is now MUS-14)
 
-**Problem:** you can like songs, but you cannot group them. You want playlists you can create, fill, reorder, rename, delete and give a cover image.
+**Goal:** playlists you can create, fill, order, rename and delete. A cover image comes last.
 
-**Already in place:** the `playlists` and `playlist_items` tables in `schema.sql` (UUIDv7 ids, `ON DELETE CASCADE`, `position text COLLATE "C"`, the `(playlist_id, position)` index). The `fractional-indexing` library generates position keys.
+**Decided (5 Oct 2026)**
+- A playlist holds **songs**. The app sends a song's listings. The server finds or creates the song with `library.resolve_song`, the same as `/liked`.
+- The same song can be in a playlist twice. Each row in `playlist_items` has its own id: the **item id**.
+- You choose the order of your playlists, and the order of the songs in each one. Both use a `position` key from `fractional-indexing`.
+- A move sends the new neighbours: the item above and the item below. One row changes.
+- The server computes song count and duration.
+- No play counts yet. (Later: `events` gets a `playlist_id`.)
+- New file `playlists.py`, the same pattern as `library.py`: `main.py` opens the connection, `playlists.py` runs the SQL.
+
+### Step 0 · Set up
+
+1. Run `uv add fractional-indexing`. Use: `from fractional_indexing import generate_key_between`.
+
+   | Call | Gives |
+   |---|---|
+   | `generate_key_between(None, None)` | `a0` (the first key) |
+   | `generate_key_between("a0", None)` | `a1` (after `a0`) |
+   | `generate_key_between("a0", "a1")` | `a0V` (between them) |
+   | `generate_key_between(None, "a0")` | `Zz` (before `a0`) |
+   | `generate_key_between("a1", "a0")` | raises `FIError` (wrong order) |
+
+2. `schema.sql`: playlists get a position. Add the column in **two** places:
+   - Inside `CREATE TABLE playlists`: `position text COLLATE "C" NOT NULL,`
+   - After it: `ALTER TABLE playlists ADD COLUMN IF NOT EXISTS position text COLLATE "C" NOT NULL;`
+   The table already exists, so `CREATE TABLE IF NOT EXISTS` skips it. The `ALTER` line adds the column. `NOT NULL` works because both databases have 0 playlists. The server runs `schema.sql` on every start.
+
+3. `models.py`: the playlist models must be these.
+
+   | Model | Fields | Change from now |
+   |---|---|---|
+   | `PlaylistRequest` | `name: str = Field(min_length=1)` | Rename `PlaylistCreationRequest`. Rename uses it too. |
+   | `PlaylistMetadata` | `id: UUID`, `name: str`, `song_count: int`, `duration: int`, `thumbnail: str \| None = None` | Add `song_count`. Delete `num_plays`. |
+   | `PlaylistsResponse` | `playlists: list[PlaylistMetadata]` | No change. |
+   | `PlaylistItem` | `item_id: UUID`, `song: LibrarySong` | New. |
+   | `PlaylistItems(PlaylistMetadata)` | `items: list[PlaylistItem]` | New: the open reply. |
+   | `PlaylistItemRef` | `item_id: UUID`, `song_id: UUID` | New: the add reply (decided 6 Oct: the app already has the song it sent; the item id is the handle on the new row). |
+   | `MoveRequest` | `top_neighbour_id: UUID \| None = None`, `bottom_neighbour_id: UUID \| None = None` | Was `PlaylistSongReorderRequest`. Delete `song_id`: it goes in the URL. Both are optional: the top has nothing above it. |
+
+   Delete `PlaylistSongAdditionRequest` (use `ListingsRequest`) and `PlaylistSongRemovalRequest` (the item id goes in the URL).
+
+**Done when:** the server starts.
+
+### The endpoints
+
+| Endpoint | Body | Reply | Step |
+|---|---|---|---|
+| `POST /playlists` | `PlaylistRequest` | 201 · `PlaylistMetadata` | 1 |
+| `GET /playlists` | — | `PlaylistsResponse`, in your order | 1 |
+| `POST /playlists/{playlist_id}/items` | `ListingsRequest` | 201 · `PlaylistItemRef` | 2 |
+| `GET /playlists/{playlist_id}` | — | `PlaylistItems` | 2 |
+| `PATCH /playlists/{playlist_id}` | `PlaylistRequest` | `PlaylistMetadata` | 3 |
+| `DELETE /playlists/{playlist_id}` | — | 204 | 3 |
+| `DELETE /playlists/{playlist_id}/items/{item_id}` | — | 204 | 3 |
+| `POST /playlists/{playlist_id}/items/{item_id}/move` | `MoveRequest` | 204 | 4 |
+| `POST /playlists/{playlist_id}/move` | `MoveRequest` | 204 | 4 |
+
+- `{playlist_id}` in the path plus `playlist_id: UUID` in the function: FastAPI checks it is a UUID (422 if not).
+- An id that does not exist: `raise HTTPException(status_code=404, detail="Playlist not found")`.
+- 201: `@app.post("/playlists", status_code=201)`.
+
+### Step 1 ✅ · Create and list
+
+- A new playlist goes at the bottom: its position comes after the largest one so far. With no playlists yet, "the largest" is `None`.
+- One query for all playlists with their song count and duration. The same query, limited to one id, gives the reply for create, rename and open.
+- Traps (each one has a test):
+  - A playlist with no songs must still be in the list. Some joins drop rows that have no match.
+  - For that empty playlist, `count(*)` gives **1**. Counting a column from the joined table gives 0.
+  - A `sum` over no rows is `NULL`, not 0. The model wants an `int`.
+
+**Done when:**
+```bash
+curl -s -X POST localhost:8000/playlists -H 'content-type: application/json' -d '{"name":"Gym"}'
+curl -s localhost:8000/playlists
+curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8000/playlists -H 'content-type: application/json' -d '{"name":""}'
+```
+Gym appears with `song_count` 0. The empty name gives 422.
+
+### Step 2 ✅ · Add a song, open a playlist
+
+- Add: the playlist must exist (404). The listings become a song the same way `/liked` does it. The item goes at the bottom of this playlist.
+- Open: `library` already has a function that turns song rows into `LibrarySong`s. Read what columns it expects.
+- Traps (each one has a test):
+  - The same song added twice: open must show **two** items.
+  - Two adds at the same moment can get the same position. The order must still be stable. (What else sorts by time?)
+
+**Done when:**
+```bash
+P=<the Gym id>
+curl -s 'localhost:8000/search?q=tum%20hi%20ho' > /tmp/search.json
+for n in 0 1 2; do jq "{listings: .songs[$n].listings}" /tmp/search.json | curl -s -X POST localhost:8000/playlists/$P/items -H 'content-type: application/json' -d @-; done
+curl -s localhost:8000/playlists/$P | jq '.items[].song.title'
+```
+One search, then 3 songs added from it (searching 3 times risks YouTube's bot check). Open shows them in that order. An unknown id gives 404.
+
+### Step 3 ✅ · Rename, delete, remove
+
+- Each one is a single statement. You already know how to tell "changed 1 row" from "changed nothing" (the cache used it): nothing changed → 404.
+- Deleting a playlist must delete its items, and must **not** delete the songs. Read what `schema.sql` already does for you.
+- Trap: removing an item must check it belongs to the playlist in the URL. Otherwise `DELETE /playlists/A/items/<an item of B>` removes from B.
+
+**Done when:** you delete a playlist with 3 songs. Its items are gone from `playlist_items`, and the 3 songs are still in `songs`.
+
+### Step 4 ✅ · Move
+
+The same logic twice: songs in a playlist, and playlists in the list. Write it for songs first.
+- The new position goes between the two neighbours' positions. A missing neighbour is `None`.
+- Exactly one row changes.
+- Traps (each one has a test):
+  - A neighbour from a different playlist.
+  - Neighbours in the wrong order (what does `generate_key_between` do then?).
+  - Both neighbours missing.
+
+**Done when:** songs A B C. Move C with `bottom_neighbour_id` = A and no top: the order is C A B, and one row changed.
+
+### Step 5 · Cover image → moved to MUS-14 (below)
+
+- `GET` / `POST` / `DELETE /playlists/{playlist_id}/thumbnail`. `thumbnail` in `PlaylistMetadata` becomes that URL. `null` means no cover: the app draws a 2×2 grid of the first four songs.
+- Safety: open the upload with Pillow and save it again as JPEG (this rejects non-images and removes EXIF/GPS). Reject files over 5 MB. Never use the uploaded filename.
+- The app caches images by URL. Change the URL when the cover changes: `…/thumbnail?v=<upload time>`.
+
+**Done when:** a text file renamed `.jpg` is rejected; a phone photo comes back without EXIF; a new cover has a new URL.
+
+### After each step
+
+Claude writes the pytest tests (against `music_test`). The app work (sidebar, playlist screen, "Add to playlist", drag to reorder) starts after step 2, when you say.
+
+**Docs:** [fractional-indexing](https://github.com/httpie/fractional-indexing-python) · FastAPI [path parameters](https://fastapi.tiangolo.com/tutorial/path-params/) · FastAPI [Request Files](https://fastapi.tiangolo.com/tutorial/request-files/) · [Pillow](https://pillow.readthedocs.io/en/stable/reference/Image.html)
+
+---
+
+## MUS-14 · Playlist covers
+
+**Problem:** a playlist's cover is its first four songs' covers in a 2×2 grid (or a coloured gradient when empty). You want to choose your own image.
 
 **Deliverables**
-1. Create a playlist; list all playlists with their song counts.
-2. Open one playlist: its songs in order, each shown through its best listing (like Liked Songs).
-3. Add a song (from search results, so: listings in, a stored song out) at the end.
-4. Move a song to any position by updating **one row**.
-5. Remove one song; rename a playlist; delete a playlist (its items go, the songs stay).
-6. Cover image, part 1: none stored, the app shows a 2×2 grid of the first four songs' artwork.
-7. Cover image, part 2: upload an image; it is checked, cleaned and stored safely, and served to the app.
-8. The app: a Playlists section in the sidebar, a playlist screen, "Add to playlist" in a song's right-click menu, drag to reorder. (Claude builds the Swift with you; the backend is yours.)
+- `POST /playlists/{playlist_id}/thumbnail` (upload), `GET` (serve), `DELETE` (back to the grid).
+- `thumbnail` in `PlaylistMetadata`: the cover's URL, or `null` for no cover.
+- The app (Claude): "Choose Image…" in the playlist's ⋯ menu and dropping an image on the cover.
 
-**Facts already decided (5 Oct 2026)**
-- Image safety rules: open with Pillow and re-save as JPEG (rejects non-images, strips EXIF/GPS); reject over 5 MB; never use the uploaded filename; only your devices can reach the server.
-- Likes stay in their own table.
-- Playing a playlist is a queue: MUS-1's prefetch window covers it, no extra prefetch work.
+**Facts already decided**
+- Open the upload with Pillow and save it again as JPEG: this rejects files that are not images and removes EXIF/GPS. Reject files over 5 MB. Never use the uploaded filename.
+- The app caches images by URL: the URL must change when the cover changes (`…/thumbnail?v=<upload time>`).
+- New packages: `python-multipart` (FastAPI cannot read uploads without it) and `Pillow`.
 
 **Decisions that are yours**
-- Every endpoint's path, method, body and reply.
-- Where uploaded images live on disk, and how the app gets them.
-- What "move" receives: a target index, or the ids of the new neighbours? (One of them is much easier to make correct when two devices edit at once.)
-- What happens when the same song is added twice.
+- Where the images live: a folder on disk (path in `playlists.image`, the column exists; the folder must be git-ignored, the repo is public) or the bytes in the database.
+- How big the stored image is (the app shows covers at up to ~640 pt).
 
-**Done when**
-- [ ] Add 3 songs, move the third to the top: the order changes, and the database shows exactly one row updated.
-- [ ] Delete a playlist: its items are gone, the songs are still in `songs`.
-- [ ] Uploading a text file renamed `.jpg` is rejected; a phone photo comes back without EXIF data.
-- [ ] pytest against `music_test` for all of the above.
+**Done when:** a text file renamed `.jpg` is rejected; a phone photo comes back without EXIF; a new cover has a new URL; deleting it brings the grid back. Claude writes the tests.
 
-**Docs:** [fractional-indexing for Python](https://github.com/httpie/fractional-indexing-python) · [PostgreSQL transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html) · FastAPI [Request Files](https://fastapi.tiangolo.com/tutorial/request-files/) · FastAPI [Static Files](https://fastapi.tiangolo.com/tutorial/static-files/) · [Pillow](https://pillow.readthedocs.io/en/stable/reference/Image.html)
+---
+
+## APP · The Mac app (Claude), from your 6 Oct list
+
+| # | What | Status |
+|---|---|---|
+| 1 | Shuffle as a mode (on/off, back to your order when off); repeat off / all / one | ✅ 6 Oct: 21 queue rules pass (`NN_SELFTEST_QUEUE`); ⌘S, ⌘R |
+| 2 | Playlists: sidebar section, New Playlist, rename, delete, the playlist screen (2×2 cover, Play, Shuffle), "Add to Playlist" in every song's menu, remove, drag to reorder songs and playlists; a playing playlist's queue follows your edits | ✅ 6 Oct: the whole flow passes (`NN_SELFTEST_PLAYLISTS`); ⌘N. Not tested by a test: the drag gesture itself |
+| 3 | Home: playlists, recently played and liked songs as a mix of horizontal shelves and grids | ✅ 6 Oct: the first screen; 4 covers, 4 cards, 4 rows appear for 4/4/4 test items (`NN_SELFTEST_HOME`) |
+| 4 | Now Playing focus: a button that makes it the centre of the window, laid out with room for lyrics (MUS-12) | ✅ 6 Oct: 💬 ☰ ⤢ on the bar; Lyrics / Up Next panel or the song alone; full screen (`NN_SELFTEST_NOWPLAYING`) |
+| 5 | Your sizes: text size and card size in Settings › Appearance | ✅ 6 Oct: 0.85…1.4 × the Mac's text (1.0 = exactly as before, measured), cards 116…210 pt |
+| 6 | Motion: messages, dragging, lists changing; all of it off with Reduce Motion | ✅ 6 Oct: see Motion in docs/mac-app.md. Not checked by a test: how the shakes look |
+| — | Extra: recent searches on the idle Search screen (only searches that led to a song you played; the duplicate Recently Played shelf left Search, Home has it). CPU checked: 0% idle, ~2.5% playing | ✅ 6 Oct |
+| — | From the MUS-2 list: the playlist's name in the Discord status (Settings › Discord › Share, off by default) and "From “Gym”" in Now Playing; Settings in collapsible sections (Colours on its own, so the page fits a MacBook screen) | ✅ 6 Oct |
+| — | Fixed 6 Oct: a test server could outlive its app and keep the port (now: one launcher, one start at a time, the whole process family stopped); the server log overwrote itself (now append mode) | ✅ |
+| — | Fixed 6 Oct: "That JioSaavn copy is gone. Playing another JioSaavn copy." (was a contradiction); self-test windows say "Self-test · test library" | ✅ |
 
 ---
 
