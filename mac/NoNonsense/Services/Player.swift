@@ -7,12 +7,18 @@ import Observation
 /// events for your taste data, Discord presence, and falling back to another copy when one fails.
 @Observable
 final class Player {
-    private(set) var queue: [Track] = []
-    private(set) var index = 0
+    /// What plays in what order: shuffle, repeat, "play next", a playlist's edits (Services/PlayQueue.swift).
+    private(set) var order = PlayQueue()
+    var queue: [Track] { order.tracks }
+    var index: Int { order.index }
+    var isShuffled: Bool { order.isShuffled }
+    var repeatMode: PlayQueue.Repeat { order.repeatMode }
     private(set) var isPlaying = false
     private(set) var position: Double = 0
     private(set) var isBuffering = false
     private(set) var errorMessage: String?
+    /// Counts every problem shown: the player bar shakes once per problem (RootView), not when the message clears.
+    private(set) var problems = 0
     var showNowPlaying = false
     private(set) var nextPresses = 0                     // every skip, by any means: the buttons bounce on these
     private(set) var previousPresses = 0
@@ -21,9 +27,15 @@ final class Player {
     @ObservationIgnored private var swipeTravel: CGFloat = 0
     @ObservationIgnored private var swipeDone = false
 
-    var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
+    var current: Track? { order.current }
     var duration: Double { Double(current?.duration ?? 0) }
-    var upNext: [Track] { queue.indices.contains(index + 1) ? Array(queue[(index + 1)...]) : [] }
+    var upNext: [Track] { order.upNext }
+    /// The playlist the queue came from ("Gym"), for Now Playing and Discord; nil for other queues.
+    var playingFrom: String? {
+        guard let source = order.source, source.hasPrefix("playlist:"),
+              let id = UUID(uuidString: String(source.dropFirst("playlist:".count))) else { return nil }
+        return library.playlists.first { $0.id == id }?.name ?? library.details[id]?.name
+    }
 
     @ObservationIgnored private let player = AVPlayer()
     @ObservationIgnored private let library: LibraryStore
@@ -33,6 +45,9 @@ final class Player {
     @ObservationIgnored private var statusObservation: NSKeyValueObservation?
     @ObservationIgnored private var keyMonitor: Any?
     @ObservationIgnored private var fallbacksTried = 0
+    @ObservationIgnored private var failuresInARow = 0     // with repeat on, a queue where nothing plays must stop somewhere
+    /// Shuffle on or off for the next queue too, and repeat: both remembered between launches, as in Apple Music.
+    @ObservationIgnored private var shufflePreferred = UserDefaults.standard.bool(forKey: "shuffle")
     private(set) var playingListing: Listing?                         // the copy AVPlayer is playing right now
     private(set) var volume: Float = UserDefaults.standard.object(forKey: "volume") as? Float ?? 1   // 0...1, remembered
     private(set) var isMuted = false
@@ -46,6 +61,7 @@ final class Player {
         // start as soon as audio arrives, instead of first buffering several seconds (the CDN answers in ~0.26 s)
         player.automaticallyWaitsToMinimizeStalling = false
         player.volume = volume
+        order.repeatMode = UserDefaults.standard.string(forKey: "repeat").flatMap(PlayQueue.Repeat.init(rawValue:)) ?? .off
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
                                                       queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.tick(time.seconds) }
@@ -56,21 +72,61 @@ final class Player {
             MainActor.assumeIsolated { self?.itemEnded(item) }
         }
         setUpRemoteCommands()
+        // a playlist you edit while it plays: the queue follows (PlayQueue.sync ignores other playlists)
+        library.playlistChanged = { [weak self] detail in
+            self?.syncQueue(source: detail.queueSource, items: zip(detail.keys, detail.tracks).map { (key: $0, track: $1) })
+        }
     }
 
     // MARK: - controls
 
-    func play(_ tracks: [Track], startAt i: Int = 0) {
+    /// Plays `tracks` from song `i`. With shuffle on, song `i` plays first and the rest are shuffled.
+    /// `keys` name the entries (a playlist's item ids) and `source` says where they came from ("playlist:<id>"),
+    /// so later edits to that playlist reach this queue (`syncQueue`).
+    func play(_ tracks: [Track], startAt i: Int = 0, keys: [String]? = nil, source: String? = nil) {
         guard tracks.indices.contains(i) else { return }
         reportSkipIfNeeded()
-        queue = tracks
-        index = i
+        order.load(tracks, startAt: i, keys: keys, source: source, shuffled: shufflePreferred)
         startCurrent()
+    }
+
+    /// The Play button on a list: in your order (shuffle off), from the first song.
+    func playInOrder(_ tracks: [Track], keys: [String]? = nil, source: String? = nil) {
+        setShufflePreference(false)
+        play(tracks, startAt: 0, keys: keys, source: source)
+    }
+
+    /// The Shuffle button on a list: shuffle on, then a random song first and the rest spread out.
+    func shufflePlay(_ tracks: [Track], keys: [String]? = nil, source: String? = nil) {
+        guard !tracks.isEmpty else { return }
+        setShufflePreference(true)
+        play(tracks, startAt: Int.random(in: tracks.indices), keys: keys, source: source)
     }
 
     func playNext(_ track: Track) {
         guard current != nil else { play([track]); return }
-        queue.insert(track, at: index + 1)
+        order.insertNext(track)
+    }
+
+    func toggleShuffle() {
+        setShufflePreference(!shufflePreferred)
+        order.setShuffle(shufflePreferred)
+    }
+
+    /// off → all → one → off
+    func cycleRepeat() {
+        order.repeatMode = order.repeatMode.next
+        UserDefaults.standard.set(order.repeatMode.rawValue, forKey: "repeat")
+    }
+
+    /// A playlist changed (a move, an add, a remove). If the queue came from it, the queue follows; else nothing.
+    func syncQueue(source: String, items: [(key: String, track: Track)]) {
+        order.sync(source: source, items: items)
+    }
+
+    private func setShufflePreference(_ on: Bool) {
+        shufflePreferred = on
+        UserDefaults.standard.set(on, forKey: "shuffle")
     }
 
     func togglePlayPause() {
@@ -84,21 +140,21 @@ final class Player {
         guard current != nil else { return }
         nextPresses += 1
         reportSkipIfNeeded()
-        advance(by: 1)
+        go(to: order.indexAfterNext())
     }
 
     func previous() {
         previousPresses += 1
         if position > 3 { seek(to: 0); return }     // like every player: first press restarts the song
         reportSkipIfNeeded()
-        advance(by: -1)
+        guard let i = order.indexAfterPrevious() else { seek(to: 0); return }   // the first song, repeat off: restart it
+        go(to: i)
     }
 
     func jump(to i: Int) {
         guard queue.indices.contains(i) else { return }
         reportSkipIfNeeded()
-        index = i
-        startCurrent()
+        go(to: i)
     }
 
     /// 0...1. The app's own volume, under the Mac's; remembered between launches.
@@ -165,13 +221,13 @@ final class Player {
 
     // MARK: - loading
 
-    private func advance(by step: Int) {
-        let target = index + step
-        guard queue.indices.contains(target) else {
-            player.pause(); isPlaying = false; seek(to: 0)   // end of the queue: stop on the last song
+    /// Starts song `i` of the queue; nil is the end of the queue (repeat off): stop on the last song.
+    private func go(to i: Int?) {
+        guard let i else {
+            player.pause(); isPlaying = false; seek(to: 0)
             return
         }
-        index = target
+        order.move(to: i)
         startCurrent()
     }
 
@@ -182,7 +238,7 @@ final class Player {
         load(track.best)
         report("play", track, at: 0)
         // ask the server for the NEXT song's audio URL now, so it is ready (and cached) when that song starts
-        if let next = upNext.first { Task { await API.warm(next.best) } }
+        if let n = order.indexAfterEnd(), n != order.index { let next = queue[n]; Task { await API.warm(next.best) } }
     }
 
     private func load(_ listing: Listing, fresh: Bool = false) {
@@ -215,7 +271,9 @@ final class Player {
             Task {
                 let answer = await API.refresh(failed)
                 guard current?.id == track.id else { return }                 // you have moved on: say nothing
-                show("\(Self.reason(answer, failed)) Playing the \(next.sourceName) copy.", seconds: 6)
+                // "another JioSaavn copy" when both are on one source: "the JioSaavn copy" read as a contradiction (6 Oct)
+                let which = next.source == failed.source ? "another \(next.sourceName) copy" : "the \(next.sourceName) copy"
+                show("\(Self.reason(answer, failed)) Playing \(which).", seconds: 6)
             }
             return
         }
@@ -239,14 +297,16 @@ final class Player {
     private func giveUp(_ track: Track, because reason: String?) {
         show("Couldn't play “\(track.title)”." + (reason.map { " " + $0 } ?? ""), seconds: 6)
         isBuffering = false
-        advance(by: 1)
+        failuresInARow += 1
+        // repeat on and nothing in the queue plays: one full round of failures, then stop instead of looping forever
+        go(to: failuresInARow >= queue.count ? nil : order.indexAfterNext())
     }
 
     /// Why a copy failed, from the server's answer to the fresh request, as a sentence.
     private static func reason(_ answer: (status: Int, detail: String?)?, _ listing: Listing) -> String {
         switch answer?.status {
         case 502?: "\(listing.sourceName) is unavailable right now."
-        case 404?: "\(listing.sourceName) doesn't have it any more."
+        case 404?: "That \(listing.sourceName) copy is gone."          // one copy (listing), not the whole source
         case 307?: "The \(listing.sourceName) link had expired."
         case nil: "The server didn't answer."
         default: "The \(listing.sourceName) copy didn't load."
@@ -256,6 +316,7 @@ final class Player {
     /// A message above the player bar for a few seconds (a newer one replaces it).
     private func show(_ message: String, seconds: Double = 4) {
         errorMessage = message
+        problems += 1
         messageTimer?.cancel()
         messageTimer = Task {
             try? await Task.sleep(for: .seconds(seconds))
@@ -266,13 +327,22 @@ final class Player {
     private func tick(_ seconds: Double) {
         guard seconds.isFinite else { return }
         position = seconds
-        if player.timeControlStatus == .playing { isBuffering = false }
+        if player.timeControlStatus == .playing { isBuffering = false; failuresInARow = 0 }
     }
 
     private func itemEnded(_ item: AVPlayerItem?) {
         guard item === player.currentItem, let track = current else { return }
         report("finish", track, at: track.duration)
-        advance(by: 1)
+        let after = order.indexAfterEnd()
+        if after == order.index {                       // repeat one: the same song again, without reloading it
+            seek(to: 0)
+            player.play()
+            isPlaying = true
+            report("play", track, at: 0)
+            publish()
+        } else {
+            go(to: after)
+        }
     }
 
     // MARK: - taste data (events)
@@ -312,7 +382,7 @@ final class Player {
         if let art = artwork[track.id] { info[MPMediaItemPropertyArtwork] = art } else { loadArtwork(track) }
         center.nowPlayingInfo = info
         center.playbackState = isPlaying ? .playing : .paused
-        presence.update(track, isPlaying: isPlaying, position: position)
+        presence.update(track, isPlaying: isPlaying, position: position, playlist: playingFrom)
     }
 
     private func loadArtwork(_ track: Track) {

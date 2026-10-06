@@ -168,6 +168,7 @@ final class Presence {
     private(set) var clientID = UserDefaults.standard.string(forKey: "discordClientID") ?? ""
     private(set) var status = "Off"
     private(set) var lastTrack: Track?                     // for the preview in Settings
+    private(set) var lastPlaylist: String?                 // the playlist that song plays from, if any
 
     // What to share. Each change is saved and sent to Discord at once.
     var statusLine = UserDefaults.standard.object(forKey: "discordStatusLine") as? Int ?? 2 { didSet { save("discordStatusLine", statusLine) } }
@@ -179,6 +180,8 @@ final class Presence {
     /// The app's logo, uploaded by you as an art asset with this name in the Discord Developer Portal.
     static let logoAsset = "nononsense"
     var shareLogo = Presence.flag("discordShareLogo") { didSet { save("discordShareLogo", shareLogo) } }
+    /// "from “Gym”" after the artist, when the song plays from a playlist. Off by default: playlist names can be personal.
+    var sharePlaylist = Presence.flag("discordSharePlaylist", default: false) { didSet { save("discordSharePlaylist", sharePlaylist) } }
     var whenPaused = UserDefaults.standard.string(forKey: "discordWhenPaused") ?? "message" { didSet { save("discordWhenPaused", whenPaused) } }
     var pausedMessage = UserDefaults.standard.string(forKey: "discordPausedMessage") ?? "Nothing playing" { didSet { save("discordPausedMessage", pausedMessage) } }
 
@@ -207,13 +210,14 @@ final class Presence {
         if enabled { resend() }
     }
 
-    func update(_ track: Track?, isPlaying: Bool, position: Double) {
+    func update(_ track: Track?, isPlaying: Bool, position: Double, playlist: String? = nil) {
         lastTrack = track
+        lastPlaylist = playlist
         last = (isPlaying, position)
         guard enabled else { return }
         guard !clientID.isEmpty else { status = "Add your Discord Application ID"; return }
         guard idLooksValid else { status = "An Application ID is 17–20 digits"; return }
-        send(track.flatMap { activity(for: $0, isPlaying: isPlaying, position: position) }, title: track?.title)
+        send(track.flatMap { activity(for: $0, isPlaying: isPlaying, position: position, playlist: playlist) }, title: track?.title)
     }
 
     /// Settings' "Send a test status": the last song, or a sample, so the setup can be checked without playing anything.
@@ -222,11 +226,11 @@ final class Presence {
         guard idLooksValid else { status = "An Application ID is 17–20 digits"; return }
         let sample = lastTrack ?? Track(best: Listing(source: "jiosaavn", id: "test", title: "Test from NoNonsense", artists: ["NoNonsense"],
                                                       album: nil, duration: 200, popularity: nil, image: nil), listings: [])
-        send(activity(for: sample, isPlaying: true, position: 0), title: sample.title)
+        send(activity(for: sample, isPlaying: true, position: 0, playlist: lastPlaylist), title: sample.title)
     }
 
     /// What Discord gets for a song, following the share switches. nil clears the status.
-    func activity(for track: Track, isPlaying: Bool, position: Double) -> DiscordIPC.Activity? {
+    func activity(for track: Track, isPlaying: Bool, position: Double, playlist: String? = nil) -> DiscordIPC.Activity? {
         if !isPlaying {
             switch whenPaused {
             case "clear": return nil
@@ -243,8 +247,10 @@ final class Presence {
         let timed = shareTime && isPlaying                    // a paused song has no running time bar
         let cover = shareArt ? track.best.image : nil         // nil when not shared, or when the song has none
         let badge = cover != nil && shareLogo                 // the logo badge only sits on a real cover
+        let from = sharePlaylist ? playlist.map { "from “\($0)”" } : nil
+        let byLine = shareArtist ? "by \(track.artistLine)" : nil
         return .init(details: shareSong ? track.title : nil,
-                     state: shareArtist ? "by \(track.artistLine)" : nil,
+                     state: [byLine, from].compactMap { $0 }.joined(separator: " · ").nilIfEmpty,
                      image: cover ?? (shareLogo ? Self.logoAsset : nil),            // no cover: the logo is the picture
                      imageText: cover != nil ? track.best.album : (shareLogo ? "NoNonsense" : nil),
                      smallImage: badge ? Self.logoAsset : nil,
@@ -254,7 +260,7 @@ final class Presence {
                      statusLine: statusLine)
     }
 
-    private func resend() { update(lastTrack, isPlaying: last.isPlaying, position: last.position) }
+    private func resend() { update(lastTrack, isPlaying: last.isPlaying, position: last.position, playlist: lastPlaylist) }
 
     private func save(_ key: String, _ value: Any) {
         UserDefaults.standard.set(value, forKey: key)
@@ -288,4 +294,8 @@ final class Presence {
             if attempt == attempts { status = result }        // an older, slower answer never overwrites a newer one
         }
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
