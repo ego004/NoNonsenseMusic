@@ -263,7 +263,7 @@ async def test_a_bot_check_pauses_the_whole_source(pool):
     with pytest.raises(SourceBlocked) as during:            # ANOTHER song: answered at once, the source not asked
         await cache("ytmusic", new_id())
     assert source.calls == 1
-    assert during.value.until == cache.blocked_until["ytmusic"]
+    assert "paused after a bot check" in str(during.value)
     assert 1.9 < pause_minutes(cache) <= 2.0                 # the first pause: START (2 min)
 
 

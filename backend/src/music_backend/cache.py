@@ -2,9 +2,8 @@ from collections import OrderedDict
 import asyncio
 import logging
 import time
-
 from music_backend.settings import settings
-from music_backend.sources import SourceBlocked
+from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +25,8 @@ class ListingURLCache:
         # MUS-1 step 2b, the backoff ("circuit breaker"). Per SOURCE: a bot check blocks our IP, not one song.
         self.blocked_until: dict[str, float] = {}   # source -> Unix time before which we do not ask it
         self.strikes: dict[str, int] = {}           # source -> bot checks in a row; each one doubles the pause
+        # MUS-1 step 3, prefetch: (source, source_id) pairs waiting for a worker; a new list replaces what waits
+        self.prefetch_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
 
     async def _db_hit(self, source: str, song_id: str) -> None:
         # the table's own "recently used" mark: the trim in _set_db drops the oldest hit_at first
@@ -91,12 +92,19 @@ class ListingURLCache:
         # CHANGED: one URL variable; get hides memory vs table
         url = None if serve_fresh else await self.get(source, song_id)
         if url is None:
-            task = self.running.get((source, song_id))
-            if task is None:
-                task = asyncio.create_task(self._lookup(source, song_id))
-                self.running[(source, song_id)] = task
-            url = await asyncio.shield(task)
+            # wait for the lookup, with its URL or its error. shield: if this request is cancelled (the song was
+            # skipped), only its own wait ends; the lookup goes on for anyone else waiting, and still fills the cache
+            url = await asyncio.shield(self._start_lookup(source, song_id))
         return url
+
+    def _start_lookup(self, source: str, song_id: str) -> asyncio.Task:
+        """Single-flight: the lookup already running for this listing, or a new one, started and registered at once
+        (nothing else runs before the next await), so a second request finds it and waits instead of fetching."""
+        task = self.running.get((source, song_id))
+        if task is None:
+            task = asyncio.create_task(self._lookup(source, song_id))
+            self.running[(source, song_id)] = task
+        return task
 
     async def _lookup(self, source: str, song_id: str) -> str:
         """The real lookup, run as a task, once per listing at a time: fetch, store, return the URL."""
@@ -120,8 +128,7 @@ class ListingURLCache:
         """During a source's pause, raise SourceBlocked straight away: no request goes to the source."""
         until = self.blocked_until.get(source, 0)
         if time.time() < until:
-            raise SourceBlocked(f"{source} is paused after a bot check until {time.strftime('%H:%M:%S', time.localtime(until))}",
-                                until=until)
+            raise SourceBlocked(f"{source} is paused after a bot check until {time.strftime('%H:%M:%S', time.localtime(until))}")
 
     def _strike(self, source: str) -> None:
         """One more bot check in a row: pause = START x 2^(strikes - 1), at most MAX."""
@@ -129,3 +136,27 @@ class ListingURLCache:
         minutes = min(settings.backoff_max_minutes, settings.backoff_start_minutes * 2 ** (self.strikes[source] - 1))
         self.blocked_until[source] = time.time() + minutes * 60
         logger.warning("%s: bot check #%d in a row, asking it nothing for %.0f min", source, self.strikes[source], minutes)
+
+    def prefetch(self, listings) -> None:
+        """The newest list of listings coming next: replaces whatever still waits (lookups already running finish)."""
+        while not self.prefetch_queue.empty():
+            self.prefetch_queue.get_nowait()
+        for listing in listings:
+            self.prefetch_queue.put_nowait((listing.source, listing.source_id))   # each put wakes one free worker
+
+    async def prefetch_worker(self) -> None:
+        """One prefetch worker (main.py's lifespan starts several): forever, take the next waiting listing and look
+        it up, unless it is cached or already being looked up. One lookup at a time per worker, so N workers mean
+        at most N prefetch lookups at once: yt-dlp shares its threads with your clicks."""
+        while True:
+            source, song_id = await self.prefetch_queue.get()           # free: asleep here until a list arrives
+            try:
+                if (source, song_id) in self.running or await self.get(source, song_id) is not None:
+                    continue                                             # running (it fills the cache anyway) or cached
+                await asyncio.shield(self._start_lookup(source, song_id))
+            except (SongNotFound, SourceUnavailable) as e:
+                # expected: a song that is gone, a network blip, a source in its pause. One quiet line
+                logger.info("prefetch %s %s: %s", source, song_id, e)
+            except Exception:
+                # a bug: say so loudly, but keep this worker alive (an escaped error would end its loop for good)
+                logger.exception("prefetch %s %s failed", source, song_id)

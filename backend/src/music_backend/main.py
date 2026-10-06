@@ -13,7 +13,8 @@ from music_backend import db, library, cache
 from music_backend.matching import rank_songs
 from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
-                                  PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest)
+                                  PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest)
+from music_backend.settings import settings
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
 
@@ -24,11 +25,20 @@ async def lifespan(app: FastAPI):
     await pool.open()
     await db.apply_schema(pool)
     app.state.pool = pool
-
     app.state.url_cache = cache.ListingURLCache(SOURCES, pool)   # one cache for every request; it borrows connections from the pool
+    # the prefetch workers: N separate tasks, running by themselves; the list keeps them alive
+    # (a list comprehension: `[create_task(...)] * N` would be ONE task listed N times)
+    app.state.prefetch_workers = [asyncio.create_task(app.state.url_cache.prefetch_worker())
+                                  for _ in range(settings.num_prefetch_workers)]
 
     yield
 
+    # shutdown, in this order: the workers, then lookups still running, then the pool they write to
+    stopping = app.state.prefetch_workers + list(app.state.url_cache.running.values())
+    for task in stopping:
+        task.cancel()
+    await asyncio.gather(*stopping, return_exceptions=True)       # wait until they have really stopped
+    await asyncio.gather(*(source.http.close() for source in SOURCES.values()))   # the sources' kept connections
     await pool.close()
 
 
@@ -100,6 +110,16 @@ async def play(request: Request, source: SourceName, source_id: str, serve_fresh
     # redirect, not proxy: the browser fetches the audio straight from the CDN, so it never passes
     # through this server. Fine while browser and server share an IP (YouTube URLs are tied to it).
     return RedirectResponse(song_url)
+
+# ---------- prefetch ----------
+
+@app.post("/prefetch", status_code = 202)
+async def prefetch_urls(body: PrefetchRequest, request: Request) -> Response:
+    """The listings coming next, in order: looked up in the background so they start at once when played.
+    Answers 202 straight away; a newer list replaces what is still waiting. async def: it runs on the event loop,
+    where the queue lives (asyncio.Queue is not thread-safe, and a plain def would run on another thread)."""
+    request.app.state.url_cache.prefetch(body.listings)
+    return Response(status_code = 202)
 
 
 # ---------- library ----------
