@@ -3,7 +3,7 @@ import pytest
 from yt_dlp.networking.exceptions import TransportError
 from yt_dlp.utils import DownloadError, ExtractorError
 
-from music_backend.sources import SongNotFound, SourceUnavailable, ytmusic
+from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable, ytmusic
 
 
 def fake_ytdlp_raising(inner):
@@ -20,11 +20,11 @@ def fake_ytdlp_raising(inner):
     return FakeYoutubeDL
 
 
-def test_bot_check_means_the_source_is_unavailable(monkeypatch):
+def test_bot_check_means_the_source_is_blocked(monkeypatch):
     # the exact wording yt-dlp gave on 5 Oct 2026; note the curly apostrophe
     bot = ExtractorError("[youtube] J7p4bzqLvCw: Sign in to confirm you’re not a bot. Use --cookies-from-browser", expected=True)
     monkeypatch.setattr(ytmusic, "YoutubeDL", fake_ytdlp_raising(bot))
-    with pytest.raises(SourceUnavailable):
+    with pytest.raises(SourceBlocked):         # a kind of SourceUnavailable: still a 502
         ytmusic.extract_audio_url("J7p4bzqLvCw")
 
 

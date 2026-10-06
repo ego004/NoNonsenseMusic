@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from music_backend import db
 from music_backend.cache import ListingURLCache
-from music_backend.sources import SourceUnavailable, jiosaavn, ytmusic
+from music_backend.sources import SourceBlocked, SourceUnavailable, jiosaavn, ytmusic
 
 TEST_URL = "postgresql:///music_test"
 HOUR = 3600
@@ -227,3 +227,125 @@ async def test_a_skipped_song_does_not_cancel_the_lookup_for_others(pool):
         await first
     assert await cache("ytmusic", song) == await second        # and the lookup filled the cache
     assert source.calls == 1
+
+
+# ---------- MUS-1 step 2b: back off from a blocked source ----------
+
+class BlockableSource:
+    """A source that answers, or raises the bot check (`blocked`), or a network blip (`blip`). Counts calls."""
+
+    def __init__(self):
+        self.calls, self.blocked, self.blip = 0, False, False
+
+    async def get_song_url(self, song_id):
+        self.calls += 1
+        if self.blocked:
+            raise SourceBlocked("bot check")
+        if self.blip:
+            raise SourceUnavailable("network blip")
+        return f"https://audio.example/{song_id}_{self.calls}.m4a"
+
+    def is_expired(self, url):
+        return False
+
+
+def pause_minutes(cache, source="ytmusic"):
+    return (cache.blocked_until.get(source, 0) - time.time()) / 60
+
+
+@pytest.mark.anyio
+async def test_a_bot_check_pauses_the_whole_source(pool):
+    source = BlockableSource()
+    source.blocked = True
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    with pytest.raises(SourceBlocked):
+        await cache("ytmusic", new_id())
+    with pytest.raises(SourceBlocked) as during:            # ANOTHER song: answered at once, the source not asked
+        await cache("ytmusic", new_id())
+    assert source.calls == 1
+    assert during.value.until == cache.blocked_until["ytmusic"]
+    assert 1.9 < pause_minutes(cache) <= 2.0                 # the first pause: START (2 min)
+
+
+@pytest.mark.anyio
+async def test_refusals_during_a_pause_are_not_new_strikes(pool):
+    source = BlockableSource()
+    source.blocked = True
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    for _ in range(5):
+        with pytest.raises(SourceBlocked):
+            await cache("ytmusic", new_id())
+    assert cache.strikes["ytmusic"] == 1                     # only the one real bot check counts
+    assert 1.9 < pause_minutes(cache) <= 2.0                 # and the pause did not grow
+
+
+@pytest.mark.anyio
+async def test_each_bot_check_in_a_row_doubles_the_pause_up_to_the_max(pool):
+    source = BlockableSource()
+    source.blocked = True
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    pauses = []
+    for _ in range(7):
+        cache.blocked_until["ytmusic"] = 0                   # the pause ran out: the next request asks again
+        with pytest.raises(SourceBlocked):
+            await cache("ytmusic", new_id())
+        pauses.append(round(pause_minutes(cache)))
+    assert pauses == [2, 4, 8, 16, 32, 60, 60]               # START x 2^(strikes - 1), at most MAX
+
+
+@pytest.mark.anyio
+async def test_a_success_resets_the_pause(pool):
+    source = BlockableSource()
+    source.blocked = True
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    for _ in range(3):
+        cache.blocked_until["ytmusic"] = 0
+        with pytest.raises(SourceBlocked):
+            await cache("ytmusic", new_id())
+    cache.blocked_until["ytmusic"] = 0
+    source.blocked = False
+    assert (await cache("ytmusic", new_id())).startswith("https://")
+    assert cache.strikes["ytmusic"] == 0
+    source.blocked = True
+    with pytest.raises(SourceBlocked):
+        await cache("ytmusic", new_id())
+    assert 1.9 < pause_minutes(cache) <= 2.0                 # back to the short pause
+
+
+@pytest.mark.anyio
+async def test_cached_songs_still_play_during_a_pause(pool):
+    source = BlockableSource()
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    song = new_id()
+    url = await cache("ytmusic", song)                       # played once: cached
+    source.blocked = True
+    with pytest.raises(SourceBlocked):
+        await cache("ytmusic", new_id())                     # another song meets the bot check: paused
+    assert await cache("ytmusic", song) == url               # the cached song needs no source: it still plays
+    assert source.calls == 2
+
+
+@pytest.mark.anyio
+async def test_a_network_blip_does_not_pause(pool):
+    source = BlockableSource()
+    source.blip = True
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    with pytest.raises(SourceUnavailable):
+        await cache("ytmusic", new_id())
+    assert "ytmusic" not in cache.blocked_until
+    source.blip = False
+    assert (await cache("ytmusic", new_id())).startswith("https://")   # asked again straight away
+    assert source.calls == 2
+
+
+def test_a_paused_source_answers_502_without_asking_it(client, monkeypatch):
+    calls = []
+    async def bot_check(song_id):
+        calls.append(song_id)
+        raise SourceBlocked("bot check")
+    monkeypatch.setattr(ytmusic, "get_song_url", bot_check)
+    assert client.get(f"/play/ytmusic/{new_id()}", follow_redirects=False).status_code == 502
+    assert client.get(f"/play/ytmusic/{new_id()}", follow_redirects=False).status_code == 502
+    assert client.get(f"/play/ytmusic/{new_id()}?serve_fresh=true", follow_redirects=False).status_code == 502
+    assert len(calls) == 1                                   # the app's serve_fresh retries no longer reach YouTube
+

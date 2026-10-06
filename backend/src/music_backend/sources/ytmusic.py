@@ -8,7 +8,7 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
 from music_backend.settings import settings
 from music_backend.models import Listing
-from music_backend.sources import SongNotFound, SourceUnavailable
+from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable
 
 SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"
 WATCH_URL = "https://music.youtube.com/watch?v="
@@ -166,7 +166,7 @@ def extract_audio_url(song_id: str) -> str:
         # is fine: the source is what's unavailable. yt-dlp has no separate error type for it, so the message
         # is the only signal. Checked first, so it never becomes a 404 (seen 5 Oct 2026).
         if "not a bot" in str(e):
-            raise SourceUnavailable("YouTube Music: bot check on this IP") from e
+            raise SourceBlocked("YouTube Music: bot check on this IP") from e
         if isinstance(inner, ExtractorError) and inner.expected:
             raise SongNotFound(song_id) from e
         raise SourceUnavailable(f"YouTube Music: {e}") from e
