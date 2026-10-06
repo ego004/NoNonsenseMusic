@@ -5,13 +5,14 @@ sends that song's listings and resolve_song finds the stored song they belong to
 """
 import logging
 from types import SimpleNamespace
+from typing import Any
 from uuid import UUID
 
-from fractional_indexing import generate_key_between
+from fractional_indexing import FIError, generate_key_between
 from psycopg import AsyncConnection
 
 from music_backend.matching import normalise, pick_best, same_recording
-from music_backend.models import EventType, LibrarySong, Listing, PlaylistMetadata
+from music_backend.models import EventType, LibrarySong, Listing, PlaylistMetadata, PlaylistItem
 
 logger = logging.getLogger(__name__)
 
@@ -153,11 +154,91 @@ async def get_playlists(conn: AsyncConnection) -> list[PlaylistMetadata]:
         row = await cur.fetchone()
         if row is None:
             break
-        # AS: the keys become the model's field names. COALESCE: an empty playlist's SUM is NULL, and duration is an int
-        totals = await (await conn.execute(
-            """SELECT COUNT(*) AS song_count, COALESCE(SUM(duration), 0) AS duration
-                 FROM songs s JOIN playlist_items p ON s.id = p.song_id
-                WHERE p.playlist_id = %s""", [row["id"]])).fetchone()
-        result.append(PlaylistMetadata(id = row["id"], name = row["name"], **totals))
+        result.append(PlaylistMetadata(id = row["id"], name = row["name"], **await _totals(conn, row["id"])))
     return result
 
+async def _totals(conn: AsyncConnection, playlist_id : UUID) -> Any | None:
+    """{"song_count": n, "duration": seconds} for one playlist; shared by the list and the open."""
+    # AS: the keys become the model's field names. COALESCE: an empty playlist's SUM is NULL, and duration is an int
+    return await (await conn.execute(
+        """SELECT COUNT(*) AS song_count, COALESCE(SUM(duration), 0) AS duration
+             FROM songs s JOIN playlist_items p ON s.id = p.song_id
+            WHERE p.playlist_id = %s""", [playlist_id])).fetchone()
+
+async def get_playlist_metadata(conn: AsyncConnection, playlist_id : UUID) -> PlaylistMetadata | None:
+    """One playlist's metadata; None when there is no such playlist (the endpoint's 404)."""
+    row = await (await conn.execute("SELECT id, name FROM playlists WHERE id = %s", [playlist_id])).fetchone()
+    if row is None:
+        return None
+    return PlaylistMetadata(id = row["id"], name = row["name"], **await _totals(conn, playlist_id))
+
+async def add_to_playlist(conn: AsyncConnection, playlist_id : UUID, song_id: UUID) -> UUID:
+    last = (await (await conn.execute("SELECT max(position) AS last FROM playlist_items")).fetchone())["last"]
+    return (await (await conn.execute("INSERT INTO playlist_items (playlist_id, song_id, position) VALUES (%s, %s, %s) RETURNING id", [playlist_id, song_id, generate_key_between(last, None)])).fetchone())["id"]
+
+async def get_playlist_items(conn: AsyncConnection, playlist_id : UUID) -> list[PlaylistItem]:
+    """The playlist's songs in your order, each shown through its best listing (like Liked Songs)."""
+    # one row per ITEM: the same song added twice is two rows. The columns are what _with_listings reads
+    # (id = the song, at, liked); item_id rides along. i.id breaks ties: two adds at the same moment can get
+    # the same position, and a UUIDv7 sorts by time
+    rows = await (await conn.execute(
+        """SELECT i.id AS item_id, i.song_id AS id, i.added_at AS at, (k.song_id IS NOT NULL) AS liked
+             FROM playlist_items i
+             LEFT JOIN likes k ON k.song_id = i.song_id
+            WHERE i.playlist_id = %s
+            ORDER BY i.position, i.id""", [playlist_id])).fetchall()
+    # _with_listings builds each song once; the dict hands the same song to every item that holds it
+    songs = {song.id: song for song in await _with_listings(conn, rows)}
+    return [PlaylistItem(item_id = r["item_id"], song = songs[r["id"]]) for r in rows if r["id"] in songs]
+
+async def rename_playlist(conn: AsyncConnection, playlist_id : UUID, name : str) -> bool:
+    """False when there is no such playlist. A name already in use raises psycopg's UniqueViolation."""
+    return (await conn.execute("UPDATE playlists SET name = %s WHERE id = %s", [name, playlist_id])).rowcount > 0
+
+async def delete_playlist(conn: AsyncConnection, playlist_id : UUID) -> bool:
+    """False when there is no such playlist. Its items go with it (ON DELETE CASCADE); the songs stay."""
+    return (await conn.execute("DELETE FROM playlists WHERE id = %s", [playlist_id])).rowcount > 0
+
+async def remove_from_playlist(conn: AsyncConnection, playlist_id : UUID, item_id : UUID) -> bool:
+    """False when this playlist has no such item. Both ids must match: an item of another playlist is not removed."""
+    return (await conn.execute("DELETE FROM playlist_items WHERE id = %s AND playlist_id = %s",
+                               [item_id, playlist_id])).rowcount > 0
+
+
+class NotInList(Exception):
+    """The row to move, or one of its new neighbours, is not in that list (the endpoint's 404)."""
+
+class BadMove(ValueError):
+    """Neighbours in the wrong order, or a row named as its own neighbour (the endpoint's 422)."""
+
+async def move_item(conn: AsyncConnection, playlist_id : UUID, item_id : UUID,
+                    top_id : UUID | None, bottom_id : UUID | None) -> None:
+    """Moves one song of a playlist to between two of its songs. Exactly one row changes."""
+    rows = await (await conn.execute(
+        "SELECT id, position FROM playlist_items WHERE playlist_id = %s AND id = ANY(%s)",
+        [playlist_id, [item_id, top_id, bottom_id]])).fetchall()
+    await _move(conn, "UPDATE playlist_items SET position = %s WHERE id = %s", rows, item_id, top_id, bottom_id)
+
+async def move_playlist(conn: AsyncConnection, playlist_id : UUID, top_id : UUID | None, bottom_id : UUID | None) -> None:
+    """Moves one playlist to between two others in your list. Exactly one row changes."""
+    rows = await (await conn.execute(
+        "SELECT id, position FROM playlists WHERE id = ANY(%s)", [[playlist_id, top_id, bottom_id]])).fetchall()
+    await _move(conn, "UPDATE playlists SET position = %s WHERE id = %s", rows, playlist_id, top_id, bottom_id)
+
+async def _move(conn: AsyncConnection, update_sql : str, rows : list[dict], row_id : UUID,
+                top_id : UUID | None, bottom_id : UUID | None) -> None:
+    """The shared part of both moves. `rows` holds the positions of whichever of the three ids are in the list."""
+    positions = {r["id"]: r["position"] for r in rows}
+    for needed in (row_id, top_id, bottom_id):
+        if needed is not None and needed not in positions:
+            raise NotInList(needed)
+    if row_id in (top_id, bottom_id):
+        raise BadMove("a row cannot be its own neighbour")
+    if top_id is None and bottom_id is None:
+        return                                     # nothing to put it between: it stays where it is
+    try:
+        # the new key sorts between the two neighbours; a missing neighbour is None (the top or the bottom)
+        new = generate_key_between(positions.get(top_id), positions.get(bottom_id))
+    except FIError as e:
+        raise BadMove("the top neighbour must come before the bottom one") from e
+    await conn.execute(update_sql, [new, row_id])

@@ -88,3 +88,7 @@ class PlaylistItem(BaseModel):
 
 class PlaylistItems(PlaylistMetadata):
     items : list[PlaylistItem]
+
+class PlaylistItemRef(BaseModel):
+    item_id : UUID
+    song_id : UUID
