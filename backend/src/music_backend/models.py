@@ -92,3 +92,11 @@ class PlaylistItems(PlaylistMetadata):
 class PlaylistItemRef(BaseModel):
     item_id : UUID
     song_id : UUID
+
+class PrefetchListing(BaseModel):
+    source: SourceName
+    source_id : str
+
+class PrefetchRequest(BaseModel):
+    # the app sends 5 to 10; the maximum stops one request from queueing thousands of lookups
+    listings : list[PrefetchListing] = Field(min_length = 1, max_length = 50)

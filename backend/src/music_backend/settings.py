@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     youtube_cache_expiry_threshold: int = 30
     # None: JioSaavn URLs carry no expiry
     jiosaavn_cache_expiry_threshold: int | None = None
+    # prefetch workers: at most this many prefetch lookups at once (yt-dlp shares its threads with your clicks)
+    num_prefetch_workers: int = 4
     # minutes: after a source's first bot check, ask it nothing for this long; each bot check in a row doubles it
     backoff_start_minutes: float = 2
     # minutes: the pause never grows past this, so a lifted block is noticed within this long

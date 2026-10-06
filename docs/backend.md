@@ -36,7 +36,7 @@ Files, in the order a request touches them:
 ### `lifespan(app)`
 - **Does:** startup and shutdown work.
 - **Returns:** nothing. It is a context manager: code before `yield` runs at startup; code after `yield` runs at shutdown.
-- **How:** makes the pool (`db.make_pool`), opens it, creates missing tables (`db.apply_schema`), stores the pool in `app.state.pool`. At shutdown: closes the pool.
+- **How:** makes the pool (`db.make_pool`), opens it, creates missing tables (`db.apply_schema`), stores the pool in `app.state.pool`, makes the URL cache and starts the prefetch workers. At shutdown, in this order: cancels the workers and the lookups still running, closes the sources' kept connections (`source.http.close()`), closes the pool.
 - **Called by:** FastAPI, once.
 
 ### `root()` — `GET /`
@@ -91,6 +91,11 @@ Files, in the order a request touches them:
 
 ---
 
+### `prefetch_urls(body, request)` — `POST /prefetch`
+- **Body:** `{"listings": [{"source": "ytmusic", "source_id": "J7p4bzqLvCw"}, …]}`, 1 to 50 (`PrefetchRequest`).
+- **Returns:** 202 at once. The listings are looked up in the background by the prefetch workers; a newer list replaces whatever still waits (lookups already running finish).
+- **Called by:** the app's `Prefetcher`: the next 5 of the playing queue, then the top 5 of the search on screen.
+
 ### Playlists (MUS-2) — `/playlists`
 
 Every id is a UUID: a malformed one is 422 (FastAPI), an unknown one is 404 (ours).
@@ -129,6 +134,14 @@ Every id is a UUID: a malformed one is 422 (FastAPI), an unknown one is 404 (our
 
 ---
 
+## http_client.py
+
+### `SharedClient(**options)`
+- **Does:** one `httpx.AsyncClient` per outside service, kept for the server's life. `options` go to the client as they are (`timeout`, `headers`, …).
+- **Use:** `http = SharedClient(timeout=2)` once at module level, then `await http.client.get(url)`. `await http.close()` at shutdown.
+- **Why:** a new client per request opens a new connection each time (a TCP handshake, then a TLS handshake) and throws it away. A kept client reuses its open connection. Measured 6 Oct, medians of 5 searches: YouTube Music 599 ms → 463 ms, JioSaavn 283 ms → 193 ms. Tested offline: 5 requests through one `SharedClient` open 1 connection; 5 through new clients open 5.
+- **How:** the client is made on first use, not at import (an `AsyncClient` belongs to the event loop it first runs in, and there is none at import); a closed one is replaced, so tests can start and stop the server many times.
+
 ## sources/__init__.py
 
 Every source module offers the same two functions, and reports failures with the same two errors:
@@ -139,6 +152,8 @@ Every source module offers the same two functions, and reports failures with the
 | `get_song_url(song_id) -> str` | The audio URL for one listing. | — |
 | `SongNotFound` | No playable song with this ID. | HTTP 404 |
 | `SourceUnavailable` | The source could not be reached or was too slow. | HTTP 502 |
+
+Each source module also has `http`, its `SharedClient` (above); the lifespan closes it at shutdown.
 
 ---
 
@@ -348,4 +363,17 @@ Every source module offers the same two functions, and reports failures with the
 | `_set_db` | Table: one upsert (`fetched_at` changes only if the URL changed; `hit_at = now()`), then a trim to the newest `cache_max_size_in_db` by `hit_at`. One block, one commit |
 
 **Checked 5 Oct 2026:** a memory hit keeps `fetched_at` and moves `hit_at`; a fresh fetch with a new URL moves `fetched_at`, with the same URL (JioSaavn) it does not; with a limit of 3, storing P Q R, replaying P, then adding S leaves R P S (Q, the least recently used, goes). With every hit going through `set`: memory stays at its limit after a restart (5 table hits, limit 3 → 3), and a memory hit costs 0.83 ms with 6,000 rows in the table (the upsert + trim). `DELETE` + `INSERT` instead of the upsert crashed with `UniqueViolation` when two requests wrote one listing at once.
+
+### Single-flight (MUS-1 step 2)
+- `_start_lookup(source, id)`: the lookup already running for a listing (in `running`), or a new one started as a task and registered at once. `__call__` and the prefetch workers both use it, so one listing is never looked up twice at the same moment. Requests wait behind `asyncio.shield`: a cancelled request (a skipped song) ends only its own wait.
+- `_lookup(source, id)`: the lookup itself; its `finally` removes it from `running`, worked or failed, so failures are never kept.
+
+### Backoff (MUS-1 step 2b)
+- `blocked_until[source]`, `strikes[source]`: per source, because a bot check blocks the IP, not one song.
+- `_refuse_if_paused(source)`: during a pause, raise `SourceBlocked(until=…)` before asking the source (not a strike).
+- `_strike(source)`: a bot check from the source: pause `backoff_start_minutes × 2^(strikes − 1)`, at most `backoff_max_minutes`; a lookup that works resets the strikes.
+
+### Prefetch (MUS-1 step 3)
+- `prefetch(listings)`: empties `prefetch_queue` and puts the new list in (no waiting).
+- `prefetch_worker()`: `num_prefetch_workers` of them, started in `lifespan` and cancelled at shutdown (before the pool closes, with any lookups still running). Forever: take a listing; skip it if running or cached; else look it up. Expected failures (a gone song, a blip, a pause) log one line; anything else logs a traceback; the worker always carries on.
 
