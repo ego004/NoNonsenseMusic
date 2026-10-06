@@ -1,5 +1,5 @@
 from collections import OrderedDict
-
+import asyncio
 from music_backend.settings import settings
 
 
@@ -17,6 +17,7 @@ class ListingURLCache:
         self.max_size_in_memory = settings.cache_max_size_in_memory
         self.max_size_in_db = settings.cache_max_size_in_db
         self.pool = pool
+        self.running = {}
 
     async def _db_hit(self, source: str, song_id: str) -> None:
         # the table's own "recently used" mark: the trim in _set_db drops the oldest hit_at first
@@ -82,7 +83,20 @@ class ListingURLCache:
         # CHANGED: one URL variable; get hides memory vs table
         url = None if serve_fresh else await self.get(source, song_id)
         if url is None:
+            task = self.running.get((source, song_id))
+            if task is None:
+                task = asyncio.create_task(self._lookup(source, song_id))
+                self.running[(source, song_id)] = task
+            url = await asyncio.shield(task)
+        return url
+
+    async def _lookup(self, source: str, song_id: str) -> str:
+        """The real lookup, run as a task, once per listing at a time: fetch, store, return the URL."""
+        try:
             # SongNotFound / SourceUnavailable pass straight through, so a failure is never stored
             url = await self.sources[source].get_song_url(song_id)
             await self.set(source, song_id, url)
-        return url
+            return url
+        finally:
+            # worked or failed: out of `running`, so the next request after this starts a fresh lookup
+            del self.running[(source, song_id)]
