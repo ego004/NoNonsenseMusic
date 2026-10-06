@@ -122,6 +122,8 @@ enum SelfTest {
     /// How many of each card appeared on screen (debug builds count them in .onAppear): the Home check reports it.
     static var appeared: [String: Int] = [:]
     static var searchResultCount = 0
+    /// The search screen's top result as the copy that would play (SearchView sets it): the prefetch check times it.
+    static var searchTop: Listing?
     /// Where the playlist screen's "No songs yet" sits (PlaylistView sets it): the playlist check measures its centring.
     static var emptyStateFrame: CGRect = .zero
 
@@ -412,6 +414,22 @@ enum SelfTest {
         q.sync(source: "playlist:3", items: [(key: "i1", track: abcde[0]), (key: "i3", track: abcde[1]), (key: "i4", track: twice)])
         check("a song in twice: removing one copy keeps the other", names(q) == "abt", names(q))
 
+        // Up Next by hand
+        q = PlayQueue(); q.load(abcde, startAt: 0, keys: keys, source: "playlist:9", shuffled: false)
+        q.moveUpcoming(fromOffsets: IndexSet([3]), toOffset: 0)          // e (4th after a) to the front of Up Next
+        check("drag in Up Next: e moves to next, a still playing", names(q) == "aebcd" && q.current?.title == "a" && q.upNext.first?.title == "e", names(q))
+        q.moveUpcoming(fromOffsets: IndexSet([0]), toOffset: 4)          // e back to the end
+        check("drag in Up Next: back to the end", names(q) == "abcde", names(q))
+        q.moveUpcoming(fromOffsets: IndexSet([2]), toOffset: 0)          // d to next
+        q.sync(source: "playlist:9", items: ["k-a", "k-b", "k-c", "k-d", "k-e"].map(item))
+        check("after a drag the queue is yours: a playlist sync no longer reorders it", names(q) == "adbce", names(q))
+        q.setShuffle(true); q.setShuffle(false)
+        check("after a drag, shuffle on and off comes back to the dragged order", names(q) == "adbce" && q.current?.title == "a", names(q))
+        q.removeUpcoming(at: 1)                                         // b
+        check("remove from Up Next", names(q) == "adce", names(q))
+        q.clearUpcoming()
+        check("clear Up Next: the current song stays", names(q) == "a" && q.current?.title == "a", names(q))
+
         report("queue: \(failures == 0 ? "all rules pass" : "\(failures) FAILED")")
         NSApp.terminate(nil)
     }
@@ -613,6 +631,329 @@ enum SelfTest {
             NSApp.terminate(nil)
         }
     }
+
+    /// With `NN_SELFTEST_PREFETCH="<search>|<search>"` (test server only, muted): A. plays a queue from the first
+    /// search, waits, and times /play for the next songs; B. types the second search on the Search screen, waits, and
+    /// times /play for its top result. Prefetched songs answer from the cache: single-digit milliseconds.
+    static func runPrefetchCheckIfAsked(player: Player) {
+        guard let spec = ProcessInfo.processInfo.environment["NN_SELFTEST_PREFETCH"] else { return }
+        let parts = spec.split(separator: "|").map(String.init)
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard API.baseURL.port != 8000, parts.count == 2 else { report("prefetch: test server and two searches needed"); NSApp.terminate(nil); return }
+            let noRedirect = URLSession(configuration: .ephemeral, delegate: StopRedirects(), delegateQueue: nil)
+            func time(_ listing: Listing) async -> String {
+                let start = Date()
+                let status = ((try? await noRedirect.data(from: API.playURL(listing)))?.1 as? HTTPURLResponse)?.statusCode ?? 0
+                return String(format: "%@ %d in %.1f ms", listing.source, status, Date().timeIntervalSince(start) * 1000)
+            }
+            if !player.isMuted { player.toggleMute() }
+
+            // A. a queue
+            guard let found = try? await API.search(parts[0]) else { report("prefetch: search failed"); NSApp.terminate(nil); return }
+            player.play(found.songs.prefix(6).map(Track.init))
+            try? await Task.sleep(for: .seconds(4))               // 0.3 s settle + lookups in the background
+            for (n, track) in player.upNext.prefix(3).enumerated() {
+                report("prefetch A: queue song \(n + 2) (\(track.title)): \(await time(track.best))")
+            }
+
+            // B. the search screen
+            NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.search))
+            try? await Task.sleep(for: .seconds(1))
+            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+                  let field = descendants(of: window.contentView!.superview!).compactMap({ $0 as? NSTextField })
+                      .first(where: { $0.placeholderString == "Songs, artists, albums" }) else { report("prefetch: no search field"); NSApp.terminate(nil); return }
+            field.stringValue = parts[1]
+            (field.delegate as? NSTextFieldDelegate)?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: field))
+            for _ in 0..<40 where searchTop == nil { try? await Task.sleep(for: .milliseconds(250)) }
+            try? await Task.sleep(for: .seconds(4))
+            if let top = searchTop { report("prefetch B: search top result: \(await time(top))") }
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// With `NN_SELFTEST_UPNEXT="<search>"` (test server only, muted): plays 5 songs, opens Now Playing on Up Next,
+    /// counts its rows, then moves and removes songs the way a drag and the ✕ do. Your Now Playing layout is put back.
+    static func runUpNextCheckIfAsked(player: Player) {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_UPNEXT"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard API.baseURL.port != 8000, let found = try? await API.search(query) else { report("upnext: test server and a search needed"); NSApp.terminate(nil); return }
+            if !player.isMuted { player.toggleMute() }
+            let saved = UserDefaults.standard.string(forKey: "nowPlayingPanel")
+            UserDefaults.standard.set("upNext", forKey: "nowPlayingPanel")
+            player.play(found.songs.prefix(5).map(Track.init))
+            player.showNowPlaying = true
+            try? await Task.sleep(for: .seconds(1.5))
+            if let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) {
+                let rows = descendants(of: window.contentView!.superview!).compactMap { $0 as? NSTableView }.map(\.numberOfRows)
+                report("upnext: list rows on screen \(rows) (Up Next holds \(player.upNext.count))")
+            }
+            let before = player.upNext.map(\.title)
+            player.moveUpNext(fromOffsets: IndexSet([3]), toOffset: 0)
+            report("upnext \(player.upNext.map(\.title) == [before[3], before[0], before[1], before[2]] ? "PASS" : "FAIL") drag the last song to next")
+            player.removeFromUpNext(at: 0)
+            report("upnext \(player.upNext.map(\.title) == Array(before.prefix(3)) ? "PASS" : "FAIL") remove it again")
+            if let saved { UserDefaults.standard.set(saved, forKey: "nowPlayingPanel") } else { UserDefaults.standard.removeObject(forKey: "nowPlayingPanel") }
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// With `NN_SELFTEST_DOWNLOADS="<search>"` (test server only, muted, the Downloads-selftest folder): downloads two
+    /// songs, checks the files and the index, then STOPS THE SERVER and plays a download: it must play from its file.
+    static func runDownloadsCheckIfAsked(player: Player, downloads: DownloadStore) {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_DOWNLOADS"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard API.baseURL.port != 8000, downloads.folder.lastPathComponent == "Downloads-selftest",
+                  let found = try? await API.search(query) else { report("downloads: test server, test folder and a search needed"); NSApp.terminate(nil); return }
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("downloads \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            downloads.removeAll()
+            if !player.isMuted { player.toggleMute() }
+            let songs = found.songs.prefix(2).map(Track.init)
+            let start = Date()
+            for song in songs { await downloads.download(song, quietly: true) }
+            let sizes = downloads.items.map { formatBytes($0.bytes) }
+            report(String(format: "downloads: 2 songs in %.1f s: %@ (%@)", Date().timeIntervalSince(start), songs.map(\.title).joined(separator: ", "), sizes.joined(separator: ", ")))
+            check("both downloaded, files on disk, each over 500 KB", downloads.items.count == 2 && downloads.items.allSatisfy {
+                $0.bytes > 500_000 && FileManager.default.fileExists(atPath: downloads.folder.appending(path: $0.file).path) })
+            check("the index is saved: a fresh store finds both", DownloadStore().items.count == 2)
+            check("songs know they are downloaded", songs.allSatisfy(downloads.isDownloaded))
+
+            ServerLauncher.shared.stop()                                  // now no server at all
+            try? await Task.sleep(for: .seconds(1))
+            check("the server is really off", !(await API.health()))
+            player.play([songs[1]])
+            try? await Task.sleep(for: .seconds(3))
+            let position = player.position
+            report(String(format: "downloads: with the server off: playing %@, from its file: %@, buffering: %@, position %.1f s", songs[1].title,
+                          player.playingFile ? "yes" : "no", player.isBuffering ? "yes" : "no", position))
+            check("with the server off, a download plays from its file", player.playingFile && player.isPlaying && !player.isBuffering && position > 0.5)
+
+            downloads.remove(songs[0])
+            check("remove one: its file is gone", downloads.items.count == 1 && !songs[0].listings.contains { downloads.localURL(for: $0) != nil })
+            downloads.removeAll()
+            let left = (try? FileManager.default.contentsOfDirectory(atPath: downloads.folder.path))?.filter { $0 != "index.json" } ?? []
+            check("remove all: the folder is empty", downloads.items.isEmpty && left.isEmpty, "\(left)")
+            report("downloads: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// Where views are, in window points, by name (`selfTestFrame`): "sidebar.title:Home", "bar.progress", …
+    static var frames: [String: CGRect] = [:]
+
+    /// With `NN_SELFTEST_SIDEBAR=1`: the "New Playlist" row (it used to be a + in the section header, out at the
+    /// sidebar's edge). Pictures cannot draw lists, and SwiftUI shows an in-app accessibility walk nothing, so each row
+    /// reports where its icon and title are: New Playlist must line up with the others. Then a real click on it must
+    /// ask for the New Playlist sheet.
+    static func runSidebarCheckIfAsked(library: LibraryStore) {
+        guard ProcessInfo.processInfo.environment["NN_SELFTEST_SIDEBAR"] != nil else { return }
+        Task {
+            for _ in 0..<40 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            await library.refresh()
+            try? await Task.sleep(for: .seconds(1.5))
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("sidebar \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            let names = SidebarItem.allCases.map(\.title) + library.playlists.map(\.name)
+            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+                  let newTitle = frames["sidebar.title:New Playlist"], let newIcon = frames["sidebar.icon:New Playlist"],
+                  names.allSatisfy({ frames["sidebar.title:\($0)"] != nil }) else {
+                report("sidebar: frames missing: \(frames.keys.sorted())"); NSApp.terminate(nil); return
+            }
+            for name in names + ["New Playlist"] {
+                let t = frames["sidebar.title:\(name)"]!, i = frames["sidebar.icon:\(name)"]!
+                report("sidebar: \(name == "New Playlist" ? "NEW " : "    ")icon centre x \(String(format: "%.1f", i.midX)), title starts x \(String(format: "%.1f", t.minX)), y \(Int(t.midY))")
+            }
+            let titleOffsets = names.map { frames["sidebar.title:\($0)"]!.minX - newTitle.minX }
+            let iconOffsets = names.map { frames["sidebar.icon:\($0)"]!.midX - newIcon.midX }
+            check("New Playlist's title starts where every other title starts (within 1 pt)", titleOffsets.allSatisfy { abs($0) <= 1 }, "\(titleOffsets)")
+            check("its + is centred in the same icon column (within 1 pt)", iconOffsets.allSatisfy { abs($0) <= 1 }, "\(iconOffsets)")
+            let lastPlaylistY = library.playlists.compactMap { frames["sidebar.title:\($0.name)"]?.midY }.max() ?? 0
+            check("it is the last row of Playlists", newTitle.midY > lastPlaylistY)
+
+            // a real click on its title, through the normal event queue (window points have y going up)
+            library.newPlaylistRequest = nil
+            NSApp.activate(); window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .seconds(0.5))
+            let height = window.contentView!.frame.height
+            let p = NSPoint(x: newTitle.midX, y: height - newTitle.midY)
+            for type in Array(repeating: [NSEvent.EventType.leftMouseDown, .leftMouseUp], count: window.isKeyWindow ? 1 : 2).flatMap({ $0 }) {
+                if let event = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    NSApp.postEvent(event, atStart: false)
+                }
+            }
+            try? await Task.sleep(for: .seconds(1))
+            check("clicking it asks for the New Playlist sheet", library.newPlaylistRequest != nil && library.newPlaylistRequest?.track == nil)
+            library.newPlaylistRequest = nil
+            report("sidebar: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
+            try? await Task.sleep(for: .seconds(0.5))
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// With `NN_SELFTEST_SETTINGS_FIT=1`: opens Settings, visits every tab with every section open, and checks the
+    /// window stays on screen (Discord with everything open ran past the bottom, 6 Oct). Section settings are put back.
+    static func runSettingsFitCheckIfAsked() {
+        guard ProcessInfo.processInfo.environment["NN_SELFTEST_SETTINGS_FIT"] != nil else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("settings-fit \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            let keys = ["settings.open.window", "settings.open.sizes", "settings.open.colours", "settings.open.share", "settings.open.preview"]
+                + ["settings.open.surfaces"]
+            borrowDefaults(keys)
+            for key in keys where key != "settings.open.colours" { UserDefaults.standard.set(true, forKey: key) }
+            guard let main = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+                  let menu = NSApp.mainMenu?.items.first?.submenu, let index = menu.items.firstIndex(where: { $0.keyEquivalent == "," })
+            else { report("settings-fit: no Settings item"); NSApp.terminate(nil); return }
+            menu.performActionForItem(at: index)
+            try? await Task.sleep(for: .seconds(1.5))
+            guard let settings = NSApp.windows.first(where: { $0.isVisible && $0 !== main && $0.styleMask.contains(.titled) }),
+                  let screen = settings.screen?.visibleFrame else { report("settings-fit: Settings did not open"); NSApp.terminate(nil); return }
+            for item in settings.toolbar?.items ?? [] {
+                guard let action = item.action else { continue }
+                NSApp.sendAction(action, to: item.target, from: item)
+                try? await Task.sleep(for: .seconds(1.2))
+                let f = settings.frame
+                report("settings-fit: \(item.label): window \(Int(f.height)) pt tall, bottom at y \(Int(f.minY)); usable screen y \(Int(screen.minY))…\(Int(screen.maxY)) (\(Int(screen.height)) pt)")
+                check("\(item.label) fits on the screen", f.height <= screen.height && f.minY >= screen.minY - 1 && f.maxY <= screen.maxY + 1,
+                      "\(Int(f.height)) pt, bottom \(Int(f.minY))")
+            }
+            returnDefaults()
+            try? await Task.sleep(for: .seconds(0.4))
+            report("settings-fit: \(failures == 0 ? "all tabs fit" : "\(failures) FAILED")")
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// Where a self-test saves the settings it is about to change (`borrowDefaults`).
+    private static let restoreFile = FileManager.default.temporaryDirectory.appending(path: "nn-selftest-defaults.plist")
+
+    /// Saves these settings to a file before a test changes them. `returnDefaults` puts them back; if the test dies
+    /// first, the next self-test launch does (a crash on 6 Oct left four Settings sections changed).
+    static func borrowDefaults(_ keys: [String]) {
+        var saved: [String: Any] = [:], missing: [String] = []
+        for key in keys { if let value = UserDefaults.standard.object(forKey: key) { saved[key] = value } else { missing.append(key) } }
+        (["saved": saved, "missing": missing] as NSDictionary).write(to: restoreFile, atomically: true)
+    }
+
+    /// Puts back what `borrowDefaults` saved, if anything is waiting. Runs at every self-test launch, before the window.
+    static func returnDefaults() {
+        guard let plist = NSDictionary(contentsOf: restoreFile) as? [String: Any] else { return }
+        for (key, value) in plist["saved"] as? [String: Any] ?? [:] { UserDefaults.standard.set(value, forKey: key) }
+        for key in plist["missing"] as? [String] ?? [] { UserDefaults.standard.removeObject(forKey: key) }
+        try? FileManager.default.removeItem(at: restoreFile)
+        print("SELFTEST", "returned \((plist["saved"] as? [String: Any])?.count ?? 0) saved settings and removed \((plist["missing"] as? [String])?.count ?? 0) new ones")
+    }
+
+    /// With `NN_SELFTEST_BAR="<search>"` (test server only, muted): the player bar's layout, measured (pictures
+    /// cannot draw glass), at the window's size and at its narrowest; then each surface setting, checked by the
+    /// blur view it must create. Your settings are borrowed and put back.
+    static func runBarCheckIfAsked(player: Player) {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_BAR"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard API.baseURL.port != 8000, let found = try? await API.search(query), found.songs.count >= 2,
+                  let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }), let root = window.contentView?.superview
+            else { report("bar: test server, a search and a window needed"); NSApp.terminate(nil); return }
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("bar \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            let keys = ["sidebarBlur", "sidebarSolid", "barStyle", "barBlur", "barSolid", "nowPlayingBlur", "nowPlayingSolid", "nowPlayingColour"]
+            borrowDefaults(keys)
+            for key in keys { UserDefaults.standard.removeObject(forKey: key) }     // start from the defaults
+            if !player.isMuted { player.toggleMute() }
+            player.play(found.songs.prefix(2).map(Track.init))
+            try? await Task.sleep(for: .seconds(4))
+
+            @MainActor func layout(_ label: String) {
+                guard let bar = frames["bar"], let song = frames["bar.song"], let centre = frames["bar.centre"], let buttons = frames["bar.buttons"],
+                      let progress = frames["bar.progress"], let elapsed = frames["bar.elapsed"], let remaining = frames["bar.remaining"]
+                else { check("\(label): every part reports where it is", false, "\(frames.keys.filter { $0.hasPrefix("bar") }.sorted())"); return }
+                let controls = controlsFrame
+                report(String(format: "bar: %@: bar %.0f × %.0f pt; centre %.0f pt wide; progress line %.0f pt; buttons %.0f pt; controls centre off by %.1f pt",
+                              label, bar.width, bar.height, centre.width, progress.width, buttons.width, controls.midX - bar.midX))
+                check("\(label): ⏮ ▶ ⏭ at the bar's exact centre (within 1 pt)", abs(controls.midX - bar.midX) <= 1, String(format: "%.1f", controls.midX - bar.midX))
+                check("\(label): the progress line is under the controls, not on the bar's edge",
+                      progress.minY >= controls.maxY - 1 && bar.maxY - progress.maxY >= 6, String(format: "%.0f pt from the bottom", bar.maxY - progress.maxY))
+                check("\(label): the times sit beside the line, not on it", elapsed.maxX <= progress.minX + 0.5 && remaining.minX >= progress.maxX - 0.5)
+                check("\(label): the song, the centre and the buttons do not overlap", song.maxX <= centre.minX + 0.5 && buttons.minX >= centre.maxX - 0.5,
+                      String(format: "song ends %.0f, centre %.0f…%.0f, buttons start %.0f", song.maxX, centre.minX, centre.maxX, buttons.minX))
+                check("\(label): the buttons stay inside the bar", buttons.maxX <= bar.maxX - 8, String(format: "%.0f > %.0f", buttons.maxX, bar.maxX - 8))
+            }
+            layout("at \(Int(window.frame.width)) pt")
+            let wide = buttonsWidth()
+            let saved = window.frame
+            window.setFrame(NSRect(x: saved.minX, y: saved.minY, width: 900, height: saved.height), display: true)
+            try? await Task.sleep(for: .seconds(1))
+            layout("narrowest window, \(Int(window.frame.width)) pt")
+            check("narrow: the volume slider folds away to make room", buttonsWidth() < wide, "\(Int(buttonsWidth())) vs \(Int(wide))")
+            window.setFrame(saved, display: true)
+            try? await Task.sleep(for: .seconds(0.8))
+
+            // surfaces: each setting must make (or not make) its blur view, at its strength
+            @MainActor func effects(in region: CGRect) -> [NSVisualEffectView] {
+                descendants(of: root).compactMap { $0 as? NSVisualEffectView }.filter {
+                    let f = $0.convert($0.bounds, to: nil); let r = CGRect(x: region.minX, y: root.bounds.height - region.maxY, width: region.width, height: region.height)
+                    return r.insetBy(dx: -2, dy: -2).contains(f) && f.width > 4
+                }
+            }
+            @MainActor func describe(_ views: [NSVisualEffectView]) -> String {
+                views.map { String(format: "alpha %.2f %@", $0.alphaValue, $0.blendingMode == .withinWindow ? "within" : "behind") }.joined(separator: ", ")
+            }
+            let sidebar = CGRect(x: 0, y: 0, width: 240, height: root.bounds.height)
+            let before = effects(in: sidebar).count
+            check("sidebar at 0 / 0 adds no blur view (the glass alone, as before)", before == 0, describe(effects(in: sidebar)))
+            UserDefaults.standard.set(0.6, forKey: "sidebarBlur")
+            try? await Task.sleep(for: .seconds(0.6))
+            let side = effects(in: sidebar)
+            check("sidebar blur 0.6: one behind-window blur at 0.6 inside the sidebar", side.count == 1 && abs(side[0].alphaValue - 0.6) < 0.01 && side[0].blendingMode == .behindWindow, describe(side))
+
+            let barRect = frames["bar"] ?? .zero
+            check("bar as Liquid Glass adds no blur view", effects(in: barRect).isEmpty, describe(effects(in: barRect)))
+            UserDefaults.standard.set("frosted", forKey: "barStyle")
+            UserDefaults.standard.set(0.5, forKey: "barBlur")
+            try? await Task.sleep(for: .seconds(0.6))
+            let bar = effects(in: frames["bar"] ?? barRect)
+            check("bar Frosted, blur 0.5: one within-window blur at 0.5 inside the bar", bar.count == 1 && abs(bar[0].alphaValue - 0.5) < 0.01 && bar[0].blendingMode == .withinWindow, describe(bar))
+            layout("Frosted bar")
+
+            player.showNowPlaying = true
+            try? await Task.sleep(for: .seconds(1.2))
+            let whole = CGRect(origin: .zero, size: root.bounds.size)
+            @MainActor func nowPlayingBlur() -> [NSVisualEffectView] {
+                effects(in: whole).filter { $0.blendingMode == .withinWindow && $0.convert($0.bounds, to: nil).width >= root.bounds.width - 2 }
+            }
+            check("Now Playing at its default: a full-window blur at 1.0", nowPlayingBlur().map(\.alphaValue) == [1], describe(nowPlayingBlur()))
+            UserDefaults.standard.set(0.3, forKey: "nowPlayingBlur")
+            try? await Task.sleep(for: .seconds(0.6))
+            check("Now Playing blur 0.3: the blur follows", nowPlayingBlur().count == 1 && abs(nowPlayingBlur()[0].alphaValue - 0.3) < 0.01, describe(nowPlayingBlur()))
+            check("… and with little blur, the fill keeps the floor (readable)", abs(Look.readable(solid: 0, blur: 0.3) - 0.21) < 0.001 && Look.readable(solid: 0.5, blur: 0) == 0.5)
+            player.showNowPlaying = false
+            try? await Task.sleep(for: .seconds(0.8))
+
+            returnDefaults()
+            try? await Task.sleep(for: .seconds(0.4))
+            report("bar: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
+            NSApp.terminate(nil)
+        }
+    }
+
+    @MainActor private static func buttonsWidth() -> CGFloat { frames["bar.buttons"]?.width ?? 0 }
 
     /// With `NN_SELFTEST_SNAP=<folder>`: saves the app's own window as `<folder>/<name>.png` (no screen recording:
     /// the window draws itself into an image). Scenarios call it at the moments worth looking at.

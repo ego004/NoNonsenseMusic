@@ -28,10 +28,11 @@ struct RootView: View {
                     case .section(.search): SearchView()
                     case .section(.liked): SongListView(item: .liked)
                     case .section(.recent): SongListView(item: .recent)
+                    case .section(.downloads): SongListView(item: .downloads)
                     case .playlist(let id): PlaylistView(id: id).id(id)
                     }
                 }
-                .safeAreaPadding(.bottom, player.current == nil ? 0 : 88)   // lists scroll clear of the bar
+                .safeAreaPadding(.bottom, player.current == nil ? 0 : 100)  // lists scroll clear of the bar (72 pt + its 18 pt margin)
 
                 // One glass container: shapes closer than `spacing` blend like liquid, so the message
                 // grows out of the player bar and sinks back into it.

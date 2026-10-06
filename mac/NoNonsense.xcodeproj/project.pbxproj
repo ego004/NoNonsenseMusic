@@ -18,10 +18,12 @@
 		5630B8DC8F8427B02858E427 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 292804CD0EB5D2B5A39CF640 /* Models.swift */; };
 		613193FB7E14FC5C4BB443D8 /* Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB8186E89FB9026CB640031 /* Player.swift */; };
 		775849477665E5B0397C9BEE /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73F3F3979510A3CCDB133168 /* API.swift */; };
+		7764B8459C18BB33A437F195 /* DownloadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 413FB74B40D0CE16AB8515BB /* DownloadStore.swift */; };
 		7C3F83393CA321A64FA0909C /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C646EB60CF5521894381A0AB /* RootView.swift */; };
 		84686E9E5E599CE8BF15A495 /* ServerLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA9BFC4261D1B1DA125FFCA /* ServerLauncher.swift */; };
 		A66DC6D35E35B04108B7EA14 /* NoNonsenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 990E0DB832F7D7C8D25D4453 /* NoNonsenseApp.swift */; };
 		AE2446E87AE50D3E1F6FAE13 /* ThemeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2B2FE4C7E6EEAA589159B7F /* ThemeStore.swift */; };
+		BD5B300141EDC58A26525276 /* Prefetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18C1A9DC93EAF19E0637D439 /* Prefetcher.swift */; };
 		C2EDC8457EA6AA7AA6B0C1C3 /* ArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF34CE64DF6A78F1C8313C22 /* ArtworkCache.swift */; };
 		C3D45EF8E04EE77DA5CECD1A /* Home.swift in Sources */ = {isa = PBXBuildFile; fileRef = 219EB9D529F5EF24B0F08DDD /* Home.swift */; };
 		D044B7F4E4BE1BD07AC6E6B1 /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C3D0063CBD5878029E2E727 /* SelfTest.swift */; };
@@ -34,10 +36,12 @@
 		00C1B5E468195CB2D992A02B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		065566838EF587BE46F586CF /* PlayQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayQueue.swift; sourceTree = "<group>"; };
 		187B65FDE5C1D9B4300ACE83 /* Screens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screens.swift; sourceTree = "<group>"; };
+		18C1A9DC93EAF19E0637D439 /* Prefetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Prefetcher.swift; sourceTree = "<group>"; };
 		1ED8D65E869B635E8873CD76 /* NoNonsense.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NoNonsense.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		219EB9D529F5EF24B0F08DDD /* Home.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home.swift; sourceTree = "<group>"; };
 		292804CD0EB5D2B5A39CF640 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		3BE09B7F546BD239B2AFD81C /* PlayerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViews.swift; sourceTree = "<group>"; };
+		413FB74B40D0CE16AB8515BB /* DownloadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadStore.swift; sourceTree = "<group>"; };
 		4EA9BFC4261D1B1DA125FFCA /* ServerLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLauncher.swift; sourceTree = "<group>"; };
 		57E61BBC7E329399CCCFF251 /* Shuffle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shuffle.swift; sourceTree = "<group>"; };
 		61B7B9C798BEEEDC810D3C7C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -123,9 +127,11 @@
 			children = (
 				73F3F3979510A3CCDB133168 /* API.swift */,
 				CF34CE64DF6A78F1C8313C22 /* ArtworkCache.swift */,
+				413FB74B40D0CE16AB8515BB /* DownloadStore.swift */,
 				93FF752447B1866FD59A5D9D /* LibraryStore.swift */,
 				AEB8186E89FB9026CB640031 /* Player.swift */,
 				065566838EF587BE46F586CF /* PlayQueue.swift */,
+				18C1A9DC93EAF19E0637D439 /* Prefetcher.swift */,
 				B5C8CE53A38023E1F773BDBD /* Presence.swift */,
 				4EA9BFC4261D1B1DA125FFCA /* ServerLauncher.swift */,
 				57E61BBC7E329399CCCFF251 /* Shuffle.swift */,
@@ -215,6 +221,7 @@
 				775849477665E5B0397C9BEE /* API.swift in Sources */,
 				C2EDC8457EA6AA7AA6B0C1C3 /* ArtworkCache.swift in Sources */,
 				3DDD48B03F42672DEF183122 /* Components.swift in Sources */,
+				7764B8459C18BB33A437F195 /* DownloadStore.swift in Sources */,
 				C3D45EF8E04EE77DA5CECD1A /* Home.swift in Sources */,
 				06ED42D3B0F7A7FD121A2AC7 /* LibraryStore.swift in Sources */,
 				5630B8DC8F8427B02858E427 /* Models.swift in Sources */,
@@ -223,6 +230,7 @@
 				613193FB7E14FC5C4BB443D8 /* Player.swift in Sources */,
 				F72DD52D3A19BE855522588B /* PlayerViews.swift in Sources */,
 				EAD89C6A64DF6656871BE823 /* Playlists.swift in Sources */,
+				BD5B300141EDC58A26525276 /* Prefetcher.swift in Sources */,
 				2378FEC447BD5BF1FCB49A4C /* Presence.swift in Sources */,
 				7C3F83393CA321A64FA0909C /* RootView.swift in Sources */,
 				0E59F343C250DEB67EB7B342 /* Screens.swift in Sources */,

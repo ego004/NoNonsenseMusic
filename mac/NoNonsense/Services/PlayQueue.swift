@@ -20,12 +20,13 @@ struct PlayQueue {
     }
 
     /// One place in the queue.
-    struct Entry {
+    struct Entry: Identifiable {
         let track: Track
         /// Its place in the order you chose: shuffle off sorts by it, so the order comes back.
         var n: Double
         /// Names this entry for edits that come later: a playlist item id, so a song added twice is two entries.
         let key: String
+        var id: String { key }
     }
 
     private(set) var entries: [Entry] = []
@@ -38,7 +39,9 @@ struct PlayQueue {
     var tracks: [Track] { entries.map(\.track) }
     var current: Track? { entries.indices.contains(index) ? entries[index].track : nil }
     var currentKey: String? { entries.indices.contains(index) ? entries[index].key : nil }
-    var upNext: [Track] { entries.indices.contains(index + 1) ? entries[(index + 1)...].map(\.track) : [] }
+    var upNext: [Track] { upcoming.map(\.track) }
+    /// The entries after the current one, in play order: what Up Next shows (each with its own key, for a list).
+    var upcoming: [Entry] { entries.indices.contains(index + 1) ? Array(entries[(index + 1)...]) : [] }
 
     /// A new queue. `keys` name the entries (playlist item ids); without them each entry gets its own.
     mutating func load(_ tracks: [Track], startAt i: Int, keys: [String]? = nil, source: String? = nil, shuffled: Bool) {
@@ -112,6 +115,42 @@ struct PlayQueue {
         let following = entries.map(\.n).filter { $0 > current.n }.min()
         let n = following.map { (current.n + $0) / 2 } ?? current.n + 1
         entries.insert(Entry(track: track, n: n, key: UUID().uuidString), at: index + 1)
+    }
+
+    /// Up Next rearranged by hand (a drag in Now Playing). `offsets` and `destination` count from the first song
+    /// after the current one, as Up Next shows them; the current song never moves.
+    mutating func moveUpcoming(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        var list = upcoming
+        guard !offsets.isEmpty, offsets.allSatisfy(list.indices.contains) else { return }
+        let moving = offsets.map { list[$0] }
+        list = list.enumerated().filter { !offsets.contains($0.offset) }.map(\.element)
+        list.insert(contentsOf: moving, at: min(list.count, destination - offsets.filter { $0 < destination }.count))
+        entries = Array(entries[...index]) + list
+        handEdited()
+    }
+
+    /// Takes one song out of Up Next (`offset` counts from the next song).
+    mutating func removeUpcoming(at offset: Int) {
+        guard upcoming.indices.contains(offset) else { return }
+        entries.remove(at: index + 1 + offset)
+        handEdited()
+    }
+
+    /// Empties Up Next; the current song plays on.
+    mutating func clearUpcoming() {
+        guard entries.indices.contains(index) else { return }
+        entries = Array(entries[...index])
+        handEdited()
+    }
+
+    /// After a change by hand the queue is yours: the playlist it came from no longer reorders it (a sync would
+    /// undo the change), and with shuffle off your order becomes the play order, so turning shuffle on and off
+    /// again comes back to it.
+    private mutating func handEdited() {
+        source = nil
+        if !isShuffled {
+            for i in entries.indices { entries[i].n = Double(i) }
+        }
     }
 
     /// The playlist this queue came from now has these items, in this order (after a move, an add or a remove).

@@ -39,6 +39,9 @@ final class Player {
 
     @ObservationIgnored private let player = AVPlayer()
     @ObservationIgnored private let library: LibraryStore
+    @ObservationIgnored private let downloads: DownloadStore
+    /// True while the playing copy is a downloaded file (no server, no internet needed).
+    private(set) var playingFile = false
     @ObservationIgnored private let presence: Presence
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
@@ -55,8 +58,9 @@ final class Player {
     @ObservationIgnored private var messageTimer: Task<Void, Never>?
     @ObservationIgnored private var artwork: [String: MPMediaItemArtwork] = [:]
 
-    init(library: LibraryStore, presence: Presence) {
+    init(library: LibraryStore, presence: Presence, downloads: DownloadStore) {
         self.library = library
+        self.downloads = downloads
         self.presence = presence
         // start as soon as audio arrives, instead of first buffering several seconds (the CDN answers in ~0.26 s)
         player.automaticallyWaitsToMinimizeStalling = false
@@ -106,22 +110,55 @@ final class Player {
     func playNext(_ track: Track) {
         guard current != nil else { play([track]); return }
         order.insertNext(track)
+        announceNext()
     }
 
     func toggleShuffle() {
         setShufflePreference(!shufflePreferred)
         order.setShuffle(shufflePreferred)
+        announceNext()
     }
 
     /// off → all → one → off
     func cycleRepeat() {
         order.repeatMode = order.repeatMode.next
         UserDefaults.standard.set(order.repeatMode.rawValue, forKey: "repeat")
+        announceNext()
+    }
+
+    /// Up Next as Now Playing shows it: the songs after the current one, each with its own id (a song can be in twice).
+    var upNextEntries: [PlayQueue.Entry] { order.upcoming }
+
+    /// Up Next rearranged by hand; offsets count from the next song.
+    func moveUpNext(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        order.moveUpcoming(fromOffsets: offsets, toOffset: destination)
+        announceNext()
+    }
+
+    func removeFromUpNext(at offset: Int) {
+        order.removeUpcoming(at: offset)
+        announceNext()
+    }
+
+    func clearUpNext() {
+        order.clearUpcoming()
+        announceNext()
     }
 
     /// A playlist changed (a move, an add, a remove). If the queue came from it, the queue follows; else nothing.
     func syncQueue(source: String, items: [(key: String, track: Track)]) {
         order.sync(source: source, items: items)
+        if order.source == source { announceNext() }
+    }
+
+    /// Tells the Prefetcher the next 5 songs in play order (round again with repeat on), as the copies that will play.
+    private func announceNext() {
+        var probe = order, next: [Listing] = []
+        while next.count < 5, let n = probe.indexAfterNext(), n != order.index {
+            next.append(probe.tracks[n].best)
+            probe.move(to: n)
+        }
+        Prefetcher.shared.queueChanged(next)
     }
 
     private func setShufflePreference(_ on: Bool) {
@@ -235,17 +272,19 @@ final class Player {
         guard let track = current else { return }
         fallbacksTried = 0
         freshRetried = []
-        load(track.best)
+        load(downloads.file(for: track)?.listing ?? track.best)      // a downloaded copy plays from the file
         report("play", track, at: 0)
-        // ask the server for the NEXT song's audio URL now, so it is ready (and cached) when that song starts
-        if let n = order.indexAfterEnd(), n != order.index { let next = queue[n]; Task { await API.warm(next.best) } }
+        announceNext()
     }
 
     private func load(_ listing: Listing, fresh: Bool = false) {
         position = 0
         isBuffering = true                                        // the spinner, until audio arrives
         playingListing = listing
-        let item = AVPlayerItem(url: API.playURL(listing, fresh: fresh))   // the server redirects to the audio file
+        let file = fresh ? nil : downloads.localURL(for: listing)
+        playingFile = file != nil
+        // a downloaded copy plays from its file; any other, through the server (which redirects to the audio file)
+        let item = AVPlayerItem(url: file ?? API.playURL(listing, fresh: fresh))
         // @Sendable: KVO calls this on whatever thread changed the status, not necessarily the main one
         statusObservation = item.observe(\.status) { @Sendable [weak self] item, _ in
             let status = item.status
