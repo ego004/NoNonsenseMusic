@@ -77,6 +77,59 @@ nonisolated struct SongRef: Codable, Sendable {
     enum CodingKeys: String, CodingKey { case songID = "song_id" }
 }
 
+// ---- playlists (MUS-2). Server names in brackets: these decode exactly what the backend sends ----
+
+/// One playlist without its songs: the sidebar, the list, the header [PlaylistMetadata].
+nonisolated struct PlaylistSummary: Codable, Hashable, Identifiable, Sendable {
+    let id: UUID
+    let name: String
+    let songCount: Int
+    let duration: Int                 // seconds, every song added up
+    let thumbnail: String?            // an uploaded cover's URL; nil: the app draws a 2×2 grid
+    enum CodingKeys: String, CodingKey { case id, name, duration, thumbnail; case songCount = "song_count" }
+}
+
+/// GET /playlists [PlaylistsResponse]
+nonisolated struct PlaylistsResponse: Codable, Sendable { let playlists: [PlaylistSummary] }
+
+/// One row of a playlist [PlaylistItem]: its own id (a song added twice is two rows) and the song.
+nonisolated struct PlaylistEntry: Codable, Sendable {
+    let itemID: UUID
+    let song: LibrarySong
+    enum CodingKeys: String, CodingKey { case itemID = "item_id"; case song }
+}
+
+/// GET /playlists/{id}: the playlist and its rows, in your order [PlaylistItems].
+nonisolated struct PlaylistDetail: Codable, Sendable {
+    let id: UUID
+    let name: String
+    let songCount: Int
+    let duration: Int
+    let thumbnail: String?
+    let items: [PlaylistEntry]
+    enum CodingKeys: String, CodingKey { case id, name, duration, thumbnail, items; case songCount = "song_count" }
+
+    var summary: PlaylistSummary { PlaylistSummary(id: id, name: name, songCount: songCount, duration: duration, thumbnail: thumbnail) }
+    @MainActor var tracks: [Track] { items.map { Track($0.song) } }
+    /// The rows' item ids as the player's queue keys: edits to this playlist find their entries by these.
+    var keys: [String] { items.map { $0.itemID.uuidString } }
+    /// The player's name for a queue that came from this playlist.
+    var queueSource: String { "playlist:\(id.uuidString)" }
+
+    /// The same playlist with these rows (after a move or a remove, before the server answers).
+    func with(items: [PlaylistEntry]) -> PlaylistDetail {
+        PlaylistDetail(id: id, name: name, songCount: items.count, duration: items.reduce(0) { $0 + $1.song.duration },
+                       thumbnail: thumbnail, items: items)
+    }
+}
+
+/// POST /playlists/{id}/items [PlaylistItemRef]
+nonisolated struct PlaylistItemRef: Codable, Sendable {
+    let itemID: UUID
+    let songID: UUID
+    enum CodingKeys: String, CodingKey { case itemID = "item_id"; case songID = "song_id" }
+}
+
 /// What every screen and the player work with, whether it came from a search or the library.
 struct Track: Identifiable, Hashable {
     let id: String               // the best listing's key: stable for a session

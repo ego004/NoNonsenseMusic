@@ -127,7 +127,8 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
    | `PlaylistMetadata` | `id: UUID`, `name: str`, `song_count: int`, `duration: int`, `thumbnail: str \| None = None` | Add `song_count`. Delete `num_plays`. |
    | `PlaylistsResponse` | `playlists: list[PlaylistMetadata]` | No change. |
    | `PlaylistItem` | `item_id: UUID`, `song: LibrarySong` | New. |
-   | `PlaylistDetail(PlaylistMetadata)` | `items: list[PlaylistItem]` | New. |
+   | `PlaylistItems(PlaylistMetadata)` | `items: list[PlaylistItem]` | New: the open reply. |
+   | `PlaylistItemRef` | `item_id: UUID`, `song_id: UUID` | New: the add reply (decided 6 Oct: the app already has the song it sent; the item id is the handle on the new row). |
    | `MoveRequest` | `top_neighbour_id: UUID \| None = None`, `bottom_neighbour_id: UUID \| None = None` | Was `PlaylistSongReorderRequest`. Delete `song_id`: it goes in the URL. Both are optional: the top has nothing above it. |
 
    Delete `PlaylistSongAdditionRequest` (use `ListingsRequest`) and `PlaylistSongRemovalRequest` (the item id goes in the URL).
@@ -140,8 +141,8 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 |---|---|---|---|
 | `POST /playlists` | `PlaylistRequest` | 201 · `PlaylistMetadata` | 1 |
 | `GET /playlists` | — | `PlaylistsResponse`, in your order | 1 |
-| `POST /playlists/{playlist_id}/items` | `ListingsRequest` | 201 · `PlaylistItem` | 2 |
-| `GET /playlists/{playlist_id}` | — | `PlaylistDetail` | 2 |
+| `POST /playlists/{playlist_id}/items` | `ListingsRequest` | 201 · `PlaylistItemRef` | 2 |
+| `GET /playlists/{playlist_id}` | — | `PlaylistItems` | 2 |
 | `PATCH /playlists/{playlist_id}` | `PlaylistRequest` | `PlaylistMetadata` | 3 |
 | `DELETE /playlists/{playlist_id}` | — | 204 | 3 |
 | `DELETE /playlists/{playlist_id}/items/{item_id}` | — | 204 | 3 |
@@ -152,7 +153,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 - An id that does not exist: `raise HTTPException(status_code=404, detail="Playlist not found")`.
 - 201: `@app.post("/playlists", status_code=201)`.
 
-### Step 1 · Create and list
+### Step 1 ✅ · Create and list
 
 - A new playlist goes at the bottom: its position comes after the largest one so far. With no playlists yet, "the largest" is `None`.
 - One query for all playlists with their song count and duration. The same query, limited to one id, gives the reply for create, rename and open.
@@ -169,9 +170,9 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8000/playlists -H 'co
 ```
 Gym appears with `song_count` 0. The empty name gives 422.
 
-### Step 2 · Add a song, open a playlist
+### Step 2 ✅ · Add a song, open a playlist
 
-- Add: the playlist must exist (404). The listings become a song the same way `/liked` does it. The item goes at the bottom of **this** playlist, not of all items.
+- Add: the playlist must exist (404). The listings become a song the same way `/liked` does it. The item goes at the bottom of this playlist.
 - Open: `library` already has a function that turns song rows into `LibrarySong`s. Read what columns it expects.
 - Traps (each one has a test):
   - The same song added twice: open must show **two** items.
@@ -186,7 +187,7 @@ curl -s localhost:8000/playlists/$P | jq '.items[].song.title'
 ```
 One search, then 3 songs added from it (searching 3 times risks YouTube's bot check). Open shows them in that order. An unknown id gives 404.
 
-### Step 3 · Rename, delete, remove
+### Step 3 ✅ · Rename, delete, remove
 
 - Each one is a single statement. You already know how to tell "changed 1 row" from "changed nothing" (the cache used it): nothing changed → 404.
 - Deleting a playlist must delete its items, and must **not** delete the songs. Read what `schema.sql` already does for you.
@@ -194,7 +195,7 @@ One search, then 3 songs added from it (searching 3 times risks YouTube's bot ch
 
 **Done when:** you delete a playlist with 3 songs. Its items are gone from `playlist_items`, and the 3 songs are still in `songs`.
 
-### Step 4 · Move
+### Step 4 ✅ · Move
 
 The same logic twice: songs in a playlist, and playlists in the list. Write it for songs first.
 - The new position goes between the two neighbours' positions. A missing neighbour is `None`.
@@ -219,6 +220,23 @@ The same logic twice: songs in a playlist, and playlists in the list. Write it f
 Claude writes the pytest tests (against `music_test`). The app work (sidebar, playlist screen, "Add to playlist", drag to reorder) starts after step 2, when you say.
 
 **Docs:** [fractional-indexing](https://github.com/httpie/fractional-indexing-python) · FastAPI [path parameters](https://fastapi.tiangolo.com/tutorial/path-params/) · FastAPI [Request Files](https://fastapi.tiangolo.com/tutorial/request-files/) · [Pillow](https://pillow.readthedocs.io/en/stable/reference/Image.html)
+
+---
+
+## APP · The Mac app (Claude), from your 6 Oct list
+
+| # | What | Status |
+|---|---|---|
+| 1 | Shuffle as a mode (on/off, back to your order when off); repeat off / all / one | ✅ 6 Oct: 21 queue rules pass (`NN_SELFTEST_QUEUE`); ⌘S, ⌘R |
+| 2 | Playlists: sidebar section, New Playlist, rename, delete, the playlist screen (2×2 cover, Play, Shuffle), "Add to Playlist" in every song's menu, remove, drag to reorder songs and playlists; a playing playlist's queue follows your edits | ✅ 6 Oct: the whole flow passes (`NN_SELFTEST_PLAYLISTS`); ⌘N. Not tested by a test: the drag gesture itself |
+| 3 | Home: playlists, recently played and liked songs as a mix of horizontal shelves and grids | ✅ 6 Oct: the first screen; 4 covers, 4 cards, 4 rows appear for 4/4/4 test items (`NN_SELFTEST_HOME`) |
+| 4 | Now Playing focus: a button that makes it the centre of the window, laid out with room for lyrics (MUS-12) | ✅ 6 Oct: 💬 ☰ ⤢ on the bar; Lyrics / Up Next panel or the song alone; full screen (`NN_SELFTEST_NOWPLAYING`) |
+| 5 | Your sizes: text size and card size in Settings › Appearance | ✅ 6 Oct: 0.85…1.4 × the Mac's text (1.0 = exactly as before, measured), cards 116…210 pt |
+| 6 | Motion: messages, dragging, lists changing; all of it off with Reduce Motion | ✅ 6 Oct: see Motion in docs/mac-app.md. Not checked by a test: how the shakes look |
+| — | Extra: recent searches on the idle Search screen (only searches that led to a song you played; the duplicate Recently Played shelf left Search, Home has it). CPU checked: 0% idle, ~2.5% playing | ✅ 6 Oct |
+| — | From the MUS-2 list: the playlist's name in the Discord status (Settings › Discord › Share, off by default) and "From “Gym”" in Now Playing; Settings in collapsible sections (Colours on its own, so the page fits a MacBook screen) | ✅ 6 Oct |
+| — | Fixed 6 Oct: a test server could outlive its app and keep the port (now: one launcher, one start at a time, the whole process family stopped); the server log overwrote itself (now append mode) | ✅ |
+| — | Fixed 6 Oct: "That JioSaavn copy is gone. Playing another JioSaavn copy." (was a contradiction); self-test windows say "Self-test · test library" | ✅ |
 
 ---
 

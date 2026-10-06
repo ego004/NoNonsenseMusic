@@ -7,6 +7,14 @@ struct ArtworkView: View {
     var radius: CGFloat = 8
     @State private var image: NSImage?
 
+    init(url: URL?, size: CGFloat, radius: CGFloat = 8) {
+        self.url = url
+        self.size = size
+        self.radius = radius
+        // a cover already in the cache shows at once: no empty square fading in every time a screen reappears
+        _image = State(initialValue: url.flatMap { ArtworkCache.shared.cached($0) })
+    }
+
     var body: some View {
         ZStack {
             if let image {
@@ -255,5 +263,59 @@ extension Color {
         let c = NSColor(self).usingColorSpace(.sRGB) ?? .black
         return String(format: "#%02X%02X%02X", Int((c.redComponent * 255).rounded()),
                       Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
+    }
+}
+
+// MARK: - Text size (Settings › Appearance › Text size)
+
+/// How much bigger or smaller the app's text is than the Mac's: 0.85…1.4. macOS ignores SwiftUI's dynamicTypeSize
+/// (measured 6 Oct: text came out the same width at every size), so the app sizes its own text with `textStyle`.
+struct TextScaleKey: EnvironmentKey { static let defaultValue: CGFloat = 1 }
+
+extension EnvironmentValues {
+    var textScale: CGFloat {
+        get { self[TextScaleKey.self] }
+        set { self[TextScaleKey.self] = newValue }
+    }
+}
+
+extension Font.TextStyle {
+    /// The Mac's own point size for each style, measured on macOS 26 (6 Oct): at scale 1 the app looks as before.
+    var macPointSize: CGFloat {
+        switch self {
+        case .largeTitle: 26
+        case .title: 22
+        case .title2: 17
+        case .title3: 15
+        case .headline, .body: 13
+        case .callout: 12
+        case .subheadline: 11
+        case .footnote, .caption, .caption2: 10
+        @unknown default: 13
+        }
+    }
+}
+
+private struct ScaledText: ViewModifier {
+    @Environment(\.textScale) private var scale
+    let size: CGFloat
+    let weight: Font.Weight
+    let monospacedDigit: Bool
+
+    func body(content: Content) -> some View {
+        let font = Font.system(size: size * scale, weight: weight)
+        return content.font(monospacedDigit ? font.monospacedDigit() : font)
+    }
+}
+
+extension View {
+    /// A text style at the size Settings chose (`.font(.callout)` would stay at the Mac's size).
+    func textStyle(_ style: Font.TextStyle, weight: Font.Weight? = nil, monospacedDigit: Bool = false) -> some View {
+        modifier(ScaledText(size: style.macPointSize, weight: weight ?? (style == .headline ? .bold : .regular), monospacedDigit: monospacedDigit))
+    }
+
+    /// A custom size that also follows the setting (the big titles).
+    func textStyle(size: CGFloat, weight: Font.Weight = .regular) -> some View {
+        modifier(ScaledText(size: size, weight: weight, monospacedDigit: false))
     }
 }
