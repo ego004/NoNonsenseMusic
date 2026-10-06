@@ -1,0 +1,134 @@
+import Foundation
+
+/// The order songs play in, apart from the audio itself: shuffle, repeat, "play next", and keeping a playing
+/// playlist's queue in step with your edits to that playlist. A plain value with no AVPlayer, so the self-test
+/// can check every rule (`NN_SELFTEST_QUEUE`). `Player` owns one and does the playing.
+struct PlayQueue {
+    enum Repeat: String, CaseIterable {
+        case off, all, one
+        /// off → all → one → off: the order the repeat button steps through, as in Apple Music.
+        var next: Repeat { switch self { case .off: .all; case .all: .one; case .one: .off } }
+        var label: String { switch self { case .off: "Off"; case .all: "All"; case .one: "One" } }
+        /// The repeat button's tooltip: what it does now, and what the next press does.
+        var help: String {
+            switch self {
+            case .off: "Repeat (⌘R)"
+            case .all: "Repeating the queue (⌘R: repeat one)"
+            case .one: "Repeating this song (⌘R: off)"
+            }
+        }
+    }
+
+    /// One place in the queue.
+    struct Entry {
+        let track: Track
+        /// Its place in the order you chose: shuffle off sorts by it, so the order comes back.
+        var n: Double
+        /// Names this entry for edits that come later: a playlist item id, so a song added twice is two entries.
+        let key: String
+    }
+
+    private(set) var entries: [Entry] = []
+    private(set) var index = 0
+    private(set) var isShuffled = false
+    var repeatMode: Repeat = .off
+    /// Where the queue came from, e.g. "playlist:<id>": edits to that playlist reach the queue only then.
+    private(set) var source: String?
+
+    var tracks: [Track] { entries.map(\.track) }
+    var current: Track? { entries.indices.contains(index) ? entries[index].track : nil }
+    var currentKey: String? { entries.indices.contains(index) ? entries[index].key : nil }
+    var upNext: [Track] { entries.indices.contains(index + 1) ? entries[(index + 1)...].map(\.track) : [] }
+
+    /// A new queue. `keys` name the entries (playlist item ids); without them each entry gets its own.
+    mutating func load(_ tracks: [Track], startAt i: Int, keys: [String]? = nil, source: String? = nil, shuffled: Bool) {
+        entries = tracks.enumerated().map { n, track in
+            Entry(track: track, n: Double(n), key: keys.flatMap { $0.indices.contains(n) ? $0[n] : nil } ?? UUID().uuidString)
+        }
+        index = tracks.indices.contains(i) ? i : 0
+        self.source = source
+        isShuffled = false
+        if shuffled {
+            // a new queue with shuffle on: the song you picked first, then EVERY other song shuffled
+            // (also the ones above it in the list), as in Apple Music
+            var rng = SystemRandomNumberGenerator()
+            let chosen = entries.remove(at: index)
+            entries = [chosen] + Shuffle.artistSpread(entries, artist: { $0.track.artists.first ?? "" }, using: &rng)
+            index = 0
+            isShuffled = true
+        }
+    }
+
+    /// On: the songs after the current one are shuffled (each artist spread out); the current one and the ones
+    /// already played stay where they are. Off: back to the order you chose, still on the same song.
+    mutating func setShuffle(_ on: Bool, using rng: inout some RandomNumberGenerator) {
+        guard on != isShuffled else { return }
+        isShuffled = on
+        guard let key = currentKey else { return }
+        if on {
+            let rest = Array(entries[(index + 1)...])
+            entries = Array(entries[...index]) + Shuffle.artistSpread(rest, artist: { $0.track.artists.first ?? "" }, using: &rng)
+        } else {
+            entries.sort { $0.n < $1.n }
+            index = entries.firstIndex { $0.key == key } ?? 0
+        }
+    }
+
+    mutating func setShuffle(_ on: Bool) {
+        var rng = SystemRandomNumberGenerator()
+        setShuffle(on, using: &rng)
+    }
+
+    /// Where the queue goes when a song ends by itself: repeat one plays it again; at the end, repeat all
+    /// starts over and repeat off stops (nil).
+    func indexAfterEnd() -> Int? {
+        repeatMode == .one ? index : step(1)
+    }
+
+    /// Where ⏭ goes: always another song (repeat one does not trap you), wrapping round unless repeat is off.
+    func indexAfterNext() -> Int? { step(1) }
+
+    /// Where ⏮ goes (after the first 3 seconds of a song, ⏮ restarts it instead: the Player decides that).
+    func indexAfterPrevious() -> Int? { step(-1) }
+
+    private func step(_ by: Int) -> Int? {
+        guard !entries.isEmpty else { return nil }
+        let target = index + by
+        if entries.indices.contains(target) { return target }
+        return repeatMode == .off ? nil : (target + entries.count) % entries.count
+    }
+
+    mutating func move(to i: Int) {
+        if entries.indices.contains(i) { index = i }
+    }
+
+    /// "Play Next": right after the current song, both now and in the order you chose (so it stays next to it
+    /// when shuffle is turned off).
+    mutating func insertNext(_ track: Track) {
+        guard let current = entries.indices.contains(index) ? entries[index] : nil else {
+            load([track], startAt: 0, shuffled: false)
+            return
+        }
+        let following = entries.map(\.n).filter { $0 > current.n }.min()
+        let n = following.map { (current.n + $0) / 2 } ?? current.n + 1
+        entries.insert(Entry(track: track, n: n, key: UUID().uuidString), at: index + 1)
+    }
+
+    /// The playlist this queue came from now has these items, in this order (after a move, an add or a remove).
+    /// Your order follows it; removed items leave the queue, except the playing one, which plays on; new items
+    /// join at the end. Shuffled, the play order stays shuffled and only "your order" changes underneath.
+    mutating func sync(source: String, items: [(key: String, track: Track)]) {
+        guard self.source == source, let playing = currentKey else { return }
+        let order = Dictionary(items.enumerated().map { ($1.key, Double($0)) }, uniquingKeysWith: { first, _ in first })
+        entries.removeAll { order[$0.key] == nil && $0.key != playing }
+        for i in entries.indices {
+            if let n = order[entries[i].key] { entries[i].n = n }
+        }
+        let known = Set(entries.map(\.key))
+        for (n, item) in items.enumerated() where !known.contains(item.key) {
+            entries.append(Entry(track: item.track, n: Double(n), key: item.key))
+        }
+        if !isShuffled { entries.sort { $0.n < $1.n } }
+        index = entries.firstIndex { $0.key == playing } ?? 0
+    }
+}

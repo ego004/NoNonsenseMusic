@@ -10,9 +10,13 @@ enum API {
     }
 
     enum Failure: LocalizedError {
-        case http(Int)
+        /// detail: the server's own sentence, when it sent one ("A playlist with this name already exists")
+        case http(Int, detail: String?)
         var errorDescription: String? {
-            switch self { case .http(let code): "The server answered \(code)." }
+            switch self {
+            case .http(_, let detail?): detail
+            case .http(let code, nil): "The server answered \(code)."
+            }
         }
     }
 
@@ -81,12 +85,83 @@ enum API {
                                         body: EventBody(listings: listings, type: type, position: max(0, position)))
     }
 
+    // ---- playlists (MUS-2) ----
+
+    static func playlists() async throws -> [PlaylistSummary] {
+        let response: PlaylistsResponse = try await get(baseURL.appending(path: "playlists"))
+        return response.playlists
+    }
+
+    static func playlist(_ id: UUID) async throws -> PlaylistDetail {
+        try await get(baseURL.appending(path: "playlists/\(id.path)"))
+    }
+
+    private struct NameBody: Encodable { let name: String }
+
+    static func createPlaylist(named name: String) async throws -> PlaylistSummary {
+        try await send("POST", path: "playlists", body: NameBody(name: name))
+    }
+
+    static func renamePlaylist(_ id: UUID, to name: String) async throws -> PlaylistSummary {
+        try await send("PATCH", path: "playlists/\(id.path)", body: NameBody(name: name))
+    }
+
+    static func deletePlaylist(_ id: UUID) async throws {
+        try await sendNoContent("DELETE", path: "playlists/\(id.path)")
+    }
+
+    @discardableResult
+    static func add(_ listings: [Listing], to playlist: UUID) async throws -> PlaylistItemRef {
+        try await send("POST", path: "playlists/\(playlist.path)/items", body: LibraryBody(listings: listings))
+    }
+
+    static func remove(item: UUID, from playlist: UUID) async throws {
+        try await sendNoContent("DELETE", path: "playlists/\(playlist.path)/items/\(item.path)")
+    }
+
+    /// The new neighbours: `top` above, `bottom` below; nil is the top or the bottom of the list. One row moves.
+    private struct MoveBody: Encodable {
+        let top: UUID?
+        let bottom: UUID?
+        enum CodingKeys: String, CodingKey { case top = "top_neighbour_id"; case bottom = "bottom_neighbour_id" }
+        func encode(to encoder: Encoder) throws {          // nil goes out as null, like Listing's fields
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(top, forKey: .top)
+            try c.encode(bottom, forKey: .bottom)
+        }
+    }
+
+    static func move(item: UUID, in playlist: UUID, top: UUID?, bottom: UUID?) async throws {
+        try await sendNoContent("POST", path: "playlists/\(playlist.path)/items/\(item.path)/move", body: MoveBody(top: top, bottom: bottom))
+    }
+
+    static func move(playlist: UUID, top: UUID?, bottom: UUID?) async throws {
+        try await sendNoContent("POST", path: "playlists/\(playlist.path)/move", body: MoveBody(top: top, bottom: bottom))
+    }
+
     // ---- plumbing ----
 
     private static func get<T: Decodable>(_ url: URL) async throws -> T {
         let (data, response) = try await URLSession.shared.data(from: url)
-        try check(response)
+        try check(response, data: data)
         return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// For 204 answers: nothing to decode.
+    private static func sendNoContent(_ method: String, path: String) async throws {
+        var request = URLRequest(url: baseURL.appending(path: path))
+        request.httpMethod = method
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try check(response, data: data)
+    }
+
+    private static func sendNoContent<B: Encodable>(_ method: String, path: String, body: B) async throws {
+        var request = URLRequest(url: baseURL.appending(path: path))
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try check(response, data: data)
     }
 
     private static func send<B: Encodable, T: Decodable>(_ method: String, path: String, body: B) async throws -> T {
@@ -95,14 +170,24 @@ enum API {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
         let (data, response) = try await URLSession.shared.data(for: request)
-        try check(response)
+        try check(response, data: data)
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    private static func check(_ response: URLResponse, allow: Set<Int> = Set(200..<300)) throws {
+    /// Throws for a status outside `allow`, carrying the server's `detail` sentence when there is one
+    /// (FastAPI's 422s send a list instead: then there is no sentence, only the code).
+    private static func check(_ response: URLResponse, data: Data? = nil, allow: Set<Int> = Set(200..<300)) throws {
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard allow.contains(code) else { throw Failure.http(code) }
+        guard allow.contains(code) else {
+            struct Detail: Decodable { let detail: String }
+            throw Failure.http(code, detail: data.flatMap { try? JSONDecoder().decode(Detail.self, from: $0) }?.detail)
+        }
     }
+}
+
+private extension UUID {
+    /// How ids go in URLs: lowercase, as the server prints them.
+    var path: String { uuidString.lowercased() }
 }
 
 /// Makes a URLSession stop at a redirect instead of following it (used by `API.warm`).
