@@ -325,12 +325,21 @@ struct NowPlayingView: View {
         }
     }
 
-    @ViewBuilder private var sidePanel: some View {
-        switch panel {
-        case .upNext: UpNextView()
-        case .lyrics: LyricsPanel()
-        case .none: EmptyView()
+    /// Up Next and Lyrics, both built once and kept, behind one glass: switching fades one out and the other in.
+    /// Built at the switch, the new panel (a whole list, or every lyric line) was made during the animation, and two
+    /// glass panels crossfaded over each other: the switch dropped frames (7 Oct). The hidden one takes no clicks.
+    private var sidePanel: some View {
+        ZStack {
+            UpNextView()
+                .opacity(panel == .upNext ? 1 : 0)
+                .allowsHitTesting(panel == .upNext)
+                .accessibilityHidden(panel != .upNext)
+            LyricsPanel(shown: panel == .lyrics)
+                .opacity(panel == .lyrics ? 1 : 0)
+                .allowsHitTesting(panel == .lyrics)
+                .accessibilityHidden(panel != .lyrics)
         }
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
     }
 
     /// Close on the left; on the right, the panel buttons and full screen. All glass, all with tooltips.
@@ -385,6 +394,8 @@ struct NowPlayingView: View {
 /// to jump there. Scroll to look around: following stops for a few seconds, then picks up again. Plain lyrics
 /// (no times) simply scroll. Asks the server once per song (LyricsStore); "Couldn't find lyrics" when nobody has them.
 struct LyricsPanel: View {
+    /// The panel showing (not hidden behind Up Next): lyrics are asked for only then.
+    var shown = true
     @Environment(Player.self) private var player
     @Environment(LyricsStore.self) private var lyrics
 
@@ -394,16 +405,16 @@ struct LyricsPanel: View {
                 let state = lyrics.state(for: track)
                 header(state)
                 content(state, track: track)
-                    // a no-op when the song start already asked. Only while Now Playing is open: it is kept, hidden,
-                    // between openings, and Settings › Lyrics › "Only when I open Lyrics" must still mean that
-                    .task(id: [track.id, player.showNowPlaying ? "open" : "closed"]) {
-                        if player.showNowPlaying { lyrics.fetch(track) }
+                    // a no-op when the song start already asked. Only while this panel shows in an open Now Playing
+                    // (both are kept, hidden, between uses), so Settings › Lyrics › "Only when I open Lyrics" still
+                    // means that
+                    .task(id: [track.id, shown && player.showNowPlaying ? "open" : "closed"]) {
+                        if shown && player.showNowPlaying { lyrics.fetch(track) }
                     }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .glassEffect(.regular, in: .rect(cornerRadius: 22))
-        .selfTestFrame("lyrics.panel")
+        .selfTestFrame("lyrics.panel")              // the glass is Now Playing's, shared with Up Next
     }
 
     private func header(_ state: LyricsStore.State?) -> some View {
@@ -890,7 +901,7 @@ struct UpNextView: View {
                 .padding(.bottom, 8)
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // the glass is Now Playing's, shared with Lyrics
     }
 }
 

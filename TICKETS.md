@@ -13,7 +13,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 > **Renumbered 5 Oct 2026.** Done and removed: resilient search, play, merge + rank, library, shuffle, and the Mac app v1. Git history and old commit messages use the old numbers. Old → new: 16 → 1 (and 4), 15 → 2, 8 → 3, 5 → 5, 9 → 6, 10 → 7, 6 + 11 → 8, 12 → 9, 13 → 10, 14 → 11.
 
-> **Order (decided 5 Oct, updated 7 Oct 2026, evening):** ~~MUS-2~~ ✅ → ~~MUS-1~~ ✅ → ~~MUS-12 lyrics~~ ✅ → **BUG-1 → BUG-7** (the 7 Oct audit's bugs; BUG-1 first: MUS-15 changes the same check) → **MUS-15** links that survive an IP change (small; you feel it daily) → **MUS-16** log searches and measure ranking → **MUS-17** a ranking foundation (features, weights, explanations) → **MUS-18** your taste → MUS-3 autoplay (ranked by MUS-17 + 18) → MUS-13 YouTube. MUS-14 covers whenever you want a contained evening.
+> **Order (decided 5 Oct, updated 7 Oct 2026, evening):** ~~MUS-2~~ ✅ → ~~MUS-1~~ ✅ → ~~MUS-12 lyrics~~ ✅ → **BUG-1 → BUG-7** (the 7 Oct audit's bugs; BUG-1 first: MUS-15 changes the same check) → **MUS-15** links that survive an IP change (small; you feel it daily) → **MUS-16** log searches and measure ranking → **MUS-17** a ranking foundation (features, weights, explanations) → **MUS-18** your taste → MUS-3 autoplay (ranked by MUS-17 + 18) → MUS-13 YouTube → MUS-20 albums in search (future scope, added 7 Oct). MUS-14 covers whenever you want a contained evening.
 
 | Ticket | What you can show at the end | Who | Size |
 |---|---|---|---|
@@ -35,6 +35,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 | MUS-16 | Every search is logged with what you played from it, and one command says how good the ranking is | **You** (backend) · Claude (app sends the search id, eval script) | M |
 | MUS-17 | Search ranked by named, weighted signals; each result can say why it ranks where it does; a change is judged by MUS-16's number | **You** (scorer) · Claude (app "why", tests) | L |
 | MUS-18 | Your taste as numbers (songs and artists you play, finish, skip, like), used by search and autoplay | **You** · Claude (tests) | M |
+| MUS-20 | Albums in search: an album opens its songs in order, and plays as one (future scope) | **You** (backend) · Claude (app) | M |
 | MUS-19 ✅ | Explicit and clean versions: an 🅴 on explicit ones, and your choice of which plays (done 7 Oct) | Claude (wired in, on your go-ahead) | S |
 | BUG-1…7 | The 7 Oct audit's backend bugs, each gone and each with a test (BUG-1 before MUS-15) | **You** · Claude (review, tests) | S each |
 
@@ -277,6 +278,7 @@ Claude writes the pytest tests (against `music_test`). The app work (sidebar, pl
 | — | 7 Oct evening, audit: CPU. Release build, a song playing: Home 0.0–0.9%, Now Playing 0.6–0.9%, **Lyrics 1.0% (was 30–40%)**. The lyrics, the progress line, the equaliser bars, a new song's cover and background crossfades are Core Animation (frame-rate caps tried and removed: the likely reason scrolling lost its smoothness); nothing moves under Now Playing; Now Playing is built once and kept; a song start refreshes only Recent; unchanged data redraws nothing; Footprint no longer measures itself (it said 1.8% for 0.9%) | ✅ measured by you with `top` |
 | — | 7 Oct evening, audit: bugs. The clean copy played the explicit one; play after "Stopped" did nothing; ⏭⏭ left song 2's cover and colours on song 3; lyrics followed the previous song's times; a broken download fell back to itself; a playlist spun forever with the server down; `/health` accepted any answer; the Release build did not compile (SelfTest); four files were never committed | ✅ built; not covered by a self-test yet |
 | — | 7 Oct evening: Now Playing hides the toolbar (the sidebar button showed over it); Home's shelves neither snap nor bounce and are made once; a hover redraws only the row or tile under the pointer | ✅ |
+| — | 7 Oct: Now Playing's Up Next and Lyrics are both kept, behind one glass; switching fades between them (the new panel was built during the animation, and two glass panels crossfaded: the switch dropped frames) | ✅ built |
 | — | **Open:** scrolling felt less fluid after the frame-rate caps (the app nearly idle, not transparency): caps removed, to confirm. Rare: like then unlike at once on a search result can stay liked; a slow playlist load can undo a drag made just before it lands; Settings › Server › Restart can freeze the window up to 2 s | later |
 
 ---
@@ -641,6 +643,26 @@ Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens
 - [ ] pytest for the reply parser with a saved reply (titles only; no URLs, no IP).
 
 **Docs:** your own `ytmusic.py` (the same InnerTube pattern) · yt-dlp's `ytsearchN:` with `extract_flat`, if you want a slower fallback
+
+---
+
+## MUS-20 · Albums in search (future scope: after the order above)
+
+**Problem:** search finds songs only. Typing an album's name gives its songs mixed in with everything else; there is no way to open an album, see its songs in order, and play it as one.
+
+**Facts to check first (not checked yet):**
+- Whether each source can search albums, and what the reply looks like: save one reply per source in `samples/`, as for songs. YouTube Music's search takes a filter (`ytmusic.py` asks for songs only with one): there may be one for albums. JioSaavn's web API answers several kinds of search.
+- How to get one album's songs, in order, from each source.
+- Whether one album on both sources can be recognised as the same (title, artist, number of songs?), the way `same_recording` does it for songs.
+
+**Deliverables:**
+1. Search answers albums too, as their own list (not mixed into songs): cover, artist, year, number of songs.
+2. One album's songs, in order, as songs the app can play (with their listings, like search results).
+3. The app (Claude): an Albums row in search results; an album screen (cover, songs, Play, Shuffle, Add to Playlist).
+
+**Yours to decide:** albums in the `/search` reply or a request of their own; how many per search; stored (like playlists) or only looked up; what to do when the two sources list different songs for one album.
+
+**Done when:** searching "Camp Childish Gambino" shows the album; opening it lists its songs in order; Play plays them in that order.
 
 ---
 
