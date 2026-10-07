@@ -415,8 +415,11 @@ struct LyricsPanel: View {
         case .found(let found) where found.lines.isEmpty:
             message("Couldn't find lyrics", symbol: "quote.bubble", shown: "none")
         case .found(let found) where found.synced:
-            // the playing line, known before the panel is drawn: it opens there instead of scrolling to it
+            // the playing line, known before the panel is drawn: it opens there instead of scrolling to it.
+            // One view per song: with the next song's lyrics already fetched, the view was kept across the change, and
+            // its running task went on lighting lines by the previous song's times (audit, 7 Oct)
             TimedLyricsView(lyrics: found, startLine: found.line(at: player.livePosition + 0.1))
+                .id(track.id)
         case .found(let found):
             PlainLyricsView(lyrics: found)
         case .unreachable:
@@ -445,8 +448,9 @@ struct LyricsPanel: View {
 }
 
 /// Timed lyrics: lit line, kept in the middle, click to seek. The light moves only when a line changes: a task
-/// sleeps until the next line is due (reading the player's live position, as `position` updates only twice a
-/// second), and any seek moves it at once. A 10-a-second timer cost 14% of a core more than Up Next (6 Oct).
+/// sleeps until the next line is due (reading the player's live position), and anything that moves the clock starts
+/// it again. A 10-a-second timer cost 14% of a core more than Up Next (6 Oct); a half-second check cost a wake twice a
+/// second for nothing (audit, 7 Oct): now one wake per line.
 private struct TimedLyricsView: View {
     let lyrics: Lyrics
     @Environment(Player.self) private var player
@@ -460,19 +464,22 @@ private struct TimedLyricsView: View {
     var body: some View {
         TimedLines(lines: lyrics.lines, current: current)
             .equatable()                                           // redrawn only when the lit line changes
-            .task(id: player.isPlaying) { await follow() }
-            .onChange(of: player.position, initial: true) { light() }   // a seek, playing or paused
+            // starts again on play, pause, a stall and its end (`position` is re-anchored) and every seek: the sleep
+            // below is never left counting from an old time
+            .task(id: [player.isPlaying && !player.isBuffering ? 1.0 : 0.0, player.position, Double(player.seeks)]) {
+                await follow()
+            }
     }
 
-    /// While playing: light the line, sleep until the next one is due, repeat. At most half a second at a time,
-    /// so a seek from elsewhere is noticed soon even between position updates.
+    /// Lights the line, then, while the song plays, sleeps until the next line is due. Nothing runs between lines.
     private func follow() async {
         while !Task.isCancelled {
             let now = light()
-            guard player.isPlaying else { return }
+            guard player.isPlaying, !player.isBuffering else { return }   // paused or stalled: the clock is still
             let next = (current ?? -1) + 1
-            let due = next < lyrics.lines.count ? Double(lyrics.lines[next].startMs ?? 0) / 1000 - now : 0.5
-            try? await Task.sleep(for: .seconds(min(max(due, 0.02), 0.5)))
+            guard next < lyrics.lines.count else { return }               // the last line is lit: nothing left to wait for
+            let due = Double(lyrics.lines[next].startMs ?? 0) / 1000 - now
+            try? await Task.sleep(for: .seconds(max(due, 0.02)))
         }
     }
 

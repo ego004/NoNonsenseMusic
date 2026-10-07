@@ -221,8 +221,8 @@ final class Player {
         player.isMuted = isMuted
     }
 
-    /// Where the song is right now, read from the audio player itself: `position` updates only twice a second,
-    /// too coarse for lighting lyrics line by line. Not observed: read it on a timer (LyricsPanel does).
+    /// Where the song is right now, read from the audio player itself: `position` changes only on events (play,
+    /// pause, seek, a stall), so it is the time of the last event. Not observed: read it when you need it.
     var livePosition: Double {
         let now = player.currentTime().seconds
         return now.isFinite ? now : position
@@ -230,9 +230,13 @@ final class Player {
 
     func seek(to seconds: Double) {
         position = seconds
+        seeks += 1
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
         publish()
     }
+    /// Counts every seek. `position` alone can miss one: ⏮ in the middle of a song seeks to 0, and `position` may
+    /// still be 0 from the song's start (it changes only on events), so nothing would change. Lyrics follow this.
+    private(set) var seeks = 0
 
     /// Space plays/pauses anywhere in the window, except while typing in a text field.
     func installKeyMonitor() {
@@ -446,7 +450,7 @@ final class Player {
         let listings = track.listings
         Task {
             try? await API.event(listings, type: type, position: second)
-            if type == "play" { await library.refresh() }      // keeps "Recently Played" current
+            if type == "play" { await library.refreshRecent() }     // keeps "Recently Played" current; nothing else changed
         }
     }
 

@@ -64,7 +64,8 @@ nonisolated struct SearchResponse: Codable, Sendable {
     let songs: [SearchSong]
 }
 
-nonisolated struct LibrarySong: Codable, Sendable {
+/// Equatable: LibraryStore skips a refresh that brought nothing new (every assignment redraws its readers).
+nonisolated struct LibrarySong: Codable, Sendable, Equatable {
     let id: UUID
     let title: String
     let artists: [String]
@@ -130,14 +131,14 @@ nonisolated struct PlaylistSummary: Codable, Hashable, Identifiable, Sendable {
 nonisolated struct PlaylistsResponse: Codable, Sendable { let playlists: [PlaylistSummary] }
 
 /// One row of a playlist [PlaylistItem]: its own id (a song added twice is two rows) and the song.
-nonisolated struct PlaylistEntry: Codable, Sendable {
+nonisolated struct PlaylistEntry: Codable, Sendable, Equatable {
     let itemID: UUID
     let song: LibrarySong
     enum CodingKeys: String, CodingKey { case itemID = "item_id"; case song }
 }
 
 /// GET /playlists/{id}: the playlist and its rows, in your order [PlaylistItems].
-nonisolated struct PlaylistDetail: Codable, Sendable {
+nonisolated struct PlaylistDetail: Codable, Sendable, Equatable {
     let id: UUID
     let name: String
     let songCount: Int

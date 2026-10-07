@@ -14,21 +14,53 @@ final class LibraryStore {
 
     func isLiked(_ track: Track) -> Bool { track.listings.contains { likedKeys.contains($0.key) } }
 
+    /// The server's last answers, and the version (Settings › Playback) the tracks were built for. Observation counts
+    /// every assignment as a change, equal or not: assigning the same lists after every song start redrew every row,
+    /// heart, shelf and the sidebar (audit, 7 Oct). Now only what changed is assigned.
+    @ObservationIgnored private var lastLiked: [LibrarySong]?
+    @ObservationIgnored private var lastRecent: [LibrarySong]?
+    @ObservationIgnored private var builtExplicit = Track.prefersExplicit
+
     func refresh() async {
         do {
             async let likedSongs = API.liked()
             async let recentSongs = API.recent()
             let (l, r) = try await (likedSongs, recentSongs)
-            liked = l.map(Track.init)
-            recent = r.map(Track.init)
-            likedKeys = Set(l.flatMap { $0.listings.map(\.key) })
-            songIDs = [:]
-            for song in l + r { for listing in song.listings { songIDs[listing.key] = song.id } }
-            lastError = nil
+            apply(liked: l, recent: r)
+            if lastError != nil { lastError = nil }
         } catch {
             lastError = "Can't reach the server at \(API.baseURL.absoluteString)."
         }
         await refreshPlaylists()
+    }
+
+    /// After a song starts: only Recently Played can have changed. One request instead of three (liked, recent, playlists).
+    func refreshRecent() async {
+        guard let r = try? await API.recent() else { return }
+        apply(liked: nil, recent: r)
+    }
+
+    /// nil: not asked this time, keep the last answer.
+    private func apply(liked newLiked: [LibrarySong]?, recent newRecent: [LibrarySong]?) {
+        let rebuild = Track.prefersExplicit != builtExplicit          // the other version plays now: every track again
+        builtExplicit = Track.prefersExplicit
+        var changed = false
+        if let l = newLiked ?? lastLiked, rebuild || l != lastLiked {
+            liked = l.map(Track.init)
+            lastLiked = l
+            changed = true
+        }
+        if let r = newRecent ?? lastRecent, rebuild || r != lastRecent {
+            recent = r.map(Track.init)
+            lastRecent = r
+            changed = true
+        }
+        // the hearts follow the server: this also undoes an optimistic like the server refused
+        let keys = Set((lastLiked ?? []).flatMap { $0.listings.map(\.key) })
+        if keys != likedKeys { likedKeys = keys }
+        guard changed else { return }
+        songIDs = [:]
+        for song in (lastLiked ?? []) + (lastRecent ?? []) { for listing in song.listings { songIDs[listing.key] = song.id } }
     }
 
     @ObservationIgnored private var messageTimer: Task<Void, Never>?
@@ -89,7 +121,8 @@ final class LibraryStore {
     }
 
     func refreshPlaylists() async {
-        if let fresh = try? await API.playlists() { playlists = fresh }      // a failure keeps the last good list
+        // a failure keeps the last good list; the same list is not assigned again (the sidebar and Home would redraw)
+        if let fresh = try? await API.playlists(), fresh != playlists { playlists = fresh }
     }
 
     /// Loads one playlist's rows. False: it no longer exists (deleted, maybe on another device).
@@ -97,7 +130,7 @@ final class LibraryStore {
     func loadPlaylist(_ id: UUID) async -> Bool {
         do {
             let detail = try await API.playlist(id)
-            details[id] = detail
+            if details[id] != detail { details[id] = detail }     // opening an unchanged playlist redraws nothing
             playlistChanged?(detail)
             return true
         } catch API.Failure.http(404, _) {

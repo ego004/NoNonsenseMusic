@@ -113,7 +113,9 @@ struct RootView: View {
         .tint(theme.color(.buttons))                                    // Settings › Appearance › Colours
         .task(id: [player.current?.image?.absoluteString ?? "", scheme == .dark ? "dark" : "light"]) {
             let next = await ArtworkCache.shared.accent(for: player.current?.image, dark: scheme == .dark)
-            theme.songColor = next   // what "Song" means everywhere. At once: fading it 0.8 s redrew the whole window every frame
+            // what "Song" means everywhere. At once: fading it 0.8 s redrew the whole window every frame. Only when it
+            // differs: the same colour again (the same album) would still redraw everything tinted by it
+            if theme.songColor != next { theme.songColor = next }
         }
         .modifier(PlaylistSheets(selection: $selection))
         .environment(\.textScale, textScale)              // every textStyle in the window, Now Playing included

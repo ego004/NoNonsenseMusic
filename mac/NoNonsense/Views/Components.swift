@@ -194,10 +194,10 @@ final class PassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// The mark on the playing song (▶ on the others), in lists, shelves and copies. Still by default. The animated SF
-/// Symbol took 22.7% of a core against 2.6% still, in its own host or not (measured 7 Oct). With Settings › Footprint
-/// › Animated, three equaliser bars move instead: a Core Animation animation, played by macOS's render server, not
-/// redrawn by the app frame by frame.
+/// The mark on the playing song (▶ on the others), in lists, shelves and copies. The animated SF Symbol took 22.7% of
+/// a core against 2.6% still, in its own host or not (measured 7 Oct). So three equaliser bars move instead (Settings ›
+/// Appearance › Moving bars, on by default): a Core Animation animation, played by macOS's render server, not redrawn
+/// by the app frame by frame. Off: a still speaker.
 struct PlayingSpeaker: View {
     let playing: Bool
     var font: Font? = nil
@@ -236,6 +236,9 @@ struct EqualizerBars: NSViewRepresentable {
                 rise.autoreverses = true
                 rise.repeatCount = .infinity
                 rise.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                // 30 frames a second is plenty for an 11-pt bar; uncapped, macOS redraws it (and the window region
+                // around it) at the screen's full rate: 120 a second on a ProMotion display
+                rise.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
                 bar.add(rise, forKey: "rise")
             }
         }
