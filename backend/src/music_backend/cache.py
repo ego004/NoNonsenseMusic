@@ -72,26 +72,33 @@ class ListingURLCache:
             )
 
     async def get(self, source: str, song_id: str) -> str | None:
-        # CHANGED: returns one URL or None; memory first, then the table
+        """One URL or None: memory first, then the table. A memory hit touches only memory; a table hit copies the URL
+        into memory and marks the row used. Every hit used to write the table twice (an upsert and the trim's
+        DELETE): 600 statements for 300 hits, measured 7 Oct, on every /play and every prefetch check."""
         url = self.cache.get((source, song_id))
-        if url is None:
-            url = await self._get_db(source, song_id)
-            if url is None:
+        if url is not None:
+            if self.sources[source].is_expired(url):
                 return None
-            # copy into memory only: the table already has it
-        if self.sources[source].is_expired(url):
+            self._cache_hit(source, song_id)
+            return url
+        url = await self._get_db(source, song_id)
+        if url is None or self.sources[source].is_expired(url):
             return None
-        await self.set(source, song_id, url)
+        self._remember(source, song_id, url)
+        await self._db_hit(source, song_id)                  # the trim keeps the most recently used rows
         return url
 
     async def set(self, source: str, song_id: str, url: str) -> None:
-        # CHANGED: called only after a real fetch, so it always writes both levels (no flag needed);
-        # the upsert already sets hit_at, so no _db_hit here
+        """After a real fetch: both levels. The upsert sets hit_at, and the trim runs here only: the table grows only here."""
+        self._remember(source, song_id, url)
+        await self._set_db(source, song_id, url)
+
+    def _remember(self, source: str, song_id: str, url: str) -> None:
+        # memory: store as the most recently used, and drop the least recently used past the limit
         self.cache[(source, song_id)] = url
         self._cache_hit(source, song_id)
         if len(self.cache) > self.max_size_in_memory:
             self.cache.popitem(last=False)
-        await self._set_db(source, song_id, url)
 
     async def __call__(self, source: str, song_id: str, serve_fresh: bool = False) -> str:
         """The rule: no cached URL, or serve_fresh, or it expires soon -> fetch, store, return. Otherwise the cached one."""

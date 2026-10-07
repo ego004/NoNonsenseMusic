@@ -62,14 +62,15 @@ async def resolve_song(conn: AsyncConnection, listings: list[Listing]) -> UUID:
         identity = SimpleNamespace(**(await (await conn.execute(
             "SELECT title, artists, duration FROM songs WHERE id = %s", [song_id],
         )).fetchone()))
-        for listing in listings:
-            if same_recording(identity, listing):
-                await conn.execute(
+        same = [l for l in listings if same_recording(identity, l)]
+        if same:
+            # executemany: every listing in one round trip (psycopg pipelines them), not one trip per listing
+            async with conn.cursor() as cur:
+                await cur.executemany(
                     """INSERT INTO listings (source, source_id, song_id, title, artists, album, duration, popularity, image)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (source, source_id) DO NOTHING""",
-                    [listing.source, listing.id, song_id, listing.title, listing.artists, listing.album,
-                     listing.duration, listing.popularity, listing.image],
+                    [[l.source, l.id, song_id, l.title, l.artists, l.album, l.duration, l.popularity, l.image] for l in same],
                 )
     return song_id
 
@@ -148,14 +149,15 @@ async def create_playlist(conn: AsyncConnection, name : str) -> UUID:
     return row["id"]
 
 async def get_playlists(conn: AsyncConnection) -> list[PlaylistMetadata]:
-    cur = await conn.execute("SELECT id, name FROM playlists ORDER BY position ASC")
-    result = []
-    while True:
-        row = await cur.fetchone()
-        if row is None:
-            break
-        result.append(PlaylistMetadata(id = row["id"], name = row["name"], **await _totals(conn, row["id"])))
-    return result
+    """Every playlist with its totals, in one query. It used to be one query, then one more per playlist (7 Oct)."""
+    rows = await (await conn.execute(
+        """SELECT pl.id, pl.name, COUNT(s.id) AS song_count, COALESCE(SUM(s.duration), 0) AS duration
+             FROM playlists pl
+             LEFT JOIN playlist_items p ON p.playlist_id = pl.id
+             LEFT JOIN songs s ON s.id = p.song_id
+            GROUP BY pl.id, pl.name, pl.position
+            ORDER BY pl.position ASC""")).fetchall()
+    return [PlaylistMetadata(**row) for row in rows]
 
 async def _totals(conn: AsyncConnection, playlist_id : UUID) -> Any | None:
     """{"song_count": n, "duration": seconds} for one playlist; shared by the list and the open."""
@@ -173,7 +175,9 @@ async def get_playlist_metadata(conn: AsyncConnection, playlist_id : UUID) -> Pl
     return PlaylistMetadata(id = row["id"], name = row["name"], **await _totals(conn, playlist_id))
 
 async def add_to_playlist(conn: AsyncConnection, playlist_id : UUID, song_id: UUID) -> UUID:
-    last = (await (await conn.execute("SELECT max(position) AS last FROM playlist_items")).fetchone())["last"]
+    # this playlist's last position: the (playlist_id, position) index answers it without reading other playlists
+    last = (await (await conn.execute("SELECT max(position) AS last FROM playlist_items WHERE playlist_id = %s",
+                                      [playlist_id])).fetchone())["last"]
     return (await (await conn.execute("INSERT INTO playlist_items (playlist_id, song_id, position) VALUES (%s, %s, %s) RETURNING id", [playlist_id, song_id, generate_key_between(last, None)])).fetchone())["id"]
 
 async def get_playlist_items(conn: AsyncConnection, playlist_id : UUID) -> list[PlaylistItem]:
