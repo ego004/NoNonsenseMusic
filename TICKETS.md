@@ -315,13 +315,17 @@ Found by reading the code and, where it says *reproduced*, by running it with fa
 **Yours to decide:** what counts as one episode.
 **Docs:** [`time.monotonic`](https://docs.python.org/3/library/time.html#time.monotonic) (and why it suits pauses better than `time.time`)
 
-### BUG-3 · JioSaavn's bad days answer 500
+### BUG-3 · JioSaavn's bad days answer 500 ✅ (7 Oct)
+**Done (your fix and decisions):** the status is read first: 429 is `SourceBlocked` (slow down: the back-off pauses JioSaavn), any other non-200 `SourceUnavailable`; a body that is not JSON `SourceUnavailable`; no songs, or a song with no media URL, `SongNotFound`; a media URL that will not decrypt `SourceUnavailable`. Every error carries a message. Tests: one case per way it fails (6, in `tests/test_sources.py`), each failing on the old code.
+
 **What goes wrong:** when JioSaavn answers with an HTML error page, with `{"songs": []}`, with a song that has no media URL, or with a JSON error on a 429/5xx, `/play` answers **500** (or 404 "Song not found" during an outage). The app then says "didn't load" instead of "JioSaavn is unavailable right now".
 **Reproduced (7 Oct):** an HTML body → `JSONDecodeError` → 500; `{"songs": []}` → `IndexError` → 500.
 **Done when:** every way JioSaavn can fail ends in one of the sources' own errors, so `/play` answers 404 or 502, never 500; a test per case, with fake replies.
 **Yours to decide:** which failures mean "this song is gone" and which "JioSaavn is unavailable".
 
-### BUG-4 · One odd JioSaavn row loses the whole JioSaavn half of a search
+### BUG-4 · One odd JioSaavn row loses the whole JioSaavn half of a search ✅ (7 Oct)
+**Done (your fix and decision):** `search` skips a row `to_listing` cannot read (`KeyError`, `ValidationError`) with one warning, and keeps the rest; `to_listing` stays strict (`.get` everywhere was weighed and left: it would let half-empty listings into the library). Test: a row with an empty duration and one with no `more_info` among good ones.
+
 **What goes wrong:** one result with, say, `"duration": ""` fails validation, and the whole JioSaavn search reports unhealthy with 0 results. YouTube Music already skips one bad row and keeps the other 19. *(Read in the code, not run.)*
 **Done when:** a saved reply with one broken row gives all the others, and JioSaavn stays healthy; the skipped row is one log line.
 
@@ -340,7 +344,7 @@ Found by reading the code and, where it says *reproduced*, by running it with fa
 **Docs:** FastAPI [Query parameters and validation](https://fastapi.tiangolo.com/tutorial/query-params-str-validations/) (numbers: `ge`, `le`)
 
 ### STRIP · A lighter server ✅ (7 Oct, Claude, on your request; your review)
-**Done:** FastAPI without its Cloud tools (six packages gone from `uv.lock`, 96 → 89 MB measured); `GET /` removed; one `single_flight` for both caches; a table hit is one `UPDATE … RETURNING`; the prefetch worker's check marks nothing (`_has_fresh`, with a test that fails on the old check); `tests/conftest.py` holds `anyio_backend` and the plain `pool` (two files keep their own `pool` on purpose: they clean differently). 164 passed. **Left for you:** the unused `jiosaavn_cache_expiry_threshold` setting (`settings.py` refuses any `.env` key it does not know, so the field, `.env.example` and your own `backend/.env` must lose it in the same step, or the server will not start).
+**Done:** FastAPI without its Cloud tools (six packages gone from `uv.lock`, 96 → 89 MB measured); `GET /` removed; one `single_flight` for both caches; a table hit is one `UPDATE … RETURNING`; the prefetch worker's check marks nothing (`_has_fresh`, with a test that fails on the old check); `tests/conftest.py` holds `anyio_backend` and the plain `pool` (two files keep their own `pool` on purpose: they clean differently). 164 passed. The unused `jiosaavn_cache_expiry_threshold` setting: removed by you, 7 Oct (field, `.env.example`, docs, your `.env`).
 
 From the same audit. The server idles at ~0.2% of a core (uvicorn's own 10-a-second tick; only another server would remove it), so this is about memory and less code:
 - `fastapi[standard]` loads FastAPI Cloud's tools (Sentry among them) on every start: `fastapi[standard-no-fastapi-cloud-cli]` measured 96 → 89 MB, with no change to how the app starts the server.

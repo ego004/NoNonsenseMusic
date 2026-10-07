@@ -68,6 +68,7 @@ async def get_song_url(song_id: str, kbps : str = "320") -> str:
     except (httpx.HTTPError, ValueError) as e:
         raise SourceUnavailable(f"JioSaavn: {e!r}") from e
 
+    # a real id gives {"songs": [...]}; a made-up one gives {"status": ..., "msg": ...} with no "songs"
     if "songs" not in r or r["songs"] == []:
         raise SongNotFound(song_id)
 

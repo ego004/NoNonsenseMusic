@@ -197,7 +197,7 @@ Each source module also has `http`, its `SharedClient` (above); the lifespan clo
 
 ### `search(query)`
 - **Returns:** `list[Listing]`.
-- **How:** GET `SEARCH_URL` with `SEARCH_PARAMS | PREAMBLE_PARAMS | {"q": query}`, then `to_listing` on each result.
+- **How:** GET `SEARCH_URL` with `SEARCH_PARAMS | PREAMBLE_PARAMS | {"q": query}`, then `to_listing` on each result. A result `to_listing` cannot read (a missing field: `KeyError`; a value `Listing` refuses: `ValidationError`) is skipped with one warning; it used to lose the whole JioSaavn half of the search (BUG-4).
 
 ### `to_listing(result)`
 - **Does:** turns one raw JioSaavn result into a `Listing`.
@@ -205,7 +205,14 @@ Each source module also has `http`, its `SharedClient` (above); the lifespan clo
 
 ### `get_song_url(song_id, kbps="320")`
 - **Returns:** the 320 kbps audio URL.
-- **How:** `song.getDetails` with `pids=song_id`. If the reply has no `songs` key → `SongNotFound`. If the request fails → `SourceUnavailable`. Otherwise decrypts `encrypted_media_url` and swaps `_96.mp4` for `_320.mp4`.
+- **How:** `song.getDetails` with `pids=song_id`, then decrypts `encrypted_media_url` and swaps `_96.mp4` for `_320.mp4`. Every failure is one of the source errors, never a crash (BUG-3; each crashed `/play` with a 500 before):
+
+| JioSaavn answers | Becomes | `/play` |
+|---|---|---|
+| 429 | `SourceBlocked`: slow down, so the cache's back-off pauses JioSaavn | 502 |
+| any other status but 200, a network failure, or a body that is not JSON (an HTML error page) | `SourceUnavailable` | 502 |
+| no `songs` (a made-up id), an empty list, or a song with no `encrypted_media_url` | `SongNotFound` | 404 |
+| a media URL that will not decrypt (JioSaavn changed its format) | `SourceUnavailable` | 502 |
 
 ### `decrypt_media_url(encrypted)`
 - **Returns:** the plain URL.
@@ -361,7 +368,6 @@ Each source module also has `http`, its `SharedClient` (above); the lifespan clo
 |---|---|---|---|
 | `database_url` | `str` | `postgresql:///music` | Where the database is |
 | `youtube_cache_expiry_threshold` | `int` | `30` | **Minutes.** A cached YouTube URL this close to its `expire=` time is fetched again |
-| `jiosaavn_cache_expiry_threshold` | `int \| None` | `None` | `None`: JioSaavn URLs carry no expiry |
 | `cache_max_size_in_memory` | `int` | `3000` | Entries in the audio-URL cache before the least recently used is dropped |
 | `cache_max_size_in_db` | `int` | `6000` | Rows in `listing_urls`. After each write, the oldest-fetched rows beyond this are deleted (~1 ms, measured 5 Oct 2026) |
 | `lyrics_recheck_days` | `float` | `7` | **Days.** Plain or empty lyrics are asked for again after this long; timed lyrics are kept for good |

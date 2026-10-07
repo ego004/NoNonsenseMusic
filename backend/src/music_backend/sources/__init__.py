@@ -17,6 +17,6 @@ class SourceUnavailable(Exception):
 
 
 class SourceBlocked(SourceUnavailable):
-    """The source refuses this IP (YouTube's "Sign in to confirm you're not a bot"). A kind of SourceUnavailable,
-    so main.py still answers 502. The cache catches exactly this one to pause the source (MUS-1 step 2b), and
-    raises it itself during that pause."""
+    """The source refuses this IP (YouTube's "Sign in to confirm you're not a bot"), or tells us to slow down
+    (JioSaavn's 429, BUG-3). A kind of SourceUnavailable, so main.py still answers 502. The cache catches exactly
+    this one to pause the source (MUS-1 step 2b), and raises it itself during that pause."""
