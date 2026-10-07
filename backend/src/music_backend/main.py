@@ -9,11 +9,12 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from psycopg import errors
 
-from music_backend import db, library, cache
+from music_backend import db, library, cache, lyrics
 from music_backend.matching import rank_songs
 from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
-                                  PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest)
+                                  PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
+                                  LyricsRequest, LyricsResponse)
 from music_backend.settings import settings
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI):
     await db.apply_schema(pool)
     app.state.pool = pool
     app.state.url_cache = cache.ListingURLCache(SOURCES, pool)   # one cache for every request; it borrows connections from the pool
+    app.state.lyrics_cache = cache.LyricsCache(pool)
     # the prefetch workers: N separate tasks, running by themselves; the list keeps them alive
     # (a list comprehension: `[create_task(...)] * N` would be ONE task listed N times)
     app.state.prefetch_workers = [asyncio.create_task(app.state.url_cache.prefetch_worker())
@@ -34,11 +36,13 @@ async def lifespan(app: FastAPI):
     yield
 
     # shutdown, in this order: the workers, then lookups still running, then the pool they write to
-    stopping = app.state.prefetch_workers + list(app.state.url_cache.running.values())
+    stopping = (app.state.prefetch_workers + list(app.state.url_cache.running.values())
+                + list(app.state.lyrics_cache.running.values()))
     for task in stopping:
         task.cancel()
     await asyncio.gather(*stopping, return_exceptions=True)       # wait until they have really stopped
     await asyncio.gather(*(source.http.close() for source in SOURCES.values()))   # the sources' kept connections
+    await lyrics.http.close()                                                     # and LRCLIB's
     await pool.close()
 
 
@@ -250,3 +254,10 @@ async def move_playlist(playlist_id: UUID, body: MoveRequest, request: Request) 
         except library.BadMove as e:
             raise HTTPException(status_code = 422, detail = str(e))
     return Response(status_code = 204)
+
+# ---- lyrics -----
+
+@app.post("/lyrics")
+async def get_lyrics(body: LyricsRequest, request: Request) -> LyricsResponse:
+    """Always 200: no lyrics is an empty `lines`, not an error. From the lyrics table when it has them."""
+    return await request.app.state.lyrics_cache(body)

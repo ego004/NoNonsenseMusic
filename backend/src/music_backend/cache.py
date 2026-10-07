@@ -1,7 +1,13 @@
 from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 import asyncio
 import logging
 import time
+
+from psycopg.types.json import Jsonb
+
+from music_backend import lyrics
+from music_backend.models import LyricsRequest, LyricsResponse
 from music_backend.settings import settings
 from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable
 
@@ -160,3 +166,68 @@ class ListingURLCache:
             except Exception:
                 # a bug: say so loudly, but keep this worker alive (an escaped error would end its loop for good)
                 logger.exception("prefetch %s %s failed", source, song_id)
+
+
+class LyricsCache:
+    """Lyrics replies per song, in the lyrics table. Not ListingURLCache renamed: lyrics are kept per song, not per
+    listing, never go stale when timed, and need no memory level, backoff or workers. Only single-flight is shared.
+
+    Call it to get lyrics:   reply = await lyrics_cache(song)
+    Timed lyrics are kept for good. Plain or empty ones are kept for settings.lyrics_recheck_days, and only when
+    every source answered: if one failed, it may have had better, so the next request asks again.
+    """
+
+    def __init__(self, pool):
+        self.pool = pool
+        self.running: dict[tuple, asyncio.Task] = {}     # single-flight, as in ListingURLCache: one lookup per song
+
+    async def __call__(self, song: LyricsRequest) -> LyricsResponse:
+        reply = await self.get(song)
+        if reply is None:
+            # shield: a request that gives up (the app closed Lyrics) does not cancel a lookup another request shares
+            reply = await asyncio.shield(self._start_lookup(song))
+        return reply
+
+    def _start_lookup(self, song: LyricsRequest) -> asyncio.Task:
+        task = self.running.get(key(song))
+        if task is None:
+            task = asyncio.create_task(self._lookup(song))
+            self.running[key(song)] = task
+        return task
+
+    async def _lookup(self, song: LyricsRequest) -> LyricsResponse:
+        try:
+            reply, every_source_answered = await lyrics.find_lyrics(song)
+            if reply.synced or every_source_answered:
+                await self.set(song, reply)
+            return reply
+        finally:
+            del self.running[key(song)]
+
+    async def get(self, song: LyricsRequest) -> LyricsResponse | None:
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                """SELECT reply, fetched_at FROM lyrics
+                   WHERE song_name = %s AND artist_name = %s AND song_duration = %s AND youtube_id = %s""", key(song))
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        reply = LyricsResponse.model_validate(row["reply"])
+        recheck_after = row["fetched_at"] + timedelta(days=settings.lyrics_recheck_days)
+        if not reply.synced and datetime.now(timezone.utc) > recheck_after:
+            return None                          # plain or empty, and old: a source may have them now
+        return reply
+
+    async def set(self, song: LyricsRequest, reply: LyricsResponse) -> None:
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                """INSERT INTO lyrics (song_name, artist_name, song_duration, youtube_id, reply) VALUES (%s, %s, %s, %s, %s)
+                   ON CONFLICT (song_name, artist_name, song_duration, youtube_id) DO UPDATE SET
+                       reply = EXCLUDED.reply, fetched_at = now()""",
+                [*key(song), Jsonb(reply.model_dump())],
+            )
+
+
+def key(song: LyricsRequest) -> tuple[str, str, int, str]:
+    """One song as the app asks for it. With and without a YouTube copy are two entries: the answers can differ."""
+    return song.song_name, song.artist_name, song.song_duration, song.youtube_id or ""

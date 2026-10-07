@@ -96,3 +96,16 @@ CREATE TABLE IF NOT EXISTS listing_urls (
 );
 -- CREATE TABLE IF NOT EXISTS skips an existing table entirely, so a column added later needs its own line
 ALTER TABLE listing_urls ADD COLUMN IF NOT EXISTS hit_at timestamptz NOT NULL DEFAULT now();
+
+
+-- MUS-12: lyrics replies, one per song as the app asks for it (LyricsCache in cache.py). Timed lyrics are kept
+-- for good; plain and empty replies are asked again after LYRICS_RECHECK_DAYS (a source may add them later).
+CREATE TABLE IF NOT EXISTS lyrics (
+    song_name     text        NOT NULL,
+    artist_name   text        NOT NULL,
+    song_duration integer     NOT NULL,
+    youtube_id    text        NOT NULL DEFAULT '',   -- '': asked without a YouTube copy (key columns cannot be NULL)
+    reply         jsonb       NOT NULL,              -- the LyricsResponse, exactly as the app gets it
+    fetched_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (song_name, artist_name, song_duration, youtube_id)
+);
