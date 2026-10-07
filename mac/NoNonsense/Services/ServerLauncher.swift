@@ -155,8 +155,22 @@ final class ServerLauncher {
     /// yourself is left alone.
     func restart() async {
         guard process != nil else { return }
-        stop()
+        await stopWithoutBlocking()
         await ensureRunning()
+    }
+
+    /// `stop()` for Restart: the same signals and the same 2 s grace, waited for with sleeps instead of `usleep`,
+    /// which froze the window for up to 2 s (audit, 7 Oct). Quitting keeps `stop()`: the app must not exit first.
+    private func stopWithoutBlocking() async {
+        guard let p = process else { return }
+        process = nil
+        guard p.isRunning else { return }
+        let family = [p.processIdentifier] + Self.descendants(of: p.processIdentifier)
+        for pid in family { kill(pid, SIGTERM) }
+        for _ in 0..<40 where family.contains(where: { kill($0, 0) == 0 }) { try? await Task.sleep(for: .milliseconds(50)) }
+        let stubborn = family.filter { kill($0, 0) == 0 }
+        for pid in stubborn { kill(pid, SIGKILL) }
+        Self.note("stopped the server: pids \(family)\(stubborn.isEmpty ? "" : ", forced after 2 s: \(stubborn)")")
     }
 
     /// The log only ever grew (1 MB in two days, 7 Oct): past 512 KB, keep its last 2,000 lines.

@@ -241,7 +241,11 @@ struct SongListView: View {
         .scrollContentBackground(.hidden)
         .animation(.snappy(duration: 0.3), value: tracks.map(\.id))     // a like or a new play slides rows in
         .overlay {
-            if tracks.isEmpty {
+            if tracks.isEmpty && item != .downloads && !Connectivity.shared.serverAnswers {
+                // not "No liked songs yet" when the songs are only out of reach (a server down at launch said that)
+                ContentUnavailableView("Can't reach your server", systemImage: "bolt.horizontal.circle",
+                                       description: Text("\(item.title) comes from it. Downloads still play."))
+            } else if tracks.isEmpty {
                 switch item {
                 case .liked:
                     ContentUnavailableView("No liked songs yet", systemImage: item.symbol, description: Text("Tap ♥ on any song to keep it here."))

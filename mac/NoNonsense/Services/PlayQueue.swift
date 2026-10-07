@@ -28,6 +28,8 @@ struct PlayQueue {
         let key: String
         /// Added by Play Next: not one of the list's songs, so a playlist sync keeps it instead of removing it.
         var queued = false
+        /// Added by Add to Queue: its place is the end of Up Next, not right after the playing song.
+        var atEnd = false
         var id: String { key }
     }
 
@@ -123,6 +125,13 @@ struct PlayQueue {
         entries.insert(Entry(track: track, n: n, key: UUID().uuidString, queued: true), at: index + 1)
     }
 
+    /// "Add to Queue": after everything already queued, both now and in the order you chose. Marked `queued`, like
+    /// Play Next, so a playlist sync keeps it.
+    mutating func append(_ track: Track) {
+        guard !entries.isEmpty else { load([track], startAt: 0, shuffled: false); return }
+        entries.append(Entry(track: track, n: (entries.map(\.n).max() ?? 0) + 1, key: UUID().uuidString, queued: true, atEnd: true))
+    }
+
     /// Up Next rearranged by hand (a drag in Now Playing). `offsets` and `destination` count from the first song
     /// after the current one, as Up Next shows them; the current song never moves.
     mutating func moveUpcoming(fromOffsets offsets: IndexSet, toOffset destination: Int) {
@@ -166,7 +175,8 @@ struct PlayQueue {
     /// removed here, so opening the playlist silently took them out of Up Next (audit, 7 Oct).
     mutating func sync(source: String, items: [(key: String, track: Track)]) {
         guard self.source == source, let playing = currentKey else { return }
-        let queued = upcoming.filter(\.queued)                  // put back after the playing song, below
+        let queued = upcoming.filter { $0.queued && !$0.atEnd }    // put back after the playing song, below
+        let atEnd = upcoming.filter { $0.queued && $0.atEnd }      // put back at the end, in their order
         let order = Dictionary(items.enumerated().map { ($1.key, Double($0)) }, uniquingKeysWith: { first, _ in first })
         entries.removeAll { ($0.queued || order[$0.key] == nil) && $0.key != playing }
         for i in entries.indices {
@@ -178,6 +188,12 @@ struct PlayQueue {
         }
         if !isShuffled { entries.sort { $0.n < $1.n } }
         index = entries.firstIndex { $0.key == playing } ?? 0
+        let last = entries.map(\.n).max() ?? 0
+        for (i, entry) in atEnd.enumerated() {
+            var back = entry
+            back.n = last + Double(i + 1)
+            entries.append(back)
+        }
         // back in right after the playing song, each with a place between it and the next song in your order, so
         // turning shuffle off keeps them there too
         guard !queued.isEmpty, entries.indices.contains(index) else { return }

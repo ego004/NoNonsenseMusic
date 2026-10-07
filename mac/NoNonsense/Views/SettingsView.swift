@@ -530,6 +530,7 @@ private struct ServerSettings: View {
     @AppStorage("backendFolder") private var backendFolder = ServerLauncher.defaultBackendFolder
     @AppStorage("serverReload") private var reloads = false
     @Environment(ServerLauncher.self) private var server
+    @Environment(LibraryStore.self) private var library
     @State private var serverOK: Bool?
     // drafts, saved on Return: a field bound to the setting saved whatever it showed, even a test window's
     // launch-argument address, when its window closed (that is how 8765 became your saved address, 7 Oct)
@@ -540,7 +541,14 @@ private struct ServerSettings: View {
         Form {
             Section {
                 TextField("Address", text: $addressDraft, prompt: Text(API.defaultServer))
-                    .onSubmit { serverURL = addressDraft.trimmingCharacters(in: .whitespaces).isEmpty ? API.defaultServer : addressDraft }
+                    .onSubmit {
+                        serverURL = addressDraft.trimmingCharacters(in: .whitespaces).isEmpty ? API.defaultServer : addressDraft
+                        // the library comes from the new server at once (it kept showing the old one's until a relaunch)
+                        Task {
+                            await server.ensureRunning()
+                            if await Connectivity.shared.checkServer() { await library.refresh() }
+                        }
+                    }
                     .onAppear { addressDraft = serverURL }
                 LabeledContent("Status") {
                     switch serverOK {

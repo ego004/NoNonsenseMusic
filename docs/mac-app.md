@@ -110,7 +110,8 @@ Swift names for the server's models: `PlaylistSummary` = PlaylistMetadata, `Play
 - **Does:** after a song starts, only `/recent` (the Player calls it). One request instead of three; nothing else can have changed.
 
 ### `toggleLike(track)`
-- **How:** changes the heart **first** (optimistic: it feels instant), then calls `API.like` or `API.unlike`, then `refresh()`.
+- **How:** changes the heart **first** (optimistic: it feels instant), then calls `API.like` or `API.unlike`, then `refresh()`. One song's likes and unlikes take turns (`likeTurns`), and a like's reply records the song id: an unlike pressed before the like answered had no id and was lost (8 Oct, `NN_SELFTEST_LIKERACE`). Only the last turn refreshes.
+- **Playlist loads** drop an answer older than an edit made on screen meanwhile (`localEdits`): a slow load undid a drag.
 
 ---
 
@@ -135,6 +136,7 @@ State the screens read: `queue`, `index`, `current`, `playingFrom` (the playlist
 | `toggleShuffle()`, `cycleRepeat()` | The two mode buttons (and ⌘S, ⌘R). Both are remembered between launches. |
 | `syncQueue(source:, items:)` | A playlist changed: if the queue came from it, the queue follows (`PlayQueue.sync`). |
 | `playNext(track)` | Puts a song right after the current one. |
+| `addToQueue(track)` | Puts a song at the end of Up Next (`PlayQueue.append`, marked `atEnd`: a playlist sync puts it back at the end, not next). |
 | `togglePlayPause()` | Pause / resume. After "Stopped: … Press play to try again" (the loaded copy failed), play starts the song again from its first copy: `play()` on the failed copy did nothing. |
 | `next()` | Reports a skip, then the next song. |
 | `previous()` | Restarts the song if more than 3 s in; otherwise the previous song. |
@@ -200,6 +202,7 @@ The order songs play in. The Player owns one; the self-test checks every rule (`
 ### `ServerLauncher` (`@Observable`)
 - **Does:** when the app opens and nothing answers `/health` at a local address, starts the backend in the backend folder, and stops it when the app quits. A server you started yourself is left alone.
 - **How (7 Oct):** `uv sync` (installs anything the backend newly needs, then exits), then **one process**: `.venv/bin/fastapi run --host 127.0.0.1 src/music_backend/main.py --port 8000` (`--host`: on its own, `fastapi run` listens on every network). Measured: 1 process, 96–97 MB. Before, `uv run fastapi dev` kept 3–4 processes and 218–236 MB: `uv` waiting (28 MB), a file watcher and the server.
+- **Restart** waits for the old server with sleeps (`stopWithoutBlocking`), not `usleep` on the main thread, which froze the window up to 2 s. Quitting keeps the blocking `stop()`.
 - **Reload mode:** Settings › Server › *Reload when the backend's code changes* (`serverReload`, off by default) runs `uv run fastapi dev` as before, for writing the backend. **Restart** applies a change. `serverPIDs` is the server and everything under it (Settings › Footprint measures them).
 - **Log trimming:** past 512 KB the log keeps its last 2,000 lines when the app starts a server (it was 1 MB after two days). Self-tests' servers write to `server-selftest.log`: they were over half of the log.
 - **Backend folder:** Settings → Server. Default `~/projects/music/backend`, built from the home folder.

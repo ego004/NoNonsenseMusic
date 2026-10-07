@@ -20,7 +20,15 @@ struct HomeView: View {
                     .textStyle(size: 34, weight: .bold)
                     .appear(appeared, order: 0, reduceMotion: reduceMotion)
                 if isEmpty {
-                    firstStep.appear(appeared, order: 1, reduceMotion: reduceMotion)
+                    Group {
+                        // an empty library and an unreachable one look the same from here: say which
+                        if Connectivity.shared.serverAnswers { firstStep }
+                        else {
+                            ContentUnavailableView("Can't reach your server", systemImage: "bolt.horizontal.circle",
+                                                   description: Text("Your library lives on it. Downloads still play."))
+                        }
+                    }
+                    .appear(appeared, order: 1, reduceMotion: reduceMotion)
                 }
                 if !library.recent.isEmpty {
                     section("Jump back in", seeAll: .section(.recent)) { recentShelf }
@@ -208,6 +216,7 @@ struct CompactSongTile: View {
     let play: () -> Void
     @Environment(Player.self) private var player
     @Environment(LibraryStore.self) private var library
+    @Environment(DownloadStore.self) private var downloads
 
     var body: some View {
         CompactSongFace(track: track, width: width)
@@ -216,9 +225,17 @@ struct CompactSongTile: View {
             .contextMenu {
                 Button("Play", action: play)
                 Button("Play Next") { player.playNext(track) }
+                Button("Add to Queue") { player.addToQueue(track) }
                 Divider()
                 Button(library.isLiked(track) ? "Remove from Liked" : "Like") { Task { await library.toggleLike(track) } }
                 AddToPlaylistMenu(track: track)
+                if downloads.isDownloading(track) {
+                    Button("Downloading…") {}.disabled(true)
+                } else if downloads.isDownloaded(track) {
+                    Button("Remove Download") { downloads.remove(track) }
+                } else {
+                    Button("Download") { Task { await downloads.download(track) } }
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isButton)

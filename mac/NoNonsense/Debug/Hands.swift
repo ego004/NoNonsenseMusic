@@ -509,6 +509,28 @@ extension SelfTest {
     }
 }
 
+extension SelfTest {
+    /// With `NN_SELFTEST_LIKERACE="<search>"` (own test server): like, then unlike before the like has answered. The
+    /// server must end up not liking it, and the heart empty (the unlike used to be lost: no song id yet).
+    static func runLikeRaceCheckIfAsked(library: LibraryStore) {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_LIKERACE"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard await onOwnTestServer(), let found = try? await API.search(query),
+                  let song = found.songs.map(Track.init).first(where: { !library.isLiked($0) }) else { report("likerace: test server and a search needed"); NSApp.terminate(nil); return }
+            async let first: Void = library.toggleLike(song)
+            try? await Task.sleep(for: .milliseconds(5))
+            async let second: Void = library.toggleLike(song)
+            _ = await (first, second)
+            let server = (try? await API.liked()) ?? []
+            let onServer = server.contains { s in s.listings.contains { l in song.listings.contains { $0.key == l.key } } }
+            report("likerace \(!onServer && !library.isLiked(song) ? "PASS" : "FAIL") like then unlike at once: not liked on the server (\(onServer)) nor on screen (\(library.isLiked(song)))")
+            if onServer { await library.toggleLike(song) }
+            NSApp.terminate(nil)
+        }
+    }
+}
+
 /// Frame times, from the screen's own refresh (a display link on the window): a frame shown later than the screen's
 /// next refresh is a hitch, what you feel as a stutter. Measures the app's main thread keeping up, which is what a
 /// SwiftUI list needs while it scrolls.

@@ -70,6 +70,7 @@ struct NoNonsenseApp: App {
                     SelfTest.runExplicitCheckIfAsked()
                     SelfTest.runHandsCheckIfAsked(player: player, library: library)
                     SelfTest.runScrollCheckIfAsked(player: player, library: library)
+                    SelfTest.runLikeRaceCheckIfAsked(library: library)
                     #endif
                 }
         }
@@ -88,6 +89,7 @@ struct NoNonsenseApp: App {
                 .environment(presence)
                 .environment(server)
                 .environment(theme)
+                .environment(library)                       // Server: a new address reloads the library
                 .preferredColorScheme(appearance.colorScheme)
         }
     }

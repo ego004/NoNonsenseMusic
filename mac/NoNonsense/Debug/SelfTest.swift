@@ -424,6 +424,15 @@ enum SelfTest {
         q.setShuffle(true); q.setShuffle(false)
         check("play next: still next once shuffle is off again", names(q) == "aXcbde", names(q))
 
+        // Add to Queue: the end of Up Next, kept by a playlist sync, still last once shuffle is off again
+        q = PlayQueue(); q.load(abcde, startAt: 1, keys: keys, source: "playlist:5", shuffled: false)
+        q.append(song("Y"))
+        check("add to queue: after everything queued", names(q) == "abcdeY", names(q))
+        q.sync(source: "playlist:5", items: keys.map(item))
+        check("add to queue: survives the playlist being opened again", names(q) == "abcdeY", names(q))
+        q.setShuffle(true); q.setShuffle(false)
+        check("add to queue: still last once shuffle is off again", names(q) == "abcdeY", names(q))
+
         // Up Next by hand
         q = PlayQueue(); q.load(abcde, startAt: 0, keys: keys, source: "playlist:9", shuffled: false)
         q.moveUpcoming(fromOffsets: IndexSet([3]), toOffset: 0)          // e (4th after a) to the front of Up Next

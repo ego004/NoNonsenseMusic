@@ -53,6 +53,7 @@ struct SongRow: View {
             .contextMenu {
                 Button("Play") { player.play(queue, startAt: index, keys: keys, source: source) }
                 Button("Play Next") { player.playNext(track) }
+                Button("Add to Queue") { player.addToQueue(track) }
                 Divider()
                 Button(library.isLiked(track) ? "Remove from Liked" : "Like") { Task { await library.toggleLike(track) } }
                 AddToPlaylistMenu(track: track)

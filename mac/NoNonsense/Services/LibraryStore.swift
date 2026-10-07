@@ -9,7 +9,7 @@ final class LibraryStore {
     /// "source:id" of every listing of every liked song: a search result is liked
     /// if ANY of its listings is in here (search results have no song IDs yet).
     private(set) var likedKeys: Set<String> = []
-    private var songIDs: [String: UUID] = [:]      // listing key -> stored song id
+    @ObservationIgnored private var songIDs: [String: UUID] = [:]      // listing key -> stored song id (no view reads it)
 
     func isLiked(_ track: Track) -> Bool { track.listings.contains { likedKeys.contains($0.key) } }
 
@@ -89,18 +89,31 @@ final class LibraryStore {
         // optimistic: the heart fills instantly, the server catches up
         if wasLiked { track.listings.forEach { likedKeys.remove($0.key) } }
         else { track.listings.forEach { likedKeys.insert($0.key) } }
-        do {
-            if wasLiked, let id = track.listings.lazy.compactMap({ self.songIDs[$0.key] }).first {
-                try await API.unlike(id)
-            } else if !wasLiked {
-                try await API.like(track.listings)
+        // one song's likes and unlikes take turns: an unlike sent while the like was still on its way had no song id
+        // yet, so it never reached the server and the next refresh filled the heart again (audit, 7 Oct)
+        let previous = likeTurns[track.id]
+        let turn = Task { @MainActor in
+            await previous?.value
+            do {
+                if wasLiked, let id = track.listings.lazy.compactMap({ self.songIDs[$0.key] }).first {
+                    try await API.unlike(id)
+                } else if !wasLiked {
+                    let id = try await API.like(track.listings)
+                    track.listings.forEach { self.songIDs[$0.key] = id }      // an unlike right after has its id
+                }
+            } catch {
+                self.show(wasLiked ? "Couldn't unlike “\(track.title)”: \(error.localizedDescription)"
+                                   : "Couldn't like “\(track.title)”: \(error.localizedDescription)")
             }
-        } catch {
-            show(wasLiked ? "Couldn't unlike “\(track.title)”: \(error.localizedDescription)"
-                          : "Couldn't like “\(track.title)”: \(error.localizedDescription)")
         }
+        likeTurns[track.id] = turn
+        await turn.value
+        // only the last turn refreshes: an earlier one's refresh would undo the heart of a newer press for a moment
+        guard likeTurns[track.id] == turn else { return }
+        likeTurns[track.id] = nil
         await refresh()
     }
+    @ObservationIgnored private var likeTurns: [String: Task<Void, Never>] = [:]
 
     // MARK: - playlists (MUS-2)
 
@@ -128,8 +141,12 @@ final class LibraryStore {
     /// Loads one playlist's rows. False: it no longer exists (deleted, maybe on another device).
     @discardableResult
     func loadPlaylist(_ id: UUID) async -> Bool {
+        let edits = localEdits[id, default: 0]
         do {
             let detail = try await API.playlist(id)
+            // an edit made on screen while this was on its way (a drag just before a slow load landed) is newer than
+            // this answer: keep the screen; the edit's own request brings the server along (audit, 7 Oct)
+            guard localEdits[id, default: 0] == edits else { return true }
             if details[id] != detail { details[id] = detail }     // opening an unchanged playlist redraws nothing
             playlistChanged?(detail)
             return true
@@ -238,7 +255,10 @@ final class LibraryStore {
     }
 
     private func update(_ detail: PlaylistDetail) {
+        localEdits[detail.id, default: 0] += 1
         details[detail.id] = detail
         playlistChanged?(detail)
     }
+    /// Edits made on screen per playlist, so a load that left before one cannot undo it (`loadPlaylist`).
+    @ObservationIgnored private var localEdits: [UUID: Int] = [:]
 }

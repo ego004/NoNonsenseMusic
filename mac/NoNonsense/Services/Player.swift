@@ -122,6 +122,13 @@ final class Player {
         announceNext()
     }
 
+    /// The end of Up Next (Play Next puts it at the start).
+    func addToQueue(_ track: Track) {
+        guard current != nil else { play([track]); return }
+        order.append(track)
+        announceNext()
+    }
+
     func toggleShuffle() {
         setShufflePreference(!shufflePreferred)
         order.setShuffle(shufflePreferred)

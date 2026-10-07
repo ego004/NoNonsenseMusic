@@ -237,6 +237,7 @@ struct NowPlayingView: View {
     @AppStorage("nowPlayingBlur") private var surfaceBlur = Look.nowPlayingBlur        // Settings › Appearance › Surfaces › Now Playing
     @AppStorage("nowPlayingSolid") private var surfaceSolid = Look.nowPlayingSolid
     @AppStorage("nowPlayingColour") private var colourStrength = Look.nowPlayingColour
+    @AppStorage("haptics") private var haptics = true
     @Environment(ThemeStore.self) private var theme
     @State private var isFullScreen = NSApp.keyWindow?.styleMask.contains(.fullScreen) ?? false
     private var glow: Color? { theme.color(.playing) }    // the light under the artwork: Settings › Colours › Playing song
@@ -321,6 +322,8 @@ struct NowPlayingView: View {
                        in: 0...1)
                     .tint(theme.color(.volume))
                     .accessibilityLabel("Volume")
+                    // a light tick at every tenth while you drag (Settings › Trackpad › Haptic ticks), as the line does per minute
+                    .sensoryFeedback(.alignment, trigger: Int((player.volume * 10).rounded())) { _, _ in haptics }
                 Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
             }
             .font(.callout)
@@ -899,7 +902,7 @@ struct UpNextView: View {
             }
             .padding(.horizontal, 16).padding(.top, 16)
             if player.upNextEntries.isEmpty {
-                Text("Nothing queued. Play a list, or right-click a song → Play Next.")
+                Text("Nothing queued. Play a list, or right-click a song → Play Next or Add to Queue.")
                     .textStyle(.callout).foregroundStyle(.secondary)
                     .padding(.horizontal, 16).padding(.bottom, 16)
             } else {
