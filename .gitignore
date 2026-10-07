@@ -12,3 +12,4 @@ xcuserdata/
 # Instruments recordings and their exports: large, and they hold paths from your Mac
 *.trace/
 mac/tp_*.xml
+mac/build-opt/

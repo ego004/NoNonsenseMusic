@@ -508,4 +508,127 @@ extension SelfTest {
         }
     }
 }
+
+/// Frame times, from the screen's own refresh (a display link on the window): a frame shown later than the screen's
+/// next refresh is a hitch, what you feel as a stutter. Measures the app's main thread keeping up, which is what a
+/// SwiftUI list needs while it scrolls.
+@MainActor
+final class FrameClock: NSObject {
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private(set) var intervals: [Double] = []
+    private(set) var refresh: Double = 1 / 60
+
+    func start(on view: NSView) {
+        intervals = []; last = 0
+        link = view.displayLink(target: self, selector: #selector(tick(_:)))
+        link?.add(to: .main, forMode: .common)
+    }
+
+    func stop() { link?.invalidate(); link = nil }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        refresh = link.duration > 0 ? link.duration : refresh
+        if last > 0 { intervals.append(link.timestamp - last) }
+        last = link.timestamp
+    }
+
+    /// "n frames, h late (x%), worst y ms" at the screen's rate
+    var summary: String {
+        let late = intervals.filter { $0 > refresh * 1.5 }
+        return String(format: "%d frames at %.0f Hz, %d late (%.1f%%), worst %.0f ms, late time %.0f ms",
+                      intervals.count, 1 / refresh, late.count, intervals.isEmpty ? 0 : 100 * Double(late.count) / Double(intervals.count),
+                      (intervals.max() ?? 0) * 1000, late.reduce(0) { $0 + $1 - refresh } * 1000)
+    }
+    var lateShare: Double { intervals.isEmpty ? 0 : Double(intervals.filter { $0 > refresh * 1.5 }.count) / Double(intervals.count) }
+}
+
+extension SelfTest {
+    /// With `NN_SELFTEST_SCROLL="<search>|<search>|…"` (its own test server, muted, real input: the pointer moves):
+    /// likes every song those searches find (Liked Songs gets long), plays one, opens Liked Songs, and flicks the list
+    /// down and up with trackpad scrolls, NN_SELFTEST_SCROLL_ROUNDS times (default 4), counting late frames (`FrameClock`).
+    /// The likes are taken back at the end. `NN_SELFTEST_SCROLL_IN=playlist` (a List) or `home` scrolls there instead.
+    /// Pair it with Instruments' Animation Hitches for the frames the screen missed (the display link sees only the app).
+    static func runScrollCheckIfAsked(player: Player, library: LibraryStore) {
+        guard let queries = ProcessInfo.processInfo.environment["NN_SELFTEST_SCROLL"]?.split(separator: "|").map(String.init) else { return }
+        let rounds = Int(ProcessInfo.processInfo.environment["NN_SELFTEST_SCROLL_ROUNDS"] ?? "") ?? 4
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard await onOwnTestServer(), RealInput.allowed else { report("scroll: own test server and Accessibility needed"); NSApp.terminate(nil); return }
+            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) && $0.title != "Settings" }),
+                  let screen = (window.screen ?? NSScreen.main)?.visibleFrame, let content = window.contentView else { NSApp.terminate(nil); return }
+            if !player.isMuted { player.toggleMute() }
+            let size = CGSize(width: min(1180, screen.width - 40), height: min(820, screen.height - 20))
+            window.setFrame(CGRect(x: screen.midX - size.width / 2, y: screen.midY - size.height / 2, width: size.width, height: size.height), display: true)
+            window.level = .floating
+            RealInput.behaviour = window.collectionBehavior
+            window.collectionBehavior.formUnion([.canJoinAllSpaces, .fullScreenAuxiliary])
+            RealInput.window = window
+            _ = await RealInput.activate()
+
+            var songs: [Track] = []
+            for q in queries {
+                if let found = try? await API.search(q) { songs += found.songs.map(Track.init).filter { s in !songs.contains { $0.id == s.id } } }
+                try? await Task.sleep(for: .seconds(1))                  // searches spaced out: no burst at YouTube
+            }
+            var likedHere: [UUID] = []                                   // song ids, to take the likes back
+            for song in songs where !library.isLiked(song) {
+                if let id = try? await API.like(song.listings) { likedHere.append(id) }
+            }
+            await library.refresh()
+            report("scroll: Liked Songs has \(library.liked.count) songs (\(likedHere.count) liked by this test); swipe monitor on (off cost nothing measurable: 8 ms of 3.2 s, 8 Oct)")
+            player.play(Array(library.liked.prefix(5)), startAt: 0)
+            // NN_SELFTEST_SCROLL_IN=playlist: the same songs as a playlist (a List: an AppKit table) instead of Liked Songs
+            var playlistHere: PlaylistSummary?
+            if ProcessInfo.processInfo.environment["NN_SELFTEST_SCROLL_IN"] == "playlist" {
+                let name = "Scroll test \(Int.random(in: 1000...9999))"
+                if await library.createPlaylist(named: name) == nil, let summary = library.playlists.first(where: { $0.name == name }) {
+                    for song in library.liked { _ = try? await API.add(song.listings, to: summary.id) }
+                    await library.loadPlaylist(summary.id)
+                    playlistHere = summary
+                    NotificationCenter.default.post(name: .selfTestOpen, object: summary.id)
+                    report("scroll: in a playlist (List) of \(library.details[summary.id]?.items.count ?? 0) songs")
+                }
+            } else if ProcessInfo.processInfo.environment["NN_SELFTEST_SCROLL_IN"] == "home" {
+                NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.home))
+                report("scroll: on Home")
+            } else {
+                NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.liked))
+            }
+            try? await Task.sleep(for: .seconds(4))                       // the first covers arrive
+            _ = await RealInput.activate()
+
+            let at = CGPoint(x: content.bounds.width * 0.6, y: content.bounds.height * 0.45)
+            let clock = FrameClock()
+            var shares: [Double] = []
+            let list = content.superview?.hitTest(NSPoint(x: at.x, y: content.bounds.height - at.y))?.enclosingScrollView
+            report("scroll: rounds start")
+            for round in 1...rounds {
+                let top = list?.contentView.bounds.origin.y ?? 0
+                let travel = Box<CGFloat>(0)
+                let sampler = Task { @MainActor in
+                    while !Task.isCancelled { travel.value = max(travel.value, (list?.contentView.bounds.origin.y ?? 0) - top); try? await Task.sleep(for: .milliseconds(8)) }
+                }
+                clock.start(on: content)
+                // a flick down the list and back up: 40 moves of 30 pt each way, 60 a second, as fast fingers send them
+                let down = await RealInput.scroll(at: at, dx: 0, dy: -30, steps: 40)
+                let up = await RealInput.scroll(at: at, dx: 0, dy: 30, steps: 40)
+                try? await Task.sleep(for: .milliseconds(300))
+                clock.stop()
+                sampler.cancel()
+                shares.append(clock.lateShare)
+                report("scroll: round \(round)\(down && up ? "" : " (events refused: a window on top)"): the list went \(Int(travel.value)) pt down and back; \(clock.summary)")
+                try? await Task.sleep(for: .seconds(0.5))
+            }
+            let sorted = shares.sorted()
+            report(String(format: "scroll: median late frames %.1f%% over %d rounds", 100 * sorted[sorted.count / 2], rounds))
+
+            for id in likedHere { try? await API.unlike(id) }
+            if let playlistHere, let current = library.playlists.first(where: { $0.id == playlistHere.id }) { await library.deletePlaylist(current) }
+            window.collectionBehavior = RealInput.behaviour
+            window.level = .normal
+            NSApp.terminate(nil)
+        }
+    }
+}
 #endif
