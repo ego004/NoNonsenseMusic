@@ -8,3 +8,7 @@ xcuserdata/
 
 # secrets and local settings: never commit (the repo is public)
 .env
+
+# Instruments recordings and their exports: large, and they hold paths from your Mac
+*.trace/
+mac/tp_*.xml
