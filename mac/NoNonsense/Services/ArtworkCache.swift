@@ -20,13 +20,31 @@ final class ArtworkCache {
         if let running = loading[url] { return await running.value }
         let task = Task { () -> NSImage? in
             guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
-            return NSImage(data: data)
+            return await Task.detached(priority: .utility) { Self.decoded(data) }.value
         }
         loading[url] = task
         let image = await task.value
         loading[url] = nil
         if let image { images.setObject(image, forKey: url as NSURL) }
         return image
+    }
+
+    /// A cover ready to draw: decoded once, at most 1,200 px (the largest it is ever shown: 560 pt on a Retina
+    /// screen), already in sRGB. `NSImage(data:)` kept the compressed JPEG, so every repaint decoded it again and
+    /// converted its colours: that was most of Now Playing's CPU (profiled 7 Oct).
+    nonisolated static func decoded(_ data: Data) -> NSImage? {
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                        kCGImageSourceCreateThumbnailWithTransform: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: 1200]
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return NSImage(data: data) }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard let ready = context.makeImage() else { return NSImage(data: data) }
+        return NSImage(cgImage: ready, size: NSSize(width: image.width, height: image.height))
     }
 
     /// The cover shrunk to 3×3 pixels: nine colours, each where it sits on the cover, row by row from the top.

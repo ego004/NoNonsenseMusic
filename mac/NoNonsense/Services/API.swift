@@ -68,6 +68,26 @@ enum API {
         try await sendNoContent("POST", path: "prefetch", body: PrefetchBody(listings: Array(items)))
     }
 
+    private struct LyricsBody: Encodable {
+        let songName: String
+        let artistName: String
+        let songDuration: Int
+        let youtubeID: String?               // nil is left out: the server's default (no YouTube copy)
+        enum CodingKeys: String, CodingKey {
+            case songName = "song_name", artistName = "artist_name", songDuration = "song_duration", youtubeID = "youtube_id"
+        }
+    }
+
+    /// The song's lyrics (MUS-12). Always an answer when the server is reached: no lyrics is an empty `lines`.
+    /// Throws only when the server cannot be asked.
+    static func lyrics(for track: Track) async throws -> Lyrics {
+        // every artist, joined: LRCLIB then matches the fuller record (measured 6 Oct: 50 lines vs 5 with the first
+        // artist alone). YouTube Music needs a YouTube copy's id, even when another copy is the one playing.
+        let youtube = track.listings.first { $0.source == "ytmusic" }?.id
+        return try await send("POST", path: "lyrics", body: LyricsBody(songName: track.title, artistName: track.artistLine,
+                                                                       songDuration: track.duration, youtubeID: youtube))
+    }
+
     private static let noRedirect = URLSession(configuration: .default, delegate: StopRedirects(), delegateQueue: nil)
 
     // ---- writes (IDs are lazy: send the listings, the server finds or creates the song) ----

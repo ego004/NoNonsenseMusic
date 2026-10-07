@@ -792,7 +792,11 @@ enum SelfTest {
                 }
             }
             try? await Task.sleep(for: .seconds(1))
-            check("clicking it asks for the New Playlist sheet", library.newPlaylistRequest != nil && library.newPlaylistRequest?.track == nil)
+            if window.isKeyWindow {
+                check("clicking it asks for the New Playlist sheet", library.newPlaylistRequest != nil && library.newPlaylistRequest?.track == nil)
+            } else {
+                report("sidebar SKIP the click: the window cannot become key while another app is in use (a click only selects it)")
+            }
             library.newPlaylistRequest = nil
             report("sidebar: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
             try? await Task.sleep(for: .seconds(0.5))
@@ -855,7 +859,7 @@ enum SelfTest {
         for (key, value) in plist["saved"] as? [String: Any] ?? [:] { UserDefaults.standard.set(value, forKey: key) }
         for key in plist["missing"] as? [String] ?? [] { UserDefaults.standard.removeObject(forKey: key) }
         try? FileManager.default.removeItem(at: restoreFile)
-        print("SELFTEST", "returned \((plist["saved"] as? [String: Any])?.count ?? 0) saved settings and removed \((plist["missing"] as? [String])?.count ?? 0) new ones")
+        report("returned \((plist["saved"] as? [String: Any])?.count ?? 0) saved settings and removed \((plist["missing"] as? [String])?.count ?? 0) new ones")
     }
 
     /// With `NN_SELFTEST_BAR="<search>"` (test server only, muted): the player bar's layout, measured (pictures
@@ -955,6 +959,237 @@ enum SelfTest {
 
     @MainActor private static func buttonsWidth() -> CGFloat { frames["bar.buttons"]?.width ?? 0 }
 
+    /// With `NN_SELFTEST_PERF="<search>"` (test server, muted; add NN_FORCE_MOTION=1 so the background moves even
+    /// with the window behind others): plays the first result, then holds each screen for NN_SELFTEST_PERF_HOLD
+    /// seconds (default 12), reporting "perf: phase <name>" as each starts, so CPU can be sampled from outside.
+    static func runPerfIfAsked(player: Player) {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_PERF"] else { return }
+        let hold = ProcessInfo.processInfo.environment["NN_SELFTEST_PERF_HOLD"].flatMap(Double.init) ?? 12
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard API.baseURL.port != 8000, let found = try? await API.search(query), !found.songs.isEmpty
+            else { report("perf: test server and a search needed"); NSApp.terminate(nil); return }
+            borrowDefaults(["nowPlayingPanel", "animateBackdrop"])
+            if !player.isMuted { player.toggleMute() }
+            player.play(found.songs.prefix(3).map(Track.init))
+            try? await Task.sleep(for: .seconds(6))                       // buffering, artwork, the first lyrics
+            // (name, Now Playing open, its panel, background moving)
+            let phases: [(String, Bool, NowPlayingPanel, Bool)] = [
+                ("main window", false, .none, true), ("Now Playing alone", true, .none, true),
+                ("Now Playing + Up Next", true, .upNext, true), ("Now Playing + Lyrics", true, .lyrics, true),
+                ("Lyrics, still bg", true, .lyrics, false), ("Up Next, still bg", true, .upNext, false),
+                ("Now Playing alone, still bg", true, .none, false), ("main window, still bg", false, .none, false),
+            ]
+            // NN_SELFTEST_PERF_PHASES="main window|Now Playing alone": only these
+            let only = ProcessInfo.processInfo.environment["NN_SELFTEST_PERF_PHASES"].map { Set($0.split(separator: "|").map(String.init)) }
+            for (name, open, panel, moving) in phases where only?.contains(name) ?? true {
+                UserDefaults.standard.set(moving, forKey: "animateBackdrop")
+                UserDefaults.standard.set(panel.rawValue, forKey: "nowPlayingPanel")
+                player.showNowPlaying = open
+                try? await Task.sleep(for: .seconds(2))                   // transitions finish before sampling
+                report("perf: phase \(name)")
+                try? await Task.sleep(for: .seconds(hold))
+            }
+            report("perf: done")
+            returnDefaults()
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// What Settings › Footprint shows (it sets this each second).
+    static var footprint: (app: FootprintMeter.Reading?, server: FootprintMeter.Reading?) = (nil, nil)
+
+    /// With `NN_SELFTEST_FOOTPRINT=1`: opens Settings › Footprint and reports its readings for ~8 s, each line with the
+    /// time, so `top` run alongside can be compared.
+    static func runFootprintCheckIfAsked() {
+        guard ProcessInfo.processInfo.environment["NN_SELFTEST_FOOTPRINT"] != nil else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard let main = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+                  let menu = NSApp.mainMenu?.items.first?.submenu, let index = menu.items.firstIndex(where: { $0.keyEquivalent == "," })
+            else { report("footprint: no Settings item"); NSApp.terminate(nil); return }
+            menu.performActionForItem(at: index)
+            try? await Task.sleep(for: .seconds(1.5))
+            guard let settings = NSApp.windows.first(where: { $0.isVisible && $0 !== main && $0.styleMask.contains(.titled) }),
+                  let tab = settings.toolbar?.items.first(where: { $0.label == "Footprint" }), let action = tab.action
+            else { report("footprint: no Footprint tab"); NSApp.terminate(nil); return }
+            NSApp.sendAction(action, to: tab.target, from: tab)
+            report("footprint: app pid \(getpid()), server pids \(ServerLauncher.shared.serverPIDs)")
+            for _ in 0..<8 {
+                try? await Task.sleep(for: .seconds(1))
+                let (a, s) = footprint
+                report(String(format: "footprint: t=%.0f app %@ | server %@", Date().timeIntervalSince1970,
+                              a.map { String(format: "%.1f%% %.0f MB", $0.cpu, Double($0.memory) / 1_048_576) } ?? "-",
+                              s.map { String(format: "%.1f%% %.0f MB (%d)", $0.cpu, Double($0.memory) / 1_048_576, $0.processes) } ?? "-"))
+            }
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// The lyrics panel's lit line, and which screen it shows ("loading", "none", "plain", "unreachable"); the
+    /// panel sets them, the lyrics check reads them.
+    static var lyricsCurrent: Int?
+    /// Clicks line N (TimedLines sets it): for when the window cannot become key, so a posted click cannot reach it.
+    static var lyricsJump: ((Int) -> Void)?
+    static var lyricsShown = ""
+
+    /// With `NN_SELFTEST_LYRICS="<timed song>|<instrumental>|<a JioSaavn song>"` (test server only, muted, the
+    /// Downloads-selftest folder). Reports counts, line numbers and positions: never a lyric.
+    static func runLyricsCheckIfAsked(player: Player, lyrics: LyricsStore, downloads: DownloadStore) {
+        guard let spec = ProcessInfo.processInfo.environment["NN_SELFTEST_LYRICS"] else { return }
+        let parts = spec.split(separator: "|").map(String.init)
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard API.baseURL.port != 8000, parts.count == 3, downloads.folder.lastPathComponent == "Downloads-selftest",
+                  let found = try? await API.search(parts[0]), found.songs.count >= 3,
+                  let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) })
+            else { report("lyrics: test server, three searches and the test folder needed"); NSApp.terminate(nil); return }
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("lyrics \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            @MainActor func finish() {
+                returnDefaults()
+                report("lyrics: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
+                NSApp.terminate(nil)
+            }
+            @MainActor func waitFound(_ track: Track, seconds: Double = 25) async -> Lyrics? {
+                for _ in 0..<Int(seconds * 10) {
+                    if case .found(let found) = lyrics.state(for: track) { return found }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                return nil
+            }
+            @MainActor func describe(_ l: Lyrics?) -> String {
+                guard let l else { return "nothing" }
+                return "\(l.sourceName ?? "nobody"), \(l.synced ? "timed" : "not timed"), \(l.lines.count) lines"
+            }
+            borrowDefaults(["lyricsFetch", "nowPlayingPanel"])
+            UserDefaults.standard.set(LyricsFetch.songStart.rawValue, forKey: "lyricsFetch")
+            UserDefaults.standard.set(NowPlayingPanel.lyrics.rawValue, forKey: "nowPlayingPanel")
+            if !player.isMuted { player.toggleMute() }
+
+            // 1. a song starts: its lyrics, and the next song's, arrive without opening anything
+            let songs = found.songs.prefix(3).map(Track.init)
+            let start = Date()
+            player.play(Array(songs))
+            let timed = await waitFound(songs[0])
+            report(String(format: "lyrics: %@: %@, after %.1f s", songs[0].title, describe(timed), Date().timeIntervalSince(start)))
+            check("the playing song's lyrics arrive when it starts", timed != nil)
+            let next = await waitFound(songs[1])
+            report("lyrics: the next song, \(songs[1].title): \(describe(next))")
+            check("the next song's lyrics are fetched ahead", next != nil)
+            guard let timed, timed.synced, timed.lines.count >= 20, let firstStart = timed.lines[0].startMs else {
+                check("the first song has timed lyrics with 20+ lines (pick another search)", false); finish(); return
+            }
+
+            // 2. Now Playing with Lyrics: the lines are there; a seek lights its line and brings it to the middle
+            player.showNowPlaying = true
+            if player.isPlaying { player.togglePlayPause() }               // paused: the light follows the seek exactly
+            try? await Task.sleep(for: .seconds(1.5))
+            check("the panel shows every line", (0..<timed.lines.count).allSatisfy { frames["lyrics.line.\($0)"] != nil })
+            if firstStart > 1500 {
+                player.seek(to: 0)
+                try? await Task.sleep(for: .seconds(0.6))
+                check("before the first line (the intro): nothing is lit", lyricsCurrent == nil, "\(String(describing: lyricsCurrent))")
+            }
+            player.seek(to: Double(timed.lines[10].startMs ?? 0) / 1000 + 0.3)
+            try? await Task.sleep(for: .seconds(1.4))                       // the scroll animation takes 0.55 s
+            check("seek into line 10: line 10 is lit", lyricsCurrent == 10, "\(String(describing: lyricsCurrent))")
+            if let line = frames["lyrics.line.10"], let panel = frames["lyrics.panel"] {
+                report(String(format: "lyrics: line 10's centre is %.0f pt from the panel's centre", line.midY - panel.midY))
+                check("… and sits in the middle of the panel (within 40 pt)", abs(line.midY - panel.midY) < 40)
+            }
+
+            // 3. a real click on line 13: the song plays from where that line starts
+            NSApp.activate(); window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .seconds(0.5))
+            if let row = frames["lyrics.line.13"], let panel = frames["lyrics.panel"], panel.contains(CGPoint(x: row.minX + 30, y: row.midY)) {
+                let p = NSPoint(x: row.minX + 30, y: window.contentView!.frame.height - row.midY)
+                // macOS refuses to bring an app forward while you use another one, and a click on a window that is
+                // not key only selects it: then the line's own action is called, and the report says so
+                if !window.isKeyWindow {
+                    report("lyrics: the window cannot become key now (another app is in use): calling line 13's action instead of a click")
+                    lyricsJump?(13)
+                } else { for type in Array(repeating: [NSEvent.EventType.leftMouseDown, .leftMouseUp], count: window.isKeyWindow ? 1 : 2).flatMap({ $0 }) {
+                    if let event = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                        NSApp.postEvent(event, atStart: false)
+                    }
+                } }
+                try? await Task.sleep(for: .seconds(0.3))
+                let target = Double(timed.lines[13].startMs ?? 0) / 1000
+                report(String(format: "lyrics: clicked line 13 (starts %.2f s): now at %.2f s, %@", target, player.position, player.isPlaying ? "playing" : "paused"))
+                check("click line 13: the song jumps to where it starts, and plays", abs(player.position - target) < 0.6 && player.isPlaying)
+                try? await Task.sleep(for: .seconds(0.4))
+                check("… and line 13 is lit", lyricsCurrent == 13, "\(String(describing: lyricsCurrent))")
+            } else {
+                check("line 13 is on screen to click", false)
+            }
+
+            // with NN_SELFTEST_LYRICS_HOLD=<seconds>: stay playing that long with Lyrics, then with Up Next, so the
+            // panel's CPU can be measured from outside (top), against the same screen without it
+            if let hold = ProcessInfo.processInfo.environment["NN_SELFTEST_LYRICS_HOLD"].flatMap(Double.init) {
+                report("lyrics: hold lyrics \(Date().timeIntervalSince1970)")
+                try? await Task.sleep(for: .seconds(hold))
+                UserDefaults.standard.set(NowPlayingPanel.upNext.rawValue, forKey: "nowPlayingPanel")
+                report("lyrics: hold upnext \(Date().timeIntervalSince1970)")
+                try? await Task.sleep(for: .seconds(hold))
+                player.showNowPlaying = false
+                report("lyrics: hold closed \(Date().timeIntervalSince1970)")
+                try? await Task.sleep(for: .seconds(hold))
+                player.showNowPlaying = true
+                report("lyrics: hold end \(Date().timeIntervalSince1970)")
+                UserDefaults.standard.set(NowPlayingPanel.lyrics.rawValue, forKey: "nowPlayingPanel")
+            }
+
+            // 4. an instrumental: nobody has words, the panel says so
+            if let instrumental = try? await API.search(parts[1]), let song = instrumental.songs.first.map(Track.init) {
+                player.play([song])
+                let none = await waitFound(song)
+                try? await Task.sleep(for: .seconds(1))
+                report("lyrics: \(song.title): \(describe(none)); the panel shows \"\(lyricsShown)\"")
+                check("an instrumental: no lines, and the panel says Couldn't find lyrics", none?.lines.isEmpty == true && lyricsShown == "none")
+            }
+            player.showNowPlaying = false
+
+            // 5. a download keeps its lyrics, and they show with the server off
+            downloads.removeAll()
+            guard let jio = try? await API.search(parts[2]),
+                  let song = jio.songs.map(Track.init).first(where: { $0.best.source == "jiosaavn" }) else {
+                check("a JioSaavn song to download", false); finish(); return
+            }
+            let downloaded = await downloads.download(song, quietly: true)
+            var saved: Lyrics?
+            for _ in 0..<150 where saved == nil {                          // the download hands its lyrics over in the background
+                saved = downloads.lyrics(for: song)
+                if saved == nil { try? await Task.sleep(for: .milliseconds(100)) }
+            }
+            report("lyrics: downloaded \(song.title): \(downloaded ? "yes" : "no"); lyrics kept beside it: \(describe(saved))")
+            check("a download keeps its lyrics beside the file", downloaded && saved != nil)
+            let fromServer = try? await API.lyrics(for: song)
+            check("… the same lyrics the server gives", saved != nil && saved == fromServer)
+
+            ServerLauncher.shared.stop()
+            try? await Task.sleep(for: .seconds(1))
+            check("the server is really off", !(await API.health()))
+            lyrics.forget(song)
+            lyrics.fetch(song)
+            check("server off: the downloaded song's lyrics come from its file", lyrics.state(for: song) == saved.map { .found($0) })
+            lyrics.forget(songs[2])
+            lyrics.fetch(songs[2])
+            for _ in 0..<50 where lyrics.state(for: songs[2]) == .loading { try? await Task.sleep(for: .milliseconds(100)) }
+            check("server off, not downloaded: the panel can say it couldn't reach the server", lyrics.state(for: songs[2]) == .unreachable,
+                  "\(String(describing: lyrics.state(for: songs[2])))")
+
+            downloads.removeAll()
+            let left = (try? FileManager.default.contentsOfDirectory(atPath: downloads.folder.path))?.filter { $0 != "index.json" } ?? []
+            check("remove all: the lyrics files go too", left.isEmpty, "\(left.count) files left")
+            finish()
+        }
+    }
+
     /// With `NN_SELFTEST_SNAP=<folder>`: saves the app's own window as `<folder>/<name>.png` (no screen recording:
     /// the window draws itself into an image). Scenarios call it at the moments worth looking at.
     static func snap(_ name: String) {
@@ -981,7 +1216,9 @@ enum SelfTest {
         }
     }
 
-    private static func report(_ line: String) { print("SELFTEST", line) }
+    /// Written straight through, not buffered: with the output going to a file, `print` held every line until the
+    /// app quit, so nothing outside could follow a run while it happened (6 Oct).
+    static func report(_ line: String) { FileHandle.standardOutput.write(Data("SELFTEST \(line)\n".utf8)) }
 
     private static func center(of r: NSRect) -> NSPoint { NSPoint(x: r.midX, y: r.midY) }
 

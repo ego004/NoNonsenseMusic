@@ -46,7 +46,7 @@ struct Backdrop: View {
     let track: Track?
     var strength: Double = 1
     var base: AnyShapeStyle? = nil
-    @AppStorage("animateBackdrop") private var animate = true
+    @AppStorage("animateBackdrop") private var animate = Look.animateBackdrop
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.controlActiveState) private var windowState      // .inactive when another app is in front
     @Environment(\.colorScheme) private var scheme
@@ -78,7 +78,8 @@ struct Backdrop: View {
             if let base { Rectangle().fill(base) }
             if let mesh {
                 // 30 frames a second is plenty for a drift that takes ~30 s per cycle (the screen may run at 120)
-                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { context in
+                // 10 a second: a step moves a colour ~3 pt; each frame costs ~0.5% of a core (measured 7 Oct)
+                TimelineView(DriftSchedule(interval: 1.0 / 10, paused: !moving)) { context in
                     MeshGradient(width: 3, height: 3,
                                  points: Self.points(at: moving ? context.date.timeIntervalSinceReferenceDate : 0),
                                  colors: mesh.colors.map { $0.mix(with: scheme == .dark ? .black : .white, by: 0.3 * (1 - strength)) })
@@ -122,6 +123,48 @@ struct Backdrop: View {
             SIMD2(1, 0.5 + wave(0.15, 3.7, 0.14)),
             SIMD2(0, 1), SIMD2(0.5 + wave(0.18, 4.4, 0.14), 1), SIMD2(1, 1),
         ]
+    }
+}
+
+/// The backdrop in its own small SwiftUI host. Inside the window's own view tree, every frame of the moving mesh
+/// made SwiftUI rebuild the whole window (every list row, every lyric line) and lay out the player bar again:
+/// Now Playing with Lyrics took 30% of a core (profiled 7 Oct). In its own host, a frame redraws only the mesh.
+struct IsolatedBackdrop: NSViewRepresentable {
+    let track: Track?
+    var strength: Double
+    @Environment(Player.self) private var player
+    @Environment(ThemeStore.self) private var theme
+
+    final class Host: NSHostingView<AnyView> {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }     // a background: clicks go to what is on top
+    }
+
+    func makeNSView(context: Context) -> Host {
+        let host = Host(rootView: content)
+        host.sizingOptions = []                                         // takes the frame it is given; asks for none
+        return host
+    }
+
+    func updateNSView(_ host: Host, context: Context) { host.rootView = content }
+
+    private var content: AnyView {
+        AnyView(Backdrop(track: track, strength: strength).environment(player).environment(theme))
+    }
+}
+
+/// A frame every `interval` seconds from a plain timer, or none while paused. `.animation(minimumInterval:)` kept
+/// a display link running at the screen's full rate even when it drew 10 frames a second (testing 7 Oct).
+struct DriftSchedule: TimelineSchedule {
+    let interval: TimeInterval
+    let paused: Bool
+
+    func entries(from start: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
+        var next: Date? = start
+        let paused = paused || mode == .lowFrequency            // also still when the system asks for fewer updates
+        return AnyIterator {
+            defer { next = paused ? nil : next?.addingTimeInterval(interval) }
+            return next
+        }
     }
 }
 

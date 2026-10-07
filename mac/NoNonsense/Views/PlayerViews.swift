@@ -249,7 +249,7 @@ struct NowPlayingView: View {
                 ZStack {
                     SurfaceLayer(blur: surfaceBlur, solid: Look.readable(solid: surfaceSolid, blur: surfaceBlur), blending: .withinWindow)
                         .selfTestFrame("nowPlaying.surface")
-                    Backdrop(track: player.current, strength: colourStrength)
+                    IsolatedBackdrop(track: player.current, strength: colourStrength)
                 }
                 .ignoresSafeArea()
 
@@ -314,8 +314,7 @@ struct NowPlayingView: View {
                 }
                 .textStyle(.caption, monospacedDigit: true)
                 .foregroundStyle(.secondary)
-                .contentTransition(.numericText())          // the digits roll
-                .animation(.snappy(duration: 0.3), value: Int(player.position))
+                // no rolling digits: their animation ran a third of every second and repainted the cover's layer with it
             }
             .frame(width: side)
             TransportControls(size: .title, playSize: .system(size: 44), spinnerSize: .regular, modeSize: .title3)
@@ -391,17 +390,206 @@ struct NowPlayingView: View {
 }
 
 /// The Lyrics panel until MUS-12 brings real ones: says what is coming, in the same glass as Up Next.
+/// Now Playing's Lyrics (MUS-12). Timed lyrics: the line being sung is lit and kept in the middle; click any line
+/// to jump there. Scroll to look around: following stops for a few seconds, then picks up again. Plain lyrics
+/// (no times) simply scroll. Asks the server once per song (LyricsStore); "Couldn't find lyrics" when nobody has them.
 struct LyricsPanel: View {
+    @Environment(Player.self) private var player
+    @Environment(LyricsStore.self) private var lyrics
+
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "quote.bubble").font(.system(size: 40)).foregroundStyle(.secondary)
-            Text("Lyrics are on the way").textStyle(.headline)
-            Text("Lines will light up in time with the song.")
-                .textStyle(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        VStack(alignment: .leading, spacing: 0) {
+            if let track = player.current {
+                let state = lyrics.state(for: track)
+                header(state)
+                content(state, track: track)
+                    .task(id: track.id) { lyrics.fetch(track) }       // a no-op when the song start already asked
+            }
         }
-        .padding(28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .selfTestFrame("lyrics.panel")
+    }
+
+    private func header(_ state: LyricsStore.State?) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Lyrics").textStyle(.headline)
+            Spacer()
+            if case .found(let found) = state, let source = found.sourceName {
+                Text(found.synced ? "from \(source)" : "from \(source) · not timed")
+                    .textStyle(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 6)
+    }
+
+    @ViewBuilder private func content(_ state: LyricsStore.State?, track: Track) -> some View {
+        switch state {
+        case .found(let found) where found.lines.isEmpty:
+            message("Couldn't find lyrics", symbol: "quote.bubble", shown: "none")
+        case .found(let found) where found.synced:
+            TimedLyricsView(lyrics: found)
+        case .found(let found):
+            PlainLyricsView(lyrics: found)
+        case .unreachable:
+            message("Couldn't reach the server", symbol: "wifi.exclamationmark", shown: "unreachable") {
+                Button("Try Again") { lyrics.fetch(track) }
+            }
+        case .loading, nil:
+            VStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Finding lyrics…").textStyle(.callout).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .selfTestShown("loading")
+        }
+    }
+
+    private func message(_ text: String, symbol: String, shown: String, @ViewBuilder action: () -> some View = { EmptyView() }) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 34)).foregroundStyle(.secondary)
+            Text(text).textStyle(.callout).foregroundStyle(.secondary)
+            action()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .selfTestShown(shown)
+    }
+}
+
+/// Timed lyrics: lit line, kept in the middle, click to seek. The light moves only when a line changes: a task
+/// sleeps until the next line is due (reading the player's live position, as `position` updates only twice a
+/// second), and any seek moves it at once. A 10-a-second timer cost 14% of a core more than Up Next (6 Oct).
+private struct TimedLyricsView: View {
+    let lyrics: Lyrics
+    @Environment(Player.self) private var player
+    @State private var current: Int?
+
+    var body: some View {
+        TimedLines(lines: lyrics.lines, current: current)
+            .equatable()                                           // redrawn only when the lit line changes
+            .task(id: player.isPlaying) { await follow() }
+            .onChange(of: player.position, initial: true) { light() }   // a seek, playing or paused
+    }
+
+    /// While playing: light the line, sleep until the next one is due, repeat. At most half a second at a time,
+    /// so a seek from elsewhere is noticed soon even between position updates.
+    private func follow() async {
+        while !Task.isCancelled {
+            let now = light()
+            guard player.isPlaying else { return }
+            let next = (current ?? -1) + 1
+            let due = next < lyrics.lines.count ? Double(lyrics.lines[next].startMs ?? 0) / 1000 - now : 0.5
+            try? await Task.sleep(for: .seconds(min(max(due, 0.02), 0.5)))
+        }
+    }
+
+    /// Lights the line being sung now (a tenth of a second early: the light lands with the voice). Returns the time used.
+    @discardableResult private func light() -> Double {
+        let now = (player.isPlaying ? player.livePosition : player.position) + 0.1
+        let line = lyrics.line(at: now)
+        if line != current { current = line }
+        return now
+    }
+}
+
+private struct TimedLines: View, Equatable {
+    let lines: [LyricLine]
+    let current: Int?                                              // nil: before the first line
+    @Environment(Player.self) private var player
+    @State private var followAgainAt = Date.distantPast             // you scrolled: follow again after this
+
+    static func == (a: TimedLines, b: TimedLines) -> Bool { a.current == b.current && a.lines == b.lines }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                        Button { jump(to: line) } label: { row(line, index: index) }
+                            .buttonStyle(.plain)
+                            .id(index)
+                            .selfTestFrame("lyrics.line.\(index)")
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 140)                           // room for the first and last lines to sit in the middle
+            }
+            .scrollIndicators(.never)
+            // no fade mask at the edges: measured 6 Oct, it cost ~2% of a core more while playing (a mask redraws
+            // offscreen); the lines clip at the panel's edge, as Up Next's do
+            .onScrollPhaseChange { _, phase in
+                if phase == .interacting { followAgainAt = .now.addingTimeInterval(4) }
+            }
+            .onChange(of: current) { _, line in
+                guard let line, Date.now > followAgainAt else { return }
+                // smooth while the app is in front. Behind other apps it jumps: an animated scroll there never
+                // finished (macOS stops drawing frames for a covered window; tested 7 Oct), and it saves the frames
+                if NSApp.isActive {
+                    withAnimation(.smooth(duration: 0.55)) { proxy.scrollTo(line, anchor: .center) }
+                } else {
+                    proxy.scrollTo(line, anchor: .center)
+                }
+            }
+            .onAppear { if let current { proxy.scrollTo(current, anchor: .center) } }
+            #if DEBUG
+            .onChange(of: current, initial: true) { _, line in SelfTest.lyricsCurrent = line }
+            .onAppear { SelfTest.lyricsJump = { index in jump(to: lines[index]) } }     // the click, when a click cannot reach
+            #endif
+        }
+    }
+
+    private func row(_ line: LyricLine, index: Int) -> some View {
+        let lit = index == current
+        return Text(line.text.isEmpty ? "♪" : line.text)
+            .textStyle(size: 21, weight: .bold)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(lit ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .opacity(lit ? 1 : 0.55)
+            // opacity only: scaling text made every frame of the change re-render it (measured 7 Oct)
+            .animation(.easeOut(duration: 0.25), value: lit)
+            .contentShape(.rect)
+            .accessibilityLabel(line.text.isEmpty ? "Instrumental break" : line.text)
+            .accessibilityAddTraits(lit ? .isSelected : [])
+    }
+
+    /// Click a line: play from where it starts.
+    private func jump(to line: LyricLine) {
+        guard let ms = line.startMs else { return }
+        followAgainAt = .distantPast                               // follow from here at once
+        player.seek(to: Double(ms) / 1000)
+        if !player.isPlaying { player.togglePlayPause() }
+    }
+}
+
+/// Plain lyrics: no times, so nothing to light; they scroll.
+private struct PlainLyricsView: View {
+    let lyrics: Lyrics
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { _, line in
+                    Text(line.text.isEmpty ? " " : line.text)
+                        .textStyle(size: 17, weight: .semibold)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 12)
+        }
+        .scrollIndicators(.never)
+        .selfTestShown("plain")
+    }
+}
+
+private extension View {
+    /// Debug builds: tells the lyrics self-test which screen the panel shows. Release builds: nothing.
+    func selfTestShown(_ name: String) -> some View {
+        #if DEBUG
+        onAppear { SelfTest.lyricsShown = name }
+        #else
+        self
+        #endif
     }
 }
 

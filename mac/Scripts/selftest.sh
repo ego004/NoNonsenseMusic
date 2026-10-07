@@ -13,7 +13,7 @@ if ! print -r -- "$out" | grep -q "BUILD SUCCEEDED"; then print -r -- "$out" | g
 echo "BUILD SUCCEEDED"
 env "$@" NN_SELFTEST_SNAP=$snaps DATABASE_URL=postgresql:///music_test \
   perl -e 'alarm shift; exec @ARGV' 180 build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense \
-  -serverURL http://127.0.0.1:8765 -discordEnabled NO 2>/dev/null | grep "SELFTEST"
+  -serverURL http://127.0.0.1:8765 -discordEnabled NO -ApplePersistenceIgnoreState YES 2>/dev/null | grep "SELFTEST"
 rc=${pipestatus[1]}
 leftover=$(lsof -nP -iTCP:8765 -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $2}' | sort -u; ps -axo pid,command | grep -E "[f]astapi dev.*--port 8765" | awk '{print $1}')
 if [ -n "$leftover" ]; then
