@@ -149,6 +149,7 @@ State the screens read: `queue`, `index`, `current`, `playingFrom` (the playlist
 | `show(message)` (private) | Shows `errorMessage` for 4 seconds; a newer message replaces it. |
 | `seeks` | Counts every seek: Lyrics restarts its wait on it (`position` alone misses ⏮ to 0 when it is still 0 from the song's start). |
 | `position` | Changes only on events (play, pause, seek, a stall), never on a timer: the periodic time observer was the biggest steady cost (7 Oct). `livePosition` reads the exact time. |
+| `duration`, `audioLength` | How long the playing copy plays: its listed length until it loads, then the audio's own length, cut at the listing's length + 1 s (`load` sets `forwardPlaybackEndTime`). Some YouTube audio runs on in silence past its listing: *Redbone* (1:42) played silence past 1:48 with the bar stuck at -0:00 (7 Oct). AVPlayer stops at that end and posts the usual "played to the end", so the queue moves on. |
 | `itemEnded(item)` (private) | Reports `finish`, then the next song. |
 | `reportSkipIfNeeded()` (private) | Reports `skip` with the second, unless the song was in its last 3 s. |
 | `report(type, track, at:)` (private) | Sends `API.event` in the background; after a `play`, `library.refreshRecent()`. |

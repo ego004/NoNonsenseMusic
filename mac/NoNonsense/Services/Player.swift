@@ -28,7 +28,11 @@ final class Player {
     @ObservationIgnored private var swipeDone = false
 
     var current: Track? { order.current }
-    var duration: Double { Double(current?.duration ?? 0) }
+    /// How long the song playing is: the copy playing, as it will play, once it has loaded (its listed length cuts
+    /// it short when the audio runs on past it: see `load`); until then its listed length.
+    var duration: Double { audioLength ?? Double(playingListing?.duration ?? current?.duration ?? 0) }
+    /// The playing copy's length in seconds, as it will play: nil until it has loaded (and for audio with no fixed length)
+    private(set) var audioLength: Double?
     var upNext: [Track] { order.upNext }
     /// The playlist the queue came from ("Gym"), for Now Playing and Discord; nil for other queues.
     var playingFrom: String? {
@@ -314,6 +318,7 @@ final class Player {
     /// `fromFile: false` streams even a downloaded copy (its file would not play).
     private func load(_ listing: Listing, fromFile: Bool = true) {
         position = 0
+        audioLength = nil                                         // the listed length, until this copy says its own
         isBuffering = true                                        // the spinner, until audio arrives
         playingListing = listing
         let file = fromFile ? downloads.localURL(for: listing) : nil
@@ -323,6 +328,12 @@ final class Player {
         // no time-stretching: the default algorithm processed every sample to allow speed changes we never make
         // (MEMixerChannel::TimePitch, a steady share of the audio thread, profiled 7 Oct). Varispeed at 1x is a pass-through
         item.audioTimePitchAlgorithm = .varispeed
+        // the song ends at its listed length (+1 s: listings count whole seconds). Some YouTube audio runs on in silence:
+        // Redbone's listing said 1:42, its audio went on, silent, past 1:48, and the bar sat at -0:00 (7 Oct). AVPlayer
+        // stops here and posts the usual "played to the end", so the next song starts as after any other
+        if listing.duration > 0 {
+            item.forwardPlaybackEndTime = CMTime(seconds: Double(listing.duration) + 1, preferredTimescale: 600)
+        }
         // @Sendable: KVO calls this on whatever thread changed the status, not necessarily the main one
         statusObservation = item.observe(\.status) { @Sendable [weak self] item, _ in
             let status = item.status, which = ObjectIdentifier(item)
@@ -334,12 +345,20 @@ final class Player {
         publish()
     }
 
-    /// A copy would not play (MUS-1, rule 7). The server is asked for a fresh URL of the failed copy: that fixes
-    /// its cache for next time, and its answer says WHY the copy failed, which the message then tells you.
+    /// A copy loaded (its real length is now known), or would not play (MUS-1, rule 7). For a failed copy the server is
+    /// asked for a fresh URL: that fixes its cache for next time, and its answer says WHY the copy failed, which the
+    /// message then tells you.
     private func statusChanged(_ status: AVPlayerItem.Status, of item: ObjectIdentifier) {
         // news about a copy already replaced (it failed just as you pressed ⏭) must not act on the new one
         guard let loaded = player.currentItem, ObjectIdentifier(loaded) == item else { return }
-        if status == .readyToPlay { failuresInARow = 0 }         // this song loads: the run of failures is over
+        if status == .readyToPlay {
+            failuresInARow = 0                                    // this song loads: the run of failures is over
+            // its length as it will play (the audio's, or the end set in `load` when that comes first): the bar, the
+            // times and Control Center follow it from here. An end time that is not set reads as nan
+            let end = loaded.forwardPlaybackEndTime.seconds
+            let length = end.isFinite ? min(loaded.duration.seconds, end) : loaded.duration.seconds
+            if length.isFinite, length > 0, length != audioLength { audioLength = length; publish() }
+        }
         guard status == .failed, let track = current, let failed = playingListing else { return }
         // every copy but the one it started with: excluding `best` instead retried a broken downloaded copy that was not
         // `best`, and never tried `best` (audit, 7 Oct)
@@ -439,7 +458,7 @@ final class Player {
 
     private func itemEnded(_ item: AVPlayerItem?) {
         guard item === player.currentItem, let track = current else { return }
-        report("finish", track, at: track.duration)
+        report("finish", track, at: Int(duration))
         let after = order.indexAfterEnd()
         if after == order.index {                       // repeat one: the same song again, without reloading it
             seek(to: 0)
@@ -458,7 +477,7 @@ final class Player {
         let now = livePosition
         guard let track = current, now > 0 || isPlaying else { return }
         // finishing is reported by itemEnded; leaving any earlier is a skip, and WHEN matters
-        if now < Double(track.duration) - 3 { report("skip", track, at: Int(now)) }
+        if now < duration - 3 { report("skip", track, at: Int(now)) }
     }
 
     private func report(_ type: String, _ track: Track, at second: Int) {
