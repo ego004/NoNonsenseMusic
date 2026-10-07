@@ -23,8 +23,6 @@ class Settings(BaseSettings):
     database_url: str = "postgresql:///music"
     # minutes: a cached YouTube URL this close to its expire= time is fetched again
     youtube_cache_expiry_threshold: int = 30
-    # None: JioSaavn URLs carry no expiry
-    jiosaavn_cache_expiry_threshold: int | None = None
     # prefetch workers: at most this many prefetch lookups at once (yt-dlp shares its threads with your clicks)
     num_prefetch_workers: int = 4
     # minutes: after a source's first bot check, ask it nothing for this long; each bot check in a row doubles it

@@ -1,12 +1,12 @@
 import base64
 import html
-
+import logging
 import httpx
 import pyDes
-
+from pydantic import ValidationError
 from music_backend.http_client import SharedClient
 from music_backend.models import Listing
-from music_backend.sources import SongNotFound, SourceUnavailable
+from music_backend.sources import SongNotFound, SourceUnavailable, SourceBlocked
 
 SEARCH_URL = "https://www.jiosaavn.com/api.php"
 SEARCH_PARAMS = {"__call" : "search.getResults", "p" : 1, "n" : 20}
@@ -14,6 +14,7 @@ PREAMBLE_PARAMS = {"_format" : "json", "_marker" : "0", "api_version" : "4", "ct
 REQUEST_TIMEOUT = 2
 URL_DECRYPTION_SECRET = b"38346591"
 
+logger = logging.getLogger(__name__)
 des_cipher = pyDes.des(URL_DECRYPTION_SECRET, pyDes.ECB, padmode=pyDes.PAD_PKCS5)
 http = SharedClient(timeout = REQUEST_TIMEOUT)   # one connection to JioSaavn, reused by searches and song lookups
 
@@ -26,7 +27,11 @@ async def search(query: str) -> list[Listing]:
     r = r.json()
     listings = []
     for result in r.get("results", []):
-        listings.append(to_listing(result))
+        try:
+            listings.append(to_listing(result))
+        except (ValidationError, KeyError) as e:
+            logger.warning(f"JioSaavn: skipped a bad result: {result!r}")
+            continue
     return listings
 
 
@@ -54,14 +59,24 @@ async def get_song_url(song_id: str, kbps : str = "320") -> str:
     """Direct audio URL for a JioSaavn song id (320 kbps AAC by default)."""
     try:
         r = await http.client.get(SEARCH_URL, params = {"__call" : "song.getDetails", "pids" : song_id} | PREAMBLE_PARAMS)
+        if r.status_code == 429:
+            raise SourceBlocked("JioSaavn: Too many requests to JioSaavn's API. Status code: 429")
+        elif r.status_code != 200:
+            raise SourceUnavailable("JioSaavn: unable to get song details, returned status code " + str(r.status_code))
         r = r.json()
-    except httpx.HTTPError as e:
-        raise SourceUnavailable(f"JioSaavn: {e!r}") from e
-    # a real id gives {"songs": [...]}; a made-up one gives {"status": ..., "msg": ...} with no "songs"
-    if "songs" not in r:
-        raise SongNotFound(song_id)
-    return decrypt_media_url(r["songs"][0]["more_info"]["encrypted_media_url"])[:-7] + "_" + kbps + ".mp4"
 
+    except (httpx.HTTPError, ValueError) as e:
+        raise SourceUnavailable(f"JioSaavn: {e!r}") from e
+
+    if "songs" not in r or r["songs"] == []:
+        raise SongNotFound(song_id)
+
+    try:
+        return decrypt_media_url(r["songs"][0]["more_info"]["encrypted_media_url"])[:-7] + "_" + kbps + ".mp4"
+    except KeyError as e:
+        raise SongNotFound(song_id) from e
+    except ValueError as e:
+        raise SourceUnavailable(f"JioSaavn: {e!r}") from e
 
 def decrypt_media_url(encrypted: str) -> str:
     """Unwrap JioSaavn's encrypted_media_url, in reverse order of how it was wrapped.
