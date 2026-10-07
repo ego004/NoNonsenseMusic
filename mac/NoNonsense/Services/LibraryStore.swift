@@ -10,7 +10,6 @@ final class LibraryStore {
     /// if ANY of its listings is in here (search results have no song IDs yet).
     private(set) var likedKeys: Set<String> = []
     private var songIDs: [String: UUID] = [:]      // listing key -> stored song id
-    private(set) var lastError: String?
 
     func isLiked(_ track: Track) -> Bool { track.listings.contains { likedKeys.contains($0.key) } }
 
@@ -27,9 +26,8 @@ final class LibraryStore {
             async let recentSongs = API.recent()
             let (l, r) = try await (likedSongs, recentSongs)
             apply(liked: l, recent: r)
-            if lastError != nil { lastError = nil }
         } catch {
-            lastError = "Can't reach the server at \(API.baseURL.absoluteString)."
+            // a failure keeps the last good lists; the connection banner (Connectivity) says when the server is gone
         }
         await refreshPlaylists()
     }
@@ -55,9 +53,12 @@ final class LibraryStore {
             lastRecent = r
             changed = true
         }
-        // the hearts follow the server: this also undoes an optimistic like the server refused
-        let keys = Set((lastLiked ?? []).flatMap { $0.listings.map(\.key) })
-        if keys != likedKeys { likedKeys = keys }
+        // the hearts follow the server's liked list (this also undoes an optimistic like the server refused), but only
+        // when it was just asked: from the last answer, a ♥ tapped as a song starts would empty again for a moment
+        if let l = newLiked {
+            let keys = Set(l.flatMap { $0.listings.map(\.key) })
+            if keys != likedKeys { likedKeys = keys }
+        }
         guard changed else { return }
         songIDs = [:]
         for song in (lastLiked ?? []) + (lastRecent ?? []) { for listing in song.listings { songIDs[listing.key] = song.id } }
@@ -65,8 +66,7 @@ final class LibraryStore {
 
     @ObservationIgnored private var messageTimer: Task<Void, Never>?
 
-    /// A library problem shown above the player bar for 5 s. Its own field: `refresh()` clears `lastError`
-    /// when it succeeds, which would wipe this message the moment it appeared.
+    /// A library problem shown above the player bar for 5 s.
     private(set) var message: String?
     /// The message's symbol: a warning for problems, a tick for "Added to …".
     private(set) var messageSymbol = "exclamationmark.triangle.fill"

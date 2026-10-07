@@ -66,7 +66,7 @@ struct PlayerBar: View {
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { SelfTest.controlsFrame = $0 }
                         #endif
                     // the line and the times, drawn by Core Animation: this body no longer reads the position at all
-                    PlaybackTimeline()
+                    PlaybackTimeline(underNowPlaying: true)
                         .selfTestFrame("bar.progress")
                 }
                 .selfTestFrame("bar.centre")
@@ -218,7 +218,6 @@ struct TransportControls: View {
     }
 }
 
-/// Full-window Now Playing: huge artwork (as Jon Hicks asked Apple for), blended background, Up Next.
 /// What sits beside the artwork in Now Playing: Up Next, Lyrics (MUS-12), or nothing (the song alone, centred).
 enum NowPlayingPanel: String {
     case upNext, lyrics, none
@@ -376,7 +375,6 @@ struct NowPlayingView: View {
     }
 }
 
-/// The Lyrics panel until MUS-12 brings real ones: says what is coming, in the same glass as Up Next.
 /// Now Playing's Lyrics (MUS-12). Timed lyrics: the line being sung is lit and kept in the middle; click any line
 /// to jump there. Scroll to look around: following stops for a few seconds, then picks up again. Plain lyrics
 /// (no times) simply scroll. Asks the server once per song (LyricsStore); "Couldn't find lyrics" when nobody has them.

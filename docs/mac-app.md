@@ -62,7 +62,7 @@ All files are in `mac/NoNonsense/`. The project file is generated from [`mac/pro
 | `search(query)` | `GET /search?q=` | `SearchResponse` |
 | `liked()` | `GET /liked` | `[LibrarySong]` |
 | `recent()` | `GET /recent` | `[LibrarySong]` |
-| `health()` | `GET /health` | `true` if the server answers |
+| `health()` | `GET /health` | `true` only for a 200 within 3 s (any answer used to count, and a hung server was waited on for 60 s) |
 | `playURL(listing, fresh:)` | (no request) | The URL `/play/{source}/{id}`, given to AVPlayer. `fresh: true` adds `?serve_fresh=true` |
 | `refresh(listing)` | `GET /play/…?serve_fresh=true`, redirect **not** followed | The server's answer (status + detail). Tells the server a URL failed, so its cache fetches a fresh one, and says why the copy failed |
 | `prefetch(listings)` | `POST /prefetch` | Nothing (202). The server looks the listings up in the background; `Prefetcher` sends them |
@@ -133,7 +133,7 @@ State the screens read: `queue`, `index`, `current`, `playingFrom` (the playlist
 | `toggleShuffle()`, `cycleRepeat()` | The two mode buttons (and ⌘S, ⌘R). Both are remembered between launches. |
 | `syncQueue(source:, items:)` | A playlist changed: if the queue came from it, the queue follows (`PlayQueue.sync`). |
 | `playNext(track)` | Puts a song right after the current one. |
-| `togglePlayPause()` | Pause / resume. |
+| `togglePlayPause()` | Pause / resume. After "Stopped: … Press play to try again" (the loaded copy failed), play starts the song again from its first copy: `play()` on the failed copy did nothing. |
 | `next()` | Reports a skip, then the next song. |
 | `previous()` | Restarts the song if more than 3 s in; otherwise the previous song. |
 | `jump(to:)` | Plays one song from Up Next. |
@@ -145,7 +145,7 @@ State the screens read: `queue`, `index`, `current`, `playingFrom` (the playlist
 | `installSwipeMonitor()` | Two-finger swipe across the player bar: fingers left = next, right = previous. One skip per swipe; the coasting afterwards is ignored; vertical swipes pass through. Uses `barFrame`, which the bar reports. Checked 5 Oct with a synthetic swipe: one swipe, one `next()`. |
 | `startCurrent()` (private) | Plays the current song's best copy, reports `play`, and tells the Prefetcher the next 5 songs (`announceNext`). |
 | `load(listing, fresh:)` (private) | Gives AVPlayer the `/play` URL (or the `serve_fresh` one); remembers which copy is loaded; watches for failure. |
-| `statusChanged(status)` (private) | A copy failed. **2+ copies:** switch to the next one at once, then `API.refresh` the failed one and show why ("YouTube Music is unavailable right now. Playing the JioSaavn copy."). **1 copy:** `API.refresh` first (spinner); play the fresh URL if one came back (307), else say why and move on. Checked 5 Oct with `NN_SELFTEST_PLAY` and `NN_SELFTEST_LISTINGS` (a bot-checked YouTube copy → 502 → JioSaavn copy plays → message). |
+| `statusChanged(status, of:)` (private) | Ignores news about a copy already replaced (it failed just as you pressed ⏭). A copy failed. **2+ copies:** switch to the next one at once, then `API.refresh` the failed one and show why ("YouTube Music is unavailable right now. Playing the JioSaavn copy."). **1 copy:** `API.refresh` first (spinner); play the fresh URL if one came back (307), else say why and move on. Checked 5 Oct with `NN_SELFTEST_PLAY` and `NN_SELFTEST_LISTINGS` (a bot-checked YouTube copy → 502 → JioSaavn copy plays → message). |
 | `show(message)` (private) | Shows `errorMessage` for 4 seconds; a newer message replaces it. |
 | `seeks` | Counts every seek: Lyrics restarts its wait on it (`position` alone misses ⏮ to 0 when it is still 0 from the song's start). |
 | `position` | Changes only on events (play, pause, seek, a stall), never on a timer: the periodic time observer was the biggest steady cost (7 Oct). `livePosition` reads the exact time. |
@@ -153,7 +153,7 @@ State the screens read: `queue`, `index`, `current`, `playingFrom` (the playlist
 | `reportSkipIfNeeded()` (private) | Reports `skip` with the second, unless the song was in its last 3 s. |
 | `report(type, track, at:)` (private) | Sends `API.event` in the background; after a `play`, `library.refreshRecent()`. |
 | `publish()` (private) | Updates Control Center / media keys, and calls `Presence.update`. Runs on play, pause, seek. Not every 0.5 s. |
-| `loadArtwork(track)` (private) | Fetches the cover for Control Center. |
+| `loadArtwork(track)` (private) | The cover for Control Center, from `ArtworkCache` (shared with Now Playing's cover, one download). Only the playing song's is kept. |
 | `setUpRemoteCommands()` (private) | Connects media keys and Control Center buttons to the functions above. |
 
 ---
@@ -285,7 +285,6 @@ The order songs play in. The Player owns one; the self-test checks every rule (`
 |---|---|
 | `fisherYates(items, using:)` | True random order. Every order is equally likely. Returns a new array. |
 | `artistSpread(items, artist:, using:)` | Spreads each artist's songs evenly through the list (position = offset + i/k, plus jitter). |
-| `tracks(tracks)` | What the Shuffle button calls: `artistSpread` by first artist. |
 
 Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuffle fell from 3.0 (true random) to 0.03.
 
@@ -316,7 +315,6 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | | `NowPlayingPanel` | What sits beside the song in Now Playing: Up Next, Lyrics, or nothing (remembered as `nowPlayingPanel`). |
 | | `LyricsPanel` | MUS-12: the song's lyrics (`LyricsStore`), "from LRCLIB" / "from YouTube Music" in the header. **Timed** (`TimedLyricsView`): the line being sung is lit and kept in the middle; click a line to play from it; scroll to look around (following stops for 4 s). The light moves only when a line changes: a task sleeps until the next line is due, reading `Player.livePosition`, and starts again on play, pause, a stall and every seek (`Player.seeks`): one wake per line, nothing between (a 10-a-second timer cost 14% of a core more, measured 7 Oct; a half-second check was dropped in the audit, 7 Oct). One view per song (`.id(track.id)`): kept across a song change, its task lit lines by the previous song's times. The scroll is smooth while the app is in front and jumps behind other apps (an animated scroll there never finished: macOS draws no frames for a covered window). **Plain** lyrics scroll. "Couldn't find lyrics", "Couldn't reach the server" (Try Again), "Finding lyrics…". |
 | | `NowPlayingView` | Full window, over a blur and fill of its own (Settings › Appearance › Surfaces › Now Playing): large artwork (sized from the height left after the top bar and the controls), progress, controls, volume, and a side panel. Top right: Lyrics, Up Next (press the showing one again to hide it: the song alone, centred, bigger) and Full Screen. Esc or a pinch in closes it. The player bar opens it three ways: 💬 Lyrics, ☰ Up Next, ⤢ the song alone. |
-| | `UpNextView` | The queue panel. Click a song to jump to it. |
 | `Home.swift` | `HomeView` | The first screen: a greeting; "Jump back in" (recently played covers in a shelf that stops on a cover); "Your playlists" (a grid of cards); "Liked Songs" (compact rows three high, scrolling sideways); See All on each. A new library shows one step: Search. Sections fade up one after another (not with Reduce Motion). |
 | | `PlaylistCard` | A playlist on Home: cover (its songs are loaded on first sight), name, length. Click opens it; the glass ▶ plays it; right-click: Open, Play, Rename, Delete. |
 | | `CompactSongTile` | A song as a compact row for the sideways grids. Click plays; right-click has the full row's menu. |
@@ -330,7 +328,7 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | | `SurfaceLayer` | One surface's background: a `WindowBlur` at `blur`, and over it the window's colour at `solid`. At 0 / 0 it draws nothing, so the sidebar and the bar look exactly as before until you move a slider. `Look.readable` keeps some fill when the blur is low (the same 30% floor as the window, fading out as the blur grows). |
 | | `selfTestFrame(_:)` | Debug builds: records where a view is (`SelfTest.frames`), for checks that cannot use pictures. Release builds: nothing. |
 | | `QuietButtonStyle` (`.quiet`) | Every plain button: the whole label and 6 pt around it take the click (with `.plain`, only the drawn strokes did, so icons needed precise aim). Settings › Appearance › Button feedback: a soft highlight under the pointer and a small press. Covers use `.quiet(highlight: false)`. |
-| | `PlayingSpeaker`, `EqualizerBars` | The mark on the playing song: three bars animated by Core Animation (no per-frame work in the app; capped at 30 frames a second, `preferredFrameRateRange`, so a 120 Hz screen does not redraw them 120 times), or a still speaker (Settings › Appearance › Moving bars; on by default). |
+| | `PlayingSpeaker`, `EqualizerBars` | The mark on the playing song: three bars animated by Core Animation (no per-frame work in the app; capped at 30 frames a second, `preferredFrameRateRange`, so a 120 Hz screen does not redraw them 120 times), or a still speaker (Settings › Appearance › Moving bars; on by default). Still while Now Playing is open: they sit under its blur. |
 | | `ClearWindow` | Makes the window non-opaque with a clear background, so a thinned blur shows the desktop, not grey. |
 | | `Backdrop` | The cover's nine colours as a `MeshGradient`; a new song crossfades in. With **Custom** colours it is nine shades of your Background colour instead. `strength` scales it, `base:` adds a fill under it. **Still by default** (7 Oct). With Moving background on, its inner points drift (about 30 s per cycle) at 10 frames a second, and only while music plays, the app is in front, Low Power Mode is off and Reduce Motion is off. |
 | | `IsolatedBackdrop` | `Backdrop` in its own `NSHostingView`, so a frame of the moving mesh redraws only the mesh: inside the window's view tree, each frame rebuilt the whole window (Now Playing with Lyrics: 30% of a core, profiled 7 Oct). Clicks pass through it. |
@@ -338,7 +336,7 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | | `Color(hex:)`, `.hexString` | `#RRGGBB` ⟷ colour (sRGB), for the custom colours. |
 | | `VolumeControl` | Mute button (the speaker's waves follow the level: an SF Symbols variable value) and a slider (`slider: false`: the speaker alone, for a narrow bar). |
 | | `LikeButton` | The heart, with a small bounce. |
-| | `ProgressBar` | The thin bar. Drag to seek. The played part takes the tint (the cover's colour). A haptic tick at each minute while you drag (if Trackpad › Haptic ticks is on). |
+| `PlaybackTimeline.swift` | `PlaybackTimeline` | The progress line with the time on each side (Now Playing: the times under it). Drawn by Core Animation (`TimelineLayersView`): the played part is one animation from where the song is to its end, played by macOS's render server and capped at 10 frames a second (the line moves 1–5 pt a second; uncapped it was redrawn 120 times a second on a ProMotion screen). The times change once a second, on the second, only while the window can be seen, also while you scroll (`.common` run-loop mode). Set up again only on play, pause, a seek or a new song. The bar's line (`underNowPlaying`) holds still while Now Playing covers it: Now Playing's blur re-blurs the whole window whenever anything under it moves. Drag to seek; the played part takes Settings › Colours › Progress line; a haptic tick at each minute while you drag (Trackpad › Haptic ticks). |
 | `SettingsView.swift` | `SettingsView` | Tabs, as in the Mac's own apps: **Appearance** (**Window**: theme, moving background; **Surfaces**: pick a part (Main area, Sidebar, Player bar, Now Playing) and set its blur (Clear ↔ Frosted) and transparency (See-through ↔ Solid), plus colour strength for the main area and Now Playing, and Liquid Glass or Frosted for the bar; the main area's transparency is never below 30%, `Look.minWindowOpacity`: the window stays readable over a video call; **Sizes**: text size and card size with a live sample; **Colours**: seven elements, each System / Song / Custom, Custom with a hex field + swatch; set all; reset all), **Trackpad** (haptic ticks on/off, the gestures), **Lyrics** (when to fetch them), **Discord** (on/off, Application ID, test, what to share, a preview of what friends see), **Server** (address, backend folder, reload mode, Restart, the log), **Footprint** (the app's and the server's CPU and memory right now, and every choice that costs more, with its measured cost and its switch). Defaults live in `Look`; colours in `ThemeStore`. `HexColorControl` keeps a swatch and its `#RRGGBB` code in step (checked 5 Oct: six colours round-trip exactly, bad codes are rejected). **Collapsible sections (6 Oct):** Appearance has Window, Sizes and Colours; Discord has Share and What friends see. Each remembers whether it is open (`settings.open.…`). Colours opens on its own (it closes Window, Sizes and Surfaces, and they close it): with everything open the page was 1,165 pt tall, taller than a MacBook's 847 pt of usable screen. **Every page is capped at the screen (`SettingsPage`, 6 Oct):** as tall as its content, never taller than the usable screen less 120 pt; past that it scrolls. Discord with everything open was 983 pt on an 847 pt screen, its bottom 34 pt below the screen's edge; now 815 pt (measured). The cap is a small `Layout` (`CappedHeight`) that asks the page for its natural height with no height proposed: measuring the Form's scroll content instead looped (the content is at least as tall as the frame, so each pass grew it) until AppKit stopped the app. |
 
 ---

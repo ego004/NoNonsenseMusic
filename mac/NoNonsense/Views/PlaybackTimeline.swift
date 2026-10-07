@@ -12,6 +12,9 @@ struct PlaybackTimeline: View {
     var thickness: CGFloat = 3
     var textStyle: Font.TextStyle = .caption2
     var timesBelow = false                                    // Now Playing: the line full width, the times under its ends
+    /// The player bar's: Now Playing covers it, and its blur re-blurs the whole window whenever anything under it
+    /// changes. So while Now Playing is open, this line holds still and its times stop (nobody can see them).
+    var underNowPlaying = false
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
     @Environment(\.textScale) private var textScale
@@ -22,8 +25,10 @@ struct PlaybackTimeline: View {
     var body: some View {
         let fontSize = textStyle.macPointSize * textScale
         let labelWidth = (fontSize * 3.6).rounded(.up)          // "-10:00" in monospaced digits
+        // (showNowPlaying is read only by the bar's line: Now Playing's own line must not observe it)
+        let covered = underNowPlaying && player.showNowPlaying
         TimelineLayers(position: player.position,
-                       running: player.isPlaying && !player.isBuffering && dragged == nil,
+                       running: player.isPlaying && !player.isBuffering && dragged == nil && !covered,
                        duration: player.duration,
                        dragged: dragged,
                        thickness: hovering || dragged != nil ? thickness * 2 : thickness,
@@ -182,28 +187,33 @@ final class TimelineLayersView: NSView {
             grow.timingFunction = CAMediaTimingFunction(name: .linear)
             grow.isRemovedOnCompletion = false
             grow.fillMode = .forwards
+            // the line moves 1–5 pt a second: 10 frames a second is under a pixel a frame. Uncapped, macOS drew it at the
+            // screen's full rate, 120 a second on a ProMotion display, for a change nobody can see (audit, 7 Oct)
+            grow.preferredFrameRateRange = CAFrameRateRange(minimum: 4, maximum: 15, preferred: 10)
             played.add(grow, forKey: "progress")
         }
         CATransaction.commit()
         setTimes()
-        // the times: once a second, on the second, only while they can be seen
-        guard running, shown == nil, visible else { return }
-        let next = 1 - now().truncatingRemainder(dividingBy: 1) + 0.02
-        timer = Timer.scheduledTimer(withTimeInterval: next, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.restartTimes() }
-        }
-        timer?.tolerance = 0.05                                  // lets macOS group wake-ups
+        scheduleTimes()
     }
 
     /// Only the text, every second: the line animates by itself.
     private func restartTimes() {
         setTimes()
-        guard running, shown == nil, visible else { timer = nil; return }
-        let next = 1 - now().truncatingRemainder(dividingBy: 1) + 0.02
-        timer = Timer.scheduledTimer(withTimeInterval: next, repeats: false) { [weak self] _ in
+        scheduleTimes()
+    }
+
+    /// The next change of the times: once a second, on the second, only while they can be seen.
+    private func scheduleTimes() {
+        timer = nil
+        guard running, shown == nil, visible else { return }
+        let next = Timer(timeInterval: 1 - now().truncatingRemainder(dividingBy: 1) + 0.02, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.restartTimes() }
         }
-        timer?.tolerance = 0.05
+        next.tolerance = 0.05                                    // lets macOS group wake-ups
+        // .common: the times keep counting while you scroll or drag (a plain scheduled timer waited until you let go)
+        RunLoop.main.add(next, forMode: .common)
+        timer = next
     }
 
     private func setTimes() {

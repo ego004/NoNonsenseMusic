@@ -158,7 +158,8 @@ struct SearchView: View {
             recentRaw = RecentSearches.adding(query, to: recentRaw)
         }
         .onAppear { fieldFocused = true }
-        .onDisappear { Prefetcher.shared.searchChanged([]) }
+        // a search still on its way would land after this and hand its results to the Prefetcher again
+        .onDisappear { task?.cancel(); Prefetcher.shared.searchChanged([]) }
         // ⌘F from anywhere in the window focuses the bar (an invisible button that only holds the shortcut)
         .background { Button("") { fieldFocused = true }.keyboardShortcut("f", modifiers: .command).hidden() }
     }

@@ -31,8 +31,12 @@ enum API {
     static func liked() async throws -> [LibrarySong] { try await get(baseURL.appending(path: "liked")) }
     static func recent() async throws -> [LibrarySong] { try await get(baseURL.appending(path: "recent")) }
 
+    /// True only for a 200 within 3 s: any answer at all used to count (another program on the port answering 404
+    /// read as "the server is running"), and a server that hung was waited on for URLSession's default 60 s.
     static func health() async -> Bool {
-        (try? await URLSession.shared.data(from: baseURL.appending(path: "health"))) != nil
+        let request = URLRequest(url: baseURL.appending(path: "health"), timeoutInterval: 3)
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
+        return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
     /// The server answers with a redirect to the audio file; AVPlayer follows it.
@@ -53,8 +57,7 @@ enum API {
         return (http.statusCode, detail)
     }
 
-    /// Ask the server to resolve a listing's audio URL in advance, without downloading any audio:
-    /// the redirect is not followed. Pays off once the server caches URLs; MUS-1 replaces it with a prefetch request.
+    /// One listing for `POST /prefetch` (MUS-1 step 3).
     private struct PrefetchItem: Encodable {
         let source: String
         let sourceID: String

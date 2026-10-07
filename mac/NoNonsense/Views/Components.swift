@@ -34,7 +34,9 @@ struct ArtworkView: View {
             // keep showing the current cover while the next one loads; swap only when it is ready
             var next = ArtworkCache.shared.cached(url, size: size)
             if next == nil { next = await ArtworkCache.shared.image(for: url, size: size) }
-            if let next { withAnimation(.easeInOut(duration: 0.28)) { image = next } }
+            // cancelled: the url changed while this one loaded (⏭ twice quickly); the newer task shows its own
+            guard let ready = next, !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.28)) { image = ready }
         }
     }
 }
@@ -77,8 +79,8 @@ struct Backdrop: View {
         ZStack {
             if let base { Rectangle().fill(base) }
             if let mesh {
-                // 30 frames a second is plenty for a drift that takes ~30 s per cycle (the screen may run at 120)
-                // 10 a second: a step moves a colour ~3 pt; each frame costs ~0.5% of a core (measured 7 Oct)
+                // 10 frames a second is plenty for a drift that takes ~30 s per cycle (the screen may run at 120):
+                // a step moves a colour ~3 pt; each frame costs ~0.5% of a core (measured 7 Oct)
                 TimelineView(DriftSchedule(interval: 1.0 / 10, paused: !moving)) { context in
                     MeshGradient(width: 3, height: 3,
                                  points: Self.points(at: moving ? context.date.timeIntervalSinceReferenceDate : 0),
@@ -99,7 +101,7 @@ struct Backdrop: View {
                 return
             }
             guard let url = track?.image else { withAnimation(.easeInOut(duration: 0.8)) { mesh = nil }; return }
-            guard let colors = await ArtworkCache.shared.colorGrid(for: url) else { return }
+            guard let colors = await ArtworkCache.shared.colorGrid(for: url), !Task.isCancelled else { return }   // a newer song's mesh wins
             withAnimation(.easeInOut(duration: 1.1)) { mesh = (key, colors) }
         }
     }
@@ -204,9 +206,11 @@ struct PlayingSpeaker: View {
     var style: AnyShapeStyle = AnyShapeStyle(.white)
     var color: Color? = nil                      // the bars' colour (shape styles cannot reach a layer); nil: white
     @AppStorage("animatedSpeaker") private var animated = Look.animatedSpeaker
+    @Environment(Player.self) private var player
 
     var body: some View {
-        if playing && animated {
+        // still while Now Playing covers the lists: its blur re-blurs the whole window whenever anything under it moves
+        if playing && animated && !player.showNowPlaying {
             EqualizerBars(color: NSColor(color ?? .white)).frame(width: 12, height: 11)
         } else {
             Image(systemName: playing ? "speaker.wave.2.fill" : "play.fill").font(font).foregroundStyle(style)

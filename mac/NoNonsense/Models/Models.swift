@@ -180,14 +180,15 @@ struct Track: Identifiable, Hashable {
 
     var artistLine: String { artists.joined(separator: ", ") }
 
-    init(best serverBest: Listing, listings: [Listing]) {
+    /// `choosingVersion: false`: `serverBest` plays as given (a copy you picked yourself), whatever Settings › Playback says.
+    init(best serverBest: Listing, listings: [Listing], choosingVersion: Bool = true) {
         // your version (Settings › Playback): when a song has both, the explicit or the clean one plays and is shown.
         // The server picks by source and popularity, which chose the clean Les (7 Oct)
         let wantExplicit = Track.prefersExplicit
         let inOrder = [serverBest] + listings.sorted {           // the server's pick, then its source, then most played
             ($0.source == serverBest.source ? 0 : 1, -($0.popularity ?? 0)) < ($1.source == serverBest.source ? 0 : 1, -($1.popularity ?? 0))
         }
-        let best = inOrder.first { $0.explicit == wantExplicit } ?? serverBest
+        let best = choosingVersion ? (inOrder.first { $0.explicit == wantExplicit } ?? serverBest) : serverBest
         self.id = best.key
         self.title = best.title
         self.artists = best.artists
@@ -210,8 +211,9 @@ struct Track: Identifiable, Hashable {
     init(_ song: SearchSong) { self.init(best: song.best, listings: song.listings) }
     init(_ song: LibrarySong) { self.init(best: song.best, listings: song.listings) }
 
-    /// The same song, but playing one specific copy (chosen from its listings).
-    func playing(_ listing: Listing) -> Track { Track(best: listing, listings: listings) }
+    /// The same song, but playing one specific copy (chosen from its listings). Exactly that copy: re-choosing the
+    /// version here turned a click on the clean copy into the explicit one (audit, 7 Oct).
+    func playing(_ listing: Listing) -> Track { Track(best: listing, listings: listings, choosingVersion: false) }
 
     /// Same song, whichever copy plays: the same set of listings.
     func isSameSong(as other: Track) -> Bool { Set(listings.map(\.key)) == Set(other.listings.map(\.key)) }

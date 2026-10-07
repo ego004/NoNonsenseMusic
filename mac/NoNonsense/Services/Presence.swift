@@ -24,7 +24,7 @@ actor DiscordIPC {
         case notRunning                 // no Discord socket to connect to
         case rejected(String)           // the handshake was refused, with Discord's reason ("Invalid Client ID")
         case closed                     // the connection broke (e.g. Discord restarted)
-        case timeout                    // Discord did not answer within 2 s
+        case timeout                    // Discord did not answer within 10 s (SO_RCVTIMEO, below)
         case discord(String)            // Discord answered the command with an error, with its message
     }
 
@@ -176,12 +176,12 @@ final class Presence {
     var shareArtist = Presence.flag("discordShareArtist") { didSet { save("discordShareArtist", shareArtist) } }
     var shareArt = Presence.flag("discordShareArt") { didSet { save("discordShareArt", shareArt) } }
     var shareTime = Presence.flag("discordShareTime") { didSet { save("discordShareTime", shareTime) } }
-    /// When paused: "message" (your text), "keep" (the song, without the time bar) or "clear" (nothing).
     /// The app's logo, uploaded by you as an art asset with this name in the Discord Developer Portal.
     static let logoAsset = "nononsense"
     var shareLogo = Presence.flag("discordShareLogo") { didSet { save("discordShareLogo", shareLogo) } }
     /// "from “Gym”" after the artist, when the song plays from a playlist. Off by default: playlist names can be personal.
     var sharePlaylist = Presence.flag("discordSharePlaylist", default: false) { didSet { save("discordSharePlaylist", sharePlaylist) } }
+    /// When paused: "message" (your text), "keep" (the song, without the time bar) or "clear" (nothing).
     var whenPaused = UserDefaults.standard.string(forKey: "discordWhenPaused") ?? "message" { didSet { save("discordWhenPaused", whenPaused) } }
     var pausedMessage = UserDefaults.standard.string(forKey: "discordPausedMessage") ?? "Nothing playing" { didSet { save("discordPausedMessage", pausedMessage) } }
 

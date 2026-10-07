@@ -34,11 +34,3 @@ nonisolated enum Shuffle {
         return placed.sorted { $0.position < $1.position }.map(\.item)
     }
 }
-
-extension Shuffle {
-    /// What the Shuffle button uses: spread by each track's first artist.
-    static func tracks(_ tracks: [Track]) -> [Track] {
-        var rng = SystemRandomNumberGenerator()
-        return artistSpread(tracks, artist: { $0.artists.first ?? "" }, using: &rng)
-    }
-}

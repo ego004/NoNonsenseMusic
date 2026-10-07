@@ -70,7 +70,8 @@ final class Player {
         // No periodic time observer: it set `position` twice a second and every view reading it redrew, the app's
         // biggest steady cost while playing (7 Oct). `position` now changes only on events; the progress line and
         // times are drawn by Core Animation (PlaybackTimeline), and code that needs the exact time reads livePosition.
-        controlStatusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] avPlayer, _ in
+        // @Sendable: KVO calls this on whatever thread changed the status (as for the item's status, below)
+        controlStatusObservation = player.observe(\.timeControlStatus, options: [.new]) { @Sendable [weak self] avPlayer, _ in
             let status = avPlayer.timeControlStatus
             Task { @MainActor in self?.controlStatusChanged(status) }
         }
@@ -175,6 +176,9 @@ final class Player {
 
     func togglePlayPause() {
         guard current != nil else { return }
+        // after "Stopped: … Press play to try again" the loaded copy is the one that failed: play() on it did nothing
+        // (isPlaying on, no sound). Play means: try this song again, from its first copy
+        if !isPlaying, player.currentItem?.status == .failed { startCurrent(); return }
         isPlaying ? player.pause() : player.play()
         isPlaying.toggle()
         position = livePosition                                     // the clock's new starting point
@@ -315,8 +319,8 @@ final class Player {
         item.audioTimePitchAlgorithm = .varispeed
         // @Sendable: KVO calls this on whatever thread changed the status, not necessarily the main one
         statusObservation = item.observe(\.status) { @Sendable [weak self] item, _ in
-            let status = item.status
-            Task { @MainActor in self?.statusChanged(status) }
+            let status = item.status, which = ObjectIdentifier(item)
+            Task { @MainActor in self?.statusChanged(status, of: which) }
         }
         player.replaceCurrentItem(with: item)
         player.play()
@@ -326,7 +330,9 @@ final class Player {
 
     /// A copy would not play (MUS-1, rule 7). The server is asked for a fresh URL of the failed copy: that fixes
     /// its cache for next time, and its answer says WHY the copy failed, which the message then tells you.
-    private func statusChanged(_ status: AVPlayerItem.Status) {
+    private func statusChanged(_ status: AVPlayerItem.Status, of item: ObjectIdentifier) {
+        // news about a copy already replaced (it failed just as you pressed ⏭) must not act on the new one
+        guard let loaded = player.currentItem, ObjectIdentifier(loaded) == item else { return }
         if status == .readyToPlay { failuresInARow = 0 }         // this song loads: the run of failures is over
         guard status == .failed, let track = current, let failed = playingListing else { return }
         let others = track.listings.filter { $0.key != track.best.key }
@@ -481,10 +487,12 @@ final class Player {
     private func loadArtwork(_ track: Track) {
         guard let url = track.image else { return }
         Task {
-            guard let (data, _) = try? await URLSession.shared.data(from: url), let image = NSImage(data: data) else { return }
+            // from ArtworkCache: decoded once and shared with Now Playing's cover (one download, not two). Only the
+            // playing song's is kept: the dictionary used to hold every cover played since launch
+            guard let image = await ArtworkCache.shared.image(for: url, size: 600) else { return }
             // @Sendable: macOS asks for the image from its own background queue (this crashed on 5 Oct
             // when the closure was inferred main-thread-only)
-            artwork[track.id] = MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in image }
+            artwork = [track.id: MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in image }]
             if current?.id == track.id { publish() }
         }
     }
