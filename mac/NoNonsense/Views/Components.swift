@@ -132,7 +132,7 @@ struct Backdrop: View {
             let fade = mesh?.key != pictureKey ? pictureFade : 0
             pictureKey = mesh?.key
             guard let mesh else { picture = (nil, fade); return }
-            if let drawn = Self.drawPicture(of: mesh.colors, dark: scheme == .dark, strength: strength) {
+            if let drawn = Self.drawPicture(of: mesh.colors, dark: scheme == .dark, strength: strength, key: mesh.key) {
                 picture = (drawn, fade)
             } else {
                 pictureFailed = true                         // never seen: then the SwiftUI mesh draws it, as before
@@ -142,7 +142,9 @@ struct Backdrop: View {
 
     /// The still mesh as a picture: exactly what the SwiftUI mesh draws (the same points, mix, saturation and strength),
     /// drawn once. A mesh is smooth, so 240 × 150 pixels stretched to the window look the same. nil if it came out empty.
-    static func drawPicture(of colors: [Color], dark: Bool, strength: Double) -> CGImage? {
+    static func drawPicture(of colors: [Color], dark: Bool, strength: Double, key: String) -> CGImage? {
+        let id = "\(key)|\(dark)|\(strength)"
+        if let kept = pictures[id] { return kept }                  // opening Now Playing on this song again: none drawn
         let mesh = MeshGradient(width: 3, height: 3, points: points(at: 0),
                                 colors: colors.map { $0.mix(with: dark ? .black : .white, by: 0.3 * (1 - strength)) })
             .saturation(1 + 0.35 * strength)
@@ -159,8 +161,14 @@ struct Backdrop: View {
             else { return }
             context.draw(image, in: CGRect(x: -120, y: -75, width: 240, height: 150))
         }
-        return pixel[3] == 0 ? nil : image
+        guard pixel[3] != 0 else { return nil }
+        if pictures.count >= 12 { pictures.removeAll() }            // a few songs' worth (the window's and Now Playing's)
+        pictures[id] = image
+        return image
     }
+
+    /// Pictures drawn this session, by mesh, light or dark, and strength.
+    private static var pictures: [String: CGImage] = [:]
 
     /// Nine shades of one colour, darker at the edges and lighter near the middle, so a single colour still has depth.
     static func shades(of base: Color) -> [Color] {

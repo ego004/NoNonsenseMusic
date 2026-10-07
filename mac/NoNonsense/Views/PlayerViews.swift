@@ -536,6 +536,8 @@ final class LyricLinesView: NSView {
     private let strip = CALayer()                  // every line; moved as one to bring the lit line to the middle
     private let hover = CALayer()                  // Button feedback: a soft highlight under the line the pointer is on
     private var texts: [CATextLayer] = []
+    private var strings: [NSAttributedString] = []    // each line's text, given to its layer when it first nears the view
+    private var filled: [Bool] = []
     private var tops: [CGFloat] = []               // each line's top, measured down from the strip's top
     private var heights: [CGFloat] = []
     private var lines: [LyricLine] = []
@@ -547,6 +549,8 @@ final class LyricLinesView: NSView {
     private var offset: CGFloat = 0                // how far the strip's top sits above the view's top (a scroll offset)
     private var followAgainAt = Date.distantPast   // you scrolled: the light is followed again after this
     private var builtWidth: CGFloat = -1
+    private var builtScale: CGFloat = 0
+    private var builtDark = false
     private var pressed: Int?
     private var hovered: Int?
 
@@ -586,13 +590,17 @@ final class LyricLinesView: NSView {
 
     // MARK: layout
 
-    /// The layers for every line, measured for this width, placed with no animation.
+    /// The layers for every line, measured for this width, placed with no animation. A layer gets its text (and draws
+    /// it) only when its line first comes near the view (`fill`): drawn all at once, ~100 lines were ~24 MB of pictures,
+    /// most never seen, all drawn while Now Playing opened.
     private func build() {
         let width = bounds.width
         guard width > 0 else { return }                             // not laid out yet: layout() builds
         builtWidth = width
+        builtScale = window?.backingScaleFactor ?? 2
+        builtDark = isDark
         still { texts.forEach { $0.removeFromSuperlayer() } }       // no fade-out: Core Animation fades removals by itself
-        texts = []; tops = []; heights = []
+        texts = []; strings = []; tops = []; heights = []
         let textWidth = max(1, width - 2 * Self.inset)
         let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
         let colour = resolved(.labelColor)
@@ -603,14 +611,14 @@ final class LyricLinesView: NSView {
             let height = ceil(text.boundingRect(with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
                                                 options: [.usesLineFragmentOrigin, .usesFontLeading]).height) + 2
             let layer = CATextLayer()
-            layer.string = text
             layer.isWrapped = true
             layer.alignmentMode = .left
             layer.contentsScale = scale
             layer.opacity = i == current ? 1 : Self.unlit
-            texts.append(layer); tops.append(y); heights.append(height)
+            texts.append(layer); strings.append(text); tops.append(y); heights.append(height)
             y += height + Self.spacing
         }
+        filled = Array(repeating: false, count: texts.count)
         let total = max(0, y - Self.spacing)
         still {
             strip.bounds = CGRect(x: 0, y: 0, width: textWidth, height: total)
@@ -636,12 +644,25 @@ final class LyricLinesView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { build() }                                // the screen's scale, for sharp text
+        // another screen's scale: build again for sharp text (only then: opening Now Playing built the lines twice)
+        if let window, window.backingScaleFactor != builtScale { build() }
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        build()                                                     // light or dark: the text's colour
+        if isDark != builtDark { build() }                          // light or dark: the text's colour
+    }
+
+    private var isDark: Bool { effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
+
+    /// Gives their text to the lines between `low` and `high` (points down from the strip's top) that have none yet.
+    private func fill(_ low: CGFloat, _ high: CGFloat) {
+        still {
+            for i in texts.indices where !filled[i] && tops[i] + heights[i] >= low && tops[i] <= high {
+                texts[i].string = strings[i]
+                filled[i] = true
+            }
+        }
     }
 
     /// The offset that puts the lit line in the middle; before the first line, the first one `introGap` from the top.
@@ -679,6 +700,10 @@ final class LyricLinesView: NSView {
     private func place(animated: Bool) {
         let to = CGPoint(x: Self.inset, y: bounds.height + offset)
         let from = strip.presentation()?.position ?? strip.position
+        // text for the lines around where it stops, and on the way there when it slides (half a view either side)
+        let start = animated ? min(from.y - bounds.height, offset) : offset
+        let end = animated ? max(from.y - bounds.height, offset) : offset
+        fill(start - bounds.height / 2, end + bounds.height * 1.5)
         still { strip.position = to }
         if animated, motion > 0, from != to {
             strip.add(Self.animation("position", from: NSValue(point: from), to: NSValue(point: to), duration: motion), forKey: "follow")

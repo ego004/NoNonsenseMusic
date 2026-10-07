@@ -98,9 +98,9 @@ struct HomeView: View {
                     CompactSongTile(track: track, width: 300) { player.play(library.liked, startAt: i) }
                 }
             }
-            .scrollTargetLayout()
         }
-        .scrollTargetBehavior(.viewAligned)
+        // scrolls freely, as the Mac's own lists do: snapping to a column (.viewAligned) made a trackpad scroll feel
+        // laggy (7 Oct). "Jump back in" still snaps to a cover: compare the two
         .scrollIndicators(.hidden)
         .defaultScrollAnchor(.leading)
     }
