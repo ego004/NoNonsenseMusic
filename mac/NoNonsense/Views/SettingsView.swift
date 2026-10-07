@@ -10,6 +10,8 @@ enum Look {
     static let windowBlur = 0.85        // 0 = clear (the desktop sharp), 1 = frosted
     static let cardSize: CGFloat = 148  // covers on Home and in shelves (Settings › Appearance › Card size)
     static let textScale: CGFloat = 1   // the Mac's own text sizes (Settings › Appearance › Text size)
+    /// Off: a still background in the playing cover's colours. Moving costs CPU on every frame (see Settings).
+    static let animateBackdrop = false
 
     // Settings › Appearance › Surfaces: each part's blur and fill. The sidebar and the bar start at 0 / 0: exactly
     // the look they had before these settings (the system's glass alone).
@@ -57,8 +59,10 @@ struct SettingsView: View {
         TabView {
             AppearanceSettings().tabItem { Label("Appearance", systemImage: "paintbrush") }
             TrackpadSettings().tabItem { Label("Trackpad", systemImage: "hand.point.up.left") }
+            LyricsSettings().tabItem { Label("Lyrics", systemImage: "quote.bubble") }
             DiscordSettings().tabItem { Label("Discord", systemImage: "person.wave.2") }
             ServerSettings().tabItem { Label("Server", systemImage: "server.rack") }
+            FootprintSettings().tabItem { Label("Footprint", systemImage: "gauge.with.dots.needle.33percent") }
         }
         .frame(width: 620)
     }
@@ -69,7 +73,7 @@ private struct AppearanceSettings: View {
     @AppStorage("windowOpacity") private var windowOpacity = Look.windowOpacity
     @AppStorage("windowBlur") private var windowBlur = Look.windowBlur
     @AppStorage("artStrength") private var artStrength = Look.artStrength
-    @AppStorage("animateBackdrop") private var animateBackdrop = true
+    @AppStorage("animateBackdrop") private var animateBackdrop = Look.animateBackdrop
     @AppStorage("textScale") private var textScale = Look.textScale
     @AppStorage("cardSize") private var cardSize = Double(Look.cardSize)
     // which sections are open, remembered; Colours (seven rows) starts closed
@@ -95,7 +99,12 @@ private struct AppearanceSettings: View {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Toggle("Moving background", isOn: $animateBackdrop)
+                Toggle(isOn: $animateBackdrop) {
+                    Text("Moving background")
+                    // measured 7 Oct, a debug build on an Apple silicon Mac, a song playing: still vs moving
+                    Text("Uses more battery: about 5% more of one CPU core in the main window, 10–14% more in Now Playing.")
+                        .foregroundStyle(.secondary)
+                }
                 Text("Reduce Motion and Reduce Transparency in System Settings › Accessibility override these and the surfaces below.")
                     .font(.caption).foregroundStyle(.secondary)
             } header: {
@@ -194,7 +203,7 @@ private struct AppearanceSettings: View {
                         nowPlayingBlur = Look.nowPlayingBlur
                         nowPlayingSolid = Look.nowPlayingSolid
                         nowPlayingColour = Look.nowPlayingColour
-                        animateBackdrop = true
+                        animateBackdrop = Look.animateBackdrop
                         textScale = Look.textScale
                         cardSize = Double(Look.cardSize)
                         theme.reset()
@@ -264,6 +273,32 @@ private struct TrackpadSettings: View {
                 LabeledContent("Two-finger swipe on the player") { Text("Next / previous song").foregroundStyle(.secondary) }
                 LabeledContent("Pinch out on the player") { Text("Open Now Playing").foregroundStyle(.secondary) }
                 LabeledContent("Pinch in on Now Playing") { Text("Close it").foregroundStyle(.secondary) }
+            }
+        }
+        .settingsPage()
+    }
+}
+
+/// When the app asks the server for lyrics (Settings › Lyrics).
+enum LyricsFetch: String, CaseIterable, Identifiable {
+    case songStart, onOpen
+    var id: String { rawValue }
+    var label: String { self == .songStart ? "When a song starts, and the next song's too" : "Only when I open Lyrics" }
+}
+
+private struct LyricsSettings: View {
+    @AppStorage("lyricsFetch") private var fetch = LyricsFetch.songStart
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Fetch lyrics", selection: $fetch) {
+                    ForEach(LyricsFetch.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.radioGroup)
+            } footer: {
+                Text("The first time a song's lyrics are asked for, the server looks them up (about 1–2 seconds); after that it answers from its own store at once. Fetching when a song starts means Lyrics opens with them ready. Downloaded songs keep their lyrics, so they show offline.")
+                    .foregroundStyle(.secondary)
             }
         }
         .settingsPage()
@@ -400,6 +435,7 @@ private struct DiscordPreview: View {
 private struct ServerSettings: View {
     @AppStorage("serverURL") private var serverURL = API.defaultServer
     @AppStorage("backendFolder") private var backendFolder = ServerLauncher.defaultBackendFolder
+    @AppStorage("serverReload") private var reloads = false
     @Environment(ServerLauncher.self) private var server
     @State private var serverOK: Bool?
 
@@ -416,13 +452,21 @@ private struct ServerSettings: View {
                 }
                 TextField("Backend folder", text: $backendFolder)
                 LabeledContent("Auto-start") { Text(server.summary).foregroundStyle(.secondary) }
+                Toggle(isOn: $reloads) {
+                    Text("Reload when the backend's code changes")
+                    Text("For writing the backend: the server restarts on every save. Uses about 140 MB more memory and three more processes (uv kept running, a file watcher and its helper; measured 7 Oct: 236 MB in 4 processes, against 97 MB in 1).")
+                        .foregroundStyle(.secondary)
+                }
                 HStack {
                     Button("Start now") { Task { await server.ensureRunning(); serverOK = await API.health() } }
                         .disabled(serverOK == true)
+                    Button("Restart") { Task { await server.restart(); serverOK = await API.health() } }
+                        .disabled(server.state != .started)
+                        .help("Stops the server the app started and starts it again, in the mode chosen above")
                     Button("Open server log") { NSWorkspace.shared.open(ServerLauncher.logURL) }
                 }
             } footer: {
-                Text("When nothing answers at a local address, the app starts the backend in this folder (uv run fastapi dev) and stops it when the app quits. A server you started yourself in a terminal is left alone.")
+                Text("When nothing answers at a local address, the app starts the backend in this folder (one process, listening on this Mac only) and stops it when the app quits. A server you started yourself in a terminal is left alone.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -466,6 +510,70 @@ private struct CappedHeight: Layout {
 
 extension View {
     fileprivate func settingsPage() -> some View { modifier(SettingsPage()) }
+}
+
+/// Settings › Footprint: what the app and its server use right now, and every choice that costs more, with what it
+/// costs (measured) and its switch. The lightest setting is always the default.
+private struct FootprintSettings: View {
+    @Environment(ServerLauncher.self) private var server
+    @State private var meter = FootprintMeter()
+    @AppStorage("animateBackdrop") private var animateBackdrop = Look.animateBackdrop
+    @AppStorage("serverReload") private var reloads = false
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("This app") { reading(meter.app) }
+                LabeledContent("Server") {
+                    if let s = meter.server { reading(s) }
+                    else { Text(server.state == .alreadyRunning ? "Started outside the app: not measured" : "Not running").foregroundStyle(.secondary) }
+                }
+            } header: {
+                Text("Right now")
+            } footer: {
+                Text("CPU is a share of one core, as Activity Monitor shows it; memory is what Activity Monitor counts. Read once a second while this page is open. Postgres runs on its own and is not counted.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle(isOn: $animateBackdrop) {
+                    Text("Moving background")
+                    Text("About 5% more of one core in the main window, 10–14% more in Now Playing, while music plays.")
+                        .foregroundStyle(.secondary)
+                }
+                Toggle(isOn: $reloads) {
+                    Text("Reload the server when its code changes")
+                    Text("About 140 MB more memory and three more processes. Applies when the server next starts (Server › Restart).")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Costs more: off unless you turn it on")
+            } footer: {
+                Text("Measured 7 Oct on an Apple silicon Mac with a song playing. Everything else is already at its lightest: a still background costs ~2% of one core, Now Playing ~3%, with Lyrics ~4%.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .settingsPage()
+        .task {
+            while !Task.isCancelled {
+                meter.update(serverPIDs: server.serverPIDs)
+                #if DEBUG
+                SelfTest.footprint = (meter.app, meter.server)
+                #endif
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    private func reading(_ r: FootprintMeter.Reading?) -> some View {
+        Group {
+            if let r {
+                Text(String(format: "%.1f%% CPU · %@", r.cpu, formatBytes(Int(r.memory))) + (r.processes > 1 ? " in \(r.processes) processes" : ""))
+                    .monospacedDigit()
+            } else {
+                Text("Measuring…").foregroundStyle(.secondary)
+            }
+        }
+    }
 }
 
 /// A slider with its two ends named: "See-through ⟷ Solid".

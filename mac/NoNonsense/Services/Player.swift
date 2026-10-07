@@ -207,6 +207,13 @@ final class Player {
         player.isMuted = isMuted
     }
 
+    /// Where the song is right now, read from the audio player itself: `position` updates only twice a second,
+    /// too coarse for lighting lyrics line by line. Not observed: read it on a timer (LyricsPanel does).
+    var livePosition: Double {
+        let now = player.currentTime().seconds
+        return now.isFinite ? now : position
+    }
+
     func seek(to seconds: Double) {
         position = seconds
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))

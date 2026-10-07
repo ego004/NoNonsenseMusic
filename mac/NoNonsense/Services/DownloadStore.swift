@@ -27,6 +27,8 @@ final class DownloadStore {
     @ObservationIgnored private var indexURL: URL { folder.appending(path: "index.json") }
     /// Messages ("Downloaded …", "Couldn't download …") go through the library's message line.
     @ObservationIgnored var notify: (String, String) -> Void = { _, _ in }
+    /// Called after each song is downloaded: the app saves its lyrics beside it (LyricsStore.keep).
+    @ObservationIgnored var downloaded: (Track) -> Void = { _ in }
 
     init() {
         var name = "Downloads"
@@ -85,6 +87,7 @@ final class DownloadStore {
                 items.insert(Item(key: listing.key, file: file, best: track.best, listings: track.listings, bytes: bytes, added: .now), at: 0)
                 save()
                 if !quietly { notify("Downloaded “\(track.title)”", "arrow.down.circle.fill") }
+                downloaded(track)
                 return true
             } catch {
                 continue
@@ -108,15 +111,32 @@ final class DownloadStore {
     func remove(_ track: Track) {
         guard let item = item(for: track) else { return }
         try? FileManager.default.removeItem(at: folder.appending(path: item.file))
+        try? FileManager.default.removeItem(at: lyricsURL(item))
         items.removeAll { $0.key == item.key }
         save()
     }
 
     func removeAll() {
-        for item in items { try? FileManager.default.removeItem(at: folder.appending(path: item.file)) }
+        for item in items {
+            try? FileManager.default.removeItem(at: folder.appending(path: item.file))
+            try? FileManager.default.removeItem(at: lyricsURL(item))
+        }
         items = []
         save()
     }
+
+    /// The lyrics kept with a downloaded song (`<file>.lyrics.json`, beside it), so they show offline.
+    func lyrics(for track: Track) -> Lyrics? {
+        guard let item = item(for: track), let data = try? Data(contentsOf: lyricsURL(item)) else { return nil }
+        return try? JSONDecoder().decode(Lyrics.self, from: data)
+    }
+
+    func saveLyrics(_ lyrics: Lyrics, for track: Track) {
+        guard let item = item(for: track), let data = try? JSONEncoder().encode(lyrics) else { return }
+        try? data.write(to: lyricsURL(item), options: .atomic)
+    }
+
+    private func lyricsURL(_ item: Item) -> URL { folder.appending(path: item.file + ".lyrics.json") }
 
     private func save() {
         if let data = try? JSONEncoder().encode(items) { try? data.write(to: indexURL, options: .atomic) }

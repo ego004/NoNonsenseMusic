@@ -31,7 +31,14 @@ final class ServerLauncher {
     static let defaultBackendFolder = home + "/projects/music/backend"
     static var backendFolder: String { UserDefaults.standard.string(forKey: "backendFolder") ?? defaultBackendFolder }
     /// The server's output. Opens in Console; or `tail -f ~/Library/Logs/NoNonsense/server.log` in a terminal.
-    static let logURL = URL(filePath: home + "/Library/Logs/NoNonsense/server.log")
+    /// Self-tests write their test servers' output to server-selftest.log: they made over half of your log (7 Oct).
+    static let logURL: URL = {
+        var name = "server.log"
+        #if DEBUG
+        if SelfTest.isRunning { name = "server-selftest.log" }
+        #endif
+        return URL(filePath: home + "/Library/Logs/NoNonsense/" + name)
+    }()
 
     struct Failure: LocalizedError {
         let errorDescription: String?
@@ -69,13 +76,16 @@ final class ServerLauncher {
         return ok
     }
 
+    /// Settings › Server › Reload when the backend's code changes. Off: one lean process. On: `fastapi dev`.
+    static var reloads: Bool { UserDefaults.standard.bool(forKey: "serverReload") }
+
     private func startIfNeeded() async -> Bool {
         if process?.isRunning == true, await API.health() { state = .started; return true }
         state = .checking
         if await API.health() { state = .alreadyRunning; return true }
         guard let host = API.baseURL.host(), ["127.0.0.1", "localhost", "::1"].contains(host) else { state = .notLocal; return false }
         if process?.isRunning == true { stop() }          // ours, but not answering: replace it rather than leave it running
-        do { try start(port: API.baseURL.port ?? 8000) } catch { state = .failed(error.localizedDescription); return false }
+        do { try await start(port: API.baseURL.port ?? 8000) } catch { state = .failed(error.localizedDescription); return false }
         state = .starting
         // the first start can take a while: uv checks the packages, the server opens the database pool
         for _ in 0..<60 {
@@ -87,7 +97,7 @@ final class ServerLauncher {
         return false
     }
 
-    private func start(port: Int) throws {
+    private func start(port: Int) async throws {
         let fm = FileManager.default
         // an app opened from the Dock does not get your terminal's PATH, so look in the usual places
         let candidates = ["/opt/homebrew/bin/uv", "/usr/local/bin/uv", Self.home + "/.local/bin/uv", Self.home + "/.cargo/bin/uv"]
@@ -97,30 +107,68 @@ final class ServerLauncher {
 
         try fm.createDirectory(at: Self.logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         if !fm.fileExists(atPath: Self.logURL.path) { fm.createFile(atPath: Self.logURL.path, contents: nil) }
+        Self.trimLog()
         // O_APPEND: every write lands at the end. With a plain handle each writer kept its own position, so two
         // servers (8000 and a test one on 8765) and the app's own notes overwrote each other's lines (6 Oct).
         let fd = open(Self.logURL.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
         guard fd >= 0 else { throw Failure("can't open the log") }
         let log = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
 
-        let p = Process()
-        p.executableURL = URL(filePath: uv)
-        // `fastapi dev`: reloads when you edit the backend, and listens on 127.0.0.1 only
-        // (`fastapi run` would listen on every network this Mac is on)
-        p.arguments = ["run", "fastapi", "dev", "src/music_backend/main.py", "--port", String(port)]
-        p.currentDirectoryURL = URL(filePath: folder)
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ["/opt/homebrew/bin", "/usr/local/bin", Self.home + "/.local/bin", env["PATH"] ?? "/usr/bin:/bin"].joined(separator: ":")
+        let p = Process()
+        p.currentDirectoryURL = URL(filePath: folder)
         p.environment = env
         p.standardOutput = log
         p.standardError = log
+        if Self.reloads {
+            // `fastapi dev`: restarts on every save of the backend. Four processes, ~236 MB (measured 7 Oct)
+            p.executableURL = URL(filePath: uv)
+            p.arguments = ["run", "fastapi", "dev", "src/music_backend/main.py", "--port", String(port)]
+        } else {
+            // one process, ~96 MB (measured 7 Oct). `uv sync` first installs anything the backend newly needs (what
+            // `uv run` did on every start), then exits; it does not stay behind holding 28 MB the way `uv run` did
+            let sync = Process()
+            sync.executableURL = URL(filePath: uv)
+            sync.arguments = ["sync", "--quiet"]
+            sync.currentDirectoryURL = URL(filePath: folder)
+            sync.environment = env
+            sync.standardOutput = log
+            sync.standardError = log
+            // the handler is set before the process starts: set after, a quick exit could resume this twice
+            try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
+                sync.terminationHandler = { _ in done.resume() }
+                do { try sync.run() } catch { sync.terminationHandler = nil; done.resume(throwing: error) }
+            }
+            let fastapi = folder + "/.venv/bin/fastapi"
+            guard fm.isExecutableFile(atPath: fastapi) else { throw Failure("no .venv/bin/fastapi in \(folder): uv sync failed, see the log") }
+            p.executableURL = URL(filePath: fastapi)
+            // --host 127.0.0.1: on its own, `fastapi run` listens on every network this Mac is on
+            p.arguments = ["run", "--host", "127.0.0.1", "src/music_backend/main.py", "--port", String(port)]
+        }
         try p.run()
         process = p
-        Self.note("started a server on port \(port): uv pid \(p.processIdentifier)")
+        Self.note("started a server on port \(port) (\(Self.reloads ? "reloading on code changes" : "one process")): pid \(p.processIdentifier)")
     }
 
-    /// Stops the server only if this app started it: `uv`, the `fastapi dev` reloader under it, and the worker under
-    /// that. SIGTERM to `uv` alone usually stopped all three (5 Oct), but on 6 Oct the reloader outlived it, kept the
+    /// Stops the server this app started, and starts it again (to apply a change of mode). A server you started
+    /// yourself is left alone.
+    func restart() async {
+        guard process != nil else { return }
+        stop()
+        await ensureRunning()
+    }
+
+    /// The log only ever grew (1 MB in two days, 7 Oct): past 512 KB, keep its last 2,000 lines.
+    private static func trimLog() {
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: logURL.path))?[.size] as? Int, size > 512 * 1024,
+              let text = try? String(contentsOf: logURL, encoding: .utf8) else { return }
+        let kept = text.split(separator: "\n", omittingEmptySubsequences: false).suffix(2000).joined(separator: "\n")
+        try? Data(("NoNonsense: log trimmed to its last 2,000 lines\n" + kept).utf8).write(to: logURL, options: .atomic)
+    }
+
+    /// Stops the server only if this app started it, with everything under it (in reload mode: `uv`, the `fastapi dev`
+    /// reloader under it, and the worker under that). SIGTERM to `uv` alone usually stopped all three (5 Oct), but on 6 Oct the reloader outlived it, kept the
     /// port, and even ignored its own SIGTERM. So: SIGTERM to the whole family, up to 2 s to finish, then SIGKILL.
     func stop() {
         guard let p = process else { return }
@@ -141,6 +189,13 @@ final class ServerLauncher {
         guard fd >= 0 else { return }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         handle.write(Data("NoNonsense: \(line)\n".utf8))
+    }
+
+    /// The server this app started, with every process under it (Settings › Footprint measures them). Empty when
+    /// the app started none: a server you started yourself is not ours to measure.
+    var serverPIDs: [pid_t] {
+        guard let p = process, p.isRunning else { return [] }
+        return [p.processIdentifier] + Self.descendants(of: p.processIdentifier)
     }
 
     /// Every process under `pid`: children, their children, and so on.

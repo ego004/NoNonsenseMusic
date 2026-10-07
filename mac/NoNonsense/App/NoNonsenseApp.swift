@@ -6,6 +6,7 @@ struct NoNonsenseApp: App {
     @State private var presence: Presence
     @State private var player: Player
     @State private var downloads: DownloadStore
+    @State private var lyrics: LyricsStore
     @State private var server = ServerLauncher.shared
     @State private var theme = ThemeStore()
     @AppStorage("appearance") private var appearance = Appearance.system
@@ -18,6 +19,9 @@ struct NoNonsenseApp: App {
         let presence = Presence()
         let downloads = DownloadStore()
         downloads.notify = { [weak library] text, symbol in library?.notify(text, symbol: symbol) }
+        let lyrics = LyricsStore(downloads: downloads)
+        downloads.downloaded = { [weak lyrics] track in Task { await lyrics?.keep(for: track) } }   // offline lyrics
+        _lyrics = State(initialValue: lyrics)
         _library = State(initialValue: library)
         _presence = State(initialValue: presence)
         _downloads = State(initialValue: downloads)
@@ -33,6 +37,7 @@ struct NoNonsenseApp: App {
                 .environment(library)
                 .environment(presence)
                 .environment(downloads)
+                .environment(lyrics)
                 .preferredColorScheme(appearance.colorScheme)
                 .frame(minWidth: 900, minHeight: 580)
                 .onAppear {
@@ -57,6 +62,9 @@ struct NoNonsenseApp: App {
                     SelfTest.runSidebarCheckIfAsked(library: library)
                     SelfTest.runSettingsFitCheckIfAsked()
                     SelfTest.runBarCheckIfAsked(player: player)
+                    SelfTest.runLyricsCheckIfAsked(player: player, lyrics: lyrics, downloads: downloads)
+                    SelfTest.runPerfIfAsked(player: player)
+                    SelfTest.runFootprintCheckIfAsked()
                     #endif
                 }
         }
