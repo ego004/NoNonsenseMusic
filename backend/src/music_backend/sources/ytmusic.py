@@ -73,7 +73,14 @@ def to_listing(item: dict) -> Listing:
         duration = to_seconds(parts[-1][0]["text"]),
         popularity = to_count(plays[0]["text"]) if plays else None,
         image = artwork(item),
+        explicit = is_explicit(item),
     )
+
+
+def is_explicit(item: dict) -> bool:
+    """YouTube Music marks explicit songs with an E badge; a row without one is the clean (or only) version."""
+    return any(badge.get("musicInlineBadgeRenderer", {}).get("icon", {}).get("iconType") == "MUSIC_EXPLICIT_BADGE"
+               for badge in item.get("badges", []))
 
 
 # YouTube serves at least two row layouts (about 1 request in 5 got the second one, 2 Oct 2026):

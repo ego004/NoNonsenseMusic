@@ -55,7 +55,7 @@ struct HomeView: View {
                 Spacer()
                 if let seeAll {
                     Button("See All") { open(seeAll) }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.quiet)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -204,10 +204,7 @@ struct CompactSongTile: View {
                 .overlay {
                     if hovering || isCurrent {
                         RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.black.opacity(0.35))
-                        Image(systemName: isCurrent && player.isPlaying ? "speaker.wave.2.fill" : "play.fill")
-                            .font(.caption)
-                            .foregroundStyle(.white)
-                            .symbolEffect(.variableColor.iterative, isActive: isCurrent && player.isPlaying)
+                        PlayingSpeaker(playing: isCurrent && player.isPlaying, font: .caption)
                     }
                 }
             VStack(alignment: .leading, spacing: 2) {
@@ -221,7 +218,7 @@ struct CompactSongTile: View {
         .background(hovering ? AnyShapeStyle(.primary.opacity(0.06)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 10, style: .continuous))
         .contentShape(.rect)
         .onTapGesture(perform: play)
-        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
+        .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
         .contextMenu {
             Button("Play", action: play)
             Button("Play Next") { player.playNext(track) }

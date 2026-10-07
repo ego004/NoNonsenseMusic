@@ -13,7 +13,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 > **Renumbered 5 Oct 2026.** Done and removed: resilient search, play, merge + rank, library, shuffle, and the Mac app v1. Git history and old commit messages use the old numbers. Old → new: 16 → 1 (and 4), 15 → 2, 8 → 3, 5 → 5, 9 → 6, 10 → 7, 6 + 11 → 8, 12 → 9, 13 → 10, 14 → 11.
 
-> **Order (decided 5 Oct, updated 6 Oct 2026):** ~~MUS-2 playlists~~ ✅ → MUS-1 steps 2, 2b, 3 (single-flight, back-off, prefetch) → a personal score for search (to discuss) → MUS-3 autoplay → MUS-13 YouTube. MUS-14 covers whenever you want a contained evening. Then lyrics and the rest.
+> **Order (decided 5 Oct, updated 7 Oct 2026):** ~~MUS-2~~ ✅ → ~~MUS-1~~ ✅ → ~~MUS-12 lyrics~~ ✅ → **MUS-15** links that survive an IP change (small; you feel it daily) → **MUS-16** log searches and measure ranking → **MUS-17** a ranking foundation (features, weights, explanations) → **MUS-18** your taste → MUS-3 autoplay (ranked by MUS-17 + 18) → MUS-13 YouTube. MUS-14 covers whenever you want a contained evening.
 
 | Ticket | What you can show at the end | Who | Size |
 |---|---|---|---|
@@ -28,9 +28,14 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 | MUS-9 | Every played song gets a "sounds like" vector | Claude (model setup) · **You** (background job) | M |
 | MUS-10 | About 1 in 5 autoplay songs is new to you, and it learns which new ones you skip | **You** | M |
 | MUS-11 | Your own "people who played X played Y" model, beating or losing to YouTube radio on your skip rate | **Pair** | L |
-| MUS-12 | Lyrics in Now Playing, lit line by line in time with the song | **You** (backend) · Claude (app) | M |
+| MUS-12 ✅ | Lyrics in Now Playing, lit line by line in time with the song | **You** (backend) · Claude (app) | M |
 | MUS-13 | Songs that exist only on plain YouTube, found with a "Search YouTube" switch | **You** (backend) · Claude (app) | M |
 | MUS-14 | Playlist covers: upload an image, checked and cleaned, served with a URL that changes when it does | **You** (backend) · Claude (app, tests) | S |
+| MUS-15 | After your IP changes, songs still start at once: one failed play, not one per song | **You** (backend) · Claude (tests) | S |
+| MUS-16 | Every search is logged with what you played from it, and one command says how good the ranking is | **You** (backend) · Claude (app sends the search id, eval script) | M |
+| MUS-17 | Search ranked by named, weighted signals; each result can say why it ranks where it does; a change is judged by MUS-16's number | **You** (scorer) · Claude (app "why", tests) | L |
+| MUS-18 | Your taste as numbers (songs and artists you play, finish, skip, like), used by search and autoplay | **You** · Claude (tests) | M |
+| MUS-19 ✅ | Explicit and clean versions: an 🅴 on explicit ones, and your choice of which plays (done 7 Oct) | Claude (wired in, on your go-ahead) | S |
 
 ---
 
@@ -262,6 +267,80 @@ Claude writes the pytest tests (against `music_test`). The app work (sidebar, pl
 | — | From the MUS-2 list: the playlist's name in the Discord status (Settings › Discord › Share, off by default) and "From “Gym”" in Now Playing; Settings in collapsible sections (Colours on its own, so the page fits a MacBook screen) | ✅ 6 Oct |
 | — | Fixed 6 Oct: a test server could outlive its app and keep the port (now: one launcher, one start at a time, the whole process family stopped); the server log overwrote itself (now append mode) | ✅ |
 | — | Fixed 6 Oct: "That JioSaavn copy is gone. Playing another JioSaavn copy." (was a contradiction); self-test windows say "Self-test · test library" | ✅ |
+| — | 7 Oct, from your notes: "No internet" and "Server not connected" banners (Try Again); the player stops after 3 songs in a row fail instead of cycling | ✅ `NN_SELFTEST_CONNECTION` (offline itself cannot be faked in a test) |
+| — | 7 Oct: CPU. The playing song's animated speaker took 22.7% of a core in lists (your 25–31%): now Core Animation bars, 2.6% (the same as none); covers decoded once and at the size shown (list covers 4.3× fewer pixels); Now Playing 27% → 3% | ✅ `NN_SELFTEST_PERF`, `NN_SELFTEST_COVERS` |
+| — | 7 Oct: every plain button clicks anywhere on it and 6 pt around (it was only the drawn strokes); Button feedback (hover highlight, press) in Settings › Appearance | ✅ built; a real click cannot be tested while you use another app |
+| — | 7 Oct: Up Next: double-click plays, drag moves (a single-click tap took the mouse-down, so drags never started); lyrics fade instead of snapping | ✅ built; the drag itself needs your hands |
+| — | 7 Oct: search prepares only its top result, 1 s after you stop typing (Settings › Footprint: none / top / top 5) | ✅ `NN_SELFTEST_PREFETCH`: top result 5.3 ms |
+| — | 7 Oct: safety. Your saved server address had become the test one (8765): a test could use your app's server. Tests now run only on a server they started; the scripts refuse a busy port; the address field saves on Return only | ✅ |
+
+---
+
+## MUS-19 · Explicit and clean versions ✅ (7 Oct 2026)
+
+**Problem:** for *Les*, the clean version was listed and played: a song's explicit and clean copies are grouped as one song (rightly), and `pick_best` chose by source and popularity, blind to which was explicit.
+
+**Facts (checked 7 Oct):** JioSaavn gives `explicit_content` "1"/"0" on every search result and in `song.getDetails` (many ids per call); YouTube Music marks explicit rows with a `MUSIC_EXPLICIT_BADGE` badge (`badges[…].musicInlineBadgeRenderer.icon.iconType`), and no badge means clean. *Les*: 2 explicit and 2 clean copies; the server's pick was clean.
+
+**Done:** `Listing.explicit` (None = unknown) parsed by both sources; the `listings.explicit` column (added by `schema.sql`; an unknown flag is filled in when the listing is seen again, a known one never overwritten); the app plays your version (Settings › Playback: explicit by default, or clean), shows 🅴 beside explicit titles and in a song's versions. Your library's 111 listings were filled in by `scripts/backfill_explicit.py` (nothing deleted): JioSaavn 27 explicit / 37 clean, YouTube 24 / 23, none unknown. Tests: 3 backend, `NN_SELFTEST_EXPLICIT`.
+
+---
+
+## MUS-15 · Links that survive an IP change
+
+**Problem:** songs often take seconds to start, even cached ones. Measured 7 Oct in your library: 24 cached YouTube links were made for **5 different IP addresses**; 14 were valid by time, but only 7 for your current IP. YouTube ties each link to the IP that fetched it, and the cache checks only `expire=`, so it hands out links for an old IP: they fail, the app asks `serve_fresh`, and the song starts after a failed try plus a fresh lookup (~2 s). Your log has 65 such retries.
+
+**Facts:** every fresh YouTube link carries the IP it was made for (its `ip=` parameter). Never print or log it (the repo is public; it is your address).
+
+**Deliverables:** the cache knows the IP of the newest fresh link; a YouTube link made for another IP counts as stale (the same path as expired). After an IP change, the first play fails once, its fresh lookup reveals the new IP, and every other link for the old one is refetched by the next lookup or prefetch instead of failing on play.
+
+**Done when:** a test with fake links for two IPs: after one fresh link with the new IP, a cached link for the old one is not served; nothing logs an IP.
+
+**Yours to decide:** where the "current IP" lives (memory only, or the table, so a restart knows it); whether a server start should make one fresh lookup to learn the IP before the first play.
+
+---
+
+## MUS-16 · Log searches; measure the ranking
+
+**Problem:** search ranking cannot be improved by eye. Checked 7 Oct on 6 real queries: today's RRF puts *The Kill (Bury Me)* (13 duplicate copies) above "The kill", the #1 of both sources; "one vote per source" fixes that query and breaks *Blinding Lights* (an unrelated *Starboy* climbs to #3). Every change helps some queries and hurts others: you need a number.
+
+**Deliverables:**
+- A log of each search: the query, both sources' raw result lists (so the ranking can be recomputed offline with any formula), what was shown, and **which result you played** and at which position. The app already knows which search led to a play (it keeps "recent searches" that way): it sends the search's id with the play event.
+- An offline evaluation: replay every logged search through a ranking function and report **hit@1** (the song you played was ranked first) and **MRR** (mean reciprocal rank of the played song). Today's RRF is the baseline.
+
+**Done when:** after a week of normal use, one command prints the baseline's hit@1 and MRR over your real searches.
+
+**Yours to decide:** the tables; how long to keep logs; whether a search with no play counts (a failed search) and how.
+
+---
+
+## MUS-17 · A ranking foundation
+
+**Problem:** the ranking uses only positions and copy counts (RRF). It never looks at how well a result matches what you typed, or at you. You want a foundation you can adjust and build recommendations on.
+
+**Deliverables:**
+- **Features** per result, each a named number: best position in each source; sources that found it; copies; title and artist match against the query (rapidfuzz: mechanics, allowed); popularity as a percentile within its source; and, from MUS-18, your plays, finishes, skips and likes of this song and artist.
+- A **scorer**: a weighted sum, weights in one config, so a change is one number edited and re-measured with MUS-16.
+- **Explanations**: the API can return each result's feature values and contributions; the app can show "why" (Claude).
+- Grouping fixed where MUS-16's data shows it splits one recording into several songs (the *The Kill* case).
+
+**Rule (yours, 5 Oct):** no keyword lists for judgement ("remix", "lofi", "slowed" as a classifier). If variants need detecting, use measured signals (duration far from the group's median, the query's own words) or a model call with a schema.
+
+**Done when:** MUS-16's hit@1 and MRR beat the RRF baseline on your logged searches, and every top result can say why.
+
+**Yours to decide:** the first features and weights; whether RRF stays as one feature; when (if ever) to learn the weights from the logs (logistic regression on played/not played is the usual first step).
+
+---
+
+## MUS-18 · Your taste, as numbers
+
+**Problem:** search and (soon) autoplay know nothing about you. The events table already records every play, skip (with the second it happened) and finish, and likes are stored.
+
+**Deliverables:** per song and per artist: plays, finishes, early skips (yours to define), likes, last played, combined into an affinity that fades with time; exposed to MUS-17 as features. Recomputed cheaply (on each event, or in a small batch).
+
+**Done when:** a song you finish often outranks an otherwise equal one in search, and a song you always skip early falls; tests with made-up events show both.
+
+**Yours to decide:** the decay (a half-life in days); how much a like weighs against plays; whether skips in the first seconds mean "wrong song" or "not now".
 
 ---
 

@@ -46,6 +46,7 @@ All files are in `mac/NoNonsense/`. The project file is generated from [`mac/pro
 | `Track` | — | What every screen and the player use. Built from a `SearchSong` or a `LibrarySong`. |
 
 ### `Track`
+- **Your version (MUS-19):** `init(best:listings:)` plays the explicit or the clean copy by Settings › Playback (`versionPreference`, explicit by default), in the order: the server's pick, its source, most played. `isExplicit` puts 🅴 (`ExplicitBadge`) beside titles; each copy in a song's versions shows its own.
 - `id`: the best listing's key. `best`: the copy to play. `listings`: all copies.
 - `playing(listing)` → the same song, set to play one chosen copy.
 - `listings` order: the default copy first, then the same source, then the rest, most popular first. The listings list and the fallbacks both follow it (checked 5 Oct: sent `yt-big, js-low, js-default, js-high` → `js-default, js-high, js-low, yt-big`).
@@ -245,7 +246,8 @@ The order songs play in. The Player owns one; the self-test checks every rule (`
 
 | Function | Returns |
 |---|---|
-| `image(for:)` | The cover, **decoded once** (`decoded(_:)`: at most 1,200 px, already sRGB, off the main thread). Two views asking for the same URL at once share one download (single-flight). `NSImage(data:)` kept the compressed JPEG, so each repaint decoded it again and converted its colours: most of Now Playing's 23% CPU (profiled 7 Oct). |
+| `image(for:size:)` | Decoded at the size shown: up to 128 pt at 256 px, larger at up to 1,200 px; the cache holds at most 96 MB of pixels. 47 covers: 11.8 MB at list size against 50.7 MB at full size (7 Oct). |
+| `image(for:)` (before 7 Oct) | The cover, **decoded once** (`decoded(_:)`: at most 1,200 px, already sRGB, off the main thread). Two views asking for the same URL at once share one download (single-flight). `NSImage(data:)` kept the compressed JPEG, so each repaint decoded it again and converted its colours: most of Now Playing's 23% CPU (profiled 7 Oct). |
 | `cached(_:)` | The cover if already loaded, without waiting. |
 | `colorGrid(for:)` | The cover shrunk to 3×3 pixels: nine colours, each where it sits on the cover. The background mesh is made from them. |
 | `accent(for:dark:)` | The cover's most vivid colour, made readable; `nil` for grey covers (the system accent stays). Tints sliders, the progress line and the heart. |
@@ -259,6 +261,13 @@ The order songs play in. The Player owns one; the self-test checks every rule (`
 - **States:** `loading`, `found(Lyrics)` (`lines` may be empty: nobody has them), `unreachable` (the panel offers Try Again).
 - **When:** Settings › Lyrics: when a song starts, the next song's too (default; `RootView` asks), or only when Lyrics opens. Each song is asked for once. A downloaded song answers from its file, with no network.
 - **Checked 7 Oct (`NN_SELFTEST_LYRICS`, 15 checks):** *Les*: 115 timed lines from LRCLIB 0.7 s after it started; the next song fetched ahead; nothing lit during the intro; a seek lights its line, 19 pt from the panel's centre; a click on line 13 played from 49.50 s (the line starts at 49.35 s); an instrumental says Couldn't find lyrics; a download kept 42 timed lines and showed them with the server off.
+
+## Services/Connectivity.swift
+
+### `Connectivity.shared` (`@Observable`)
+- **Does:** `online` (macOS's network path monitor, `NWPathMonitor`: told when it changes, no polling) and `serverAnswers` (the last `/health`). `RootView`'s banner shows "No internet · downloaded songs still play" or "Server not connected" with Try Again while either lasts.
+- **The player:** after 3 songs in a row fail, or any failure while offline, it pauses with "Stopped: … Press play to try again." With no internet it used to try the whole queue, one failing song after another (7 Oct).
+- **Checked 7 Oct (`NN_SELFTEST_CONNECTION`):** five songs that cannot play stop at the third; a stopped server turns the banner on; Try Again's steps bring it back. Going offline itself cannot be faked in a test.
 
 ## Services/Footprint.swift
 
@@ -296,7 +305,7 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | | `SongListView` | Liked Songs and Recently Played: title, count, Play, Shuffle, the list. |
 | `SongRow.swift` | `SongRow` | One song: artwork (click to play), title, artists, "N listings" (click to open), heart (on hover), duration. Double-click plays. Right-click: Play, Play Next, Like, Add to Playlist (every playlist, or New Playlist…), and in a playlist "Remove from …". Playing a chosen listing keeps the rest of the list as the queue. |
 | | `ListingRow` | One copy, inside an opened song: title, artists, "Default" for the copy that plays normally, source, quality, length. Click plays exactly this copy; the playing copy shows an animated speaker. |
-| `PlayerViews.swift` | `UpNextView` | Now Playing's Up Next: drag to reorder, ✕ or right-click to remove, Clear. Once you change it by hand, the queue is yours: the playlist it came from no longer reorders it. |
+| `PlayerViews.swift` | `UpNextView` | Now Playing's Up Next: drag to reorder (a grip shows on hover), double-click to play, ✕ or right-click to remove, Clear. Double-click since 7 Oct: a single-click tap gesture took the mouse-down, so the list never started a drag. Once you change it by hand, the queue is yours: the playlist it came from no longer reorders it. |
 | | `PlayerBar` | The floating bar (a rounded rectangle, at most 900 pt wide, 70 pt tall): the song on the left; in the centre ⏮ ▶ ⏭ with the progress line under them, elapsed time on its left and time left on its right; the buttons on the right. The progress line used to run along the bar's curved bottom edge, which looked stuck on (6 Oct). Liquid Glass by default (*interactive*: reacts to hover and press; *materializes* in), or Frosted (Settings › Appearance › Surfaces › Player bar). In a narrow window the volume slider folds away first (the speaker still mutes). Hidden until a song plays. |
 | | `PlayerBarLayout` | The bar's layout: the centre gets what the sides leave (280–480 pt), and both sides always get the same width, so the centre is the bar's exact centre whatever the title. Measured 6 Oct: at a 1,180 pt window the centre is 363 pt and the progress line 267 pt; at the narrowest window (900 pt) 280 pt and 184 pt; ⏮ ▶ ⏭ 0.0 pt off centre in both. |
 | | `TransportControls` | Shuffle ⏮ ▶ ⏭ Repeat, shared by the bar and Now Playing. Shuffle and repeat are the same width on each side, so ▶ stays centred; when on they take the Buttons colour on a soft disc, and repeat's icon morphs to `repeat.1`. While a song loads, the play button is a spinner (so is the cover on the row you clicked). |
@@ -316,6 +325,8 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | | `WindowBlur` | The see-through window background: AppKit's behind-window blur (`NSVisualEffectView`, `.behindWindow`). `amount` (Settings › Blur) thins it: 0 shows the desktop sharp. With `blending: .withinWindow` it blurs the app's own content under it instead (the Frosted bar, Now Playing). |
 | | `SurfaceLayer` | One surface's background: a `WindowBlur` at `blur`, and over it the window's colour at `solid`. At 0 / 0 it draws nothing, so the sidebar and the bar look exactly as before until you move a slider. `Look.readable` keeps some fill when the blur is low (the same 30% floor as the window, fading out as the blur grows). |
 | | `selfTestFrame(_:)` | Debug builds: records where a view is (`SelfTest.frames`), for checks that cannot use pictures. Release builds: nothing. |
+| | `QuietButtonStyle` (`.quiet`) | Every plain button: the whole label and 6 pt around it take the click (with `.plain`, only the drawn strokes did, so icons needed precise aim). Settings › Appearance › Button feedback: a soft highlight under the pointer and a small press. Covers use `.quiet(highlight: false)`. |
+| | `PlayingSpeaker`, `EqualizerBars` | The mark on the playing song: three bars animated by Core Animation (no per-frame work in the app), or a still speaker. |
 | | `ClearWindow` | Makes the window non-opaque with a clear background, so a thinned blur shows the desktop, not grey. |
 | | `Backdrop` | The cover's nine colours as a `MeshGradient`; a new song crossfades in. With **Custom** colours it is nine shades of your Background colour instead. `strength` scales it, `base:` adds a fill under it. **Still by default** (7 Oct). With Moving background on, its inner points drift (about 30 s per cycle) at 10 frames a second, and only while music plays, the app is in front, Low Power Mode is off and Reduce Motion is off. |
 | | `IsolatedBackdrop` | `Backdrop` in its own `NSHostingView`, so a frame of the moving mesh redraws only the mesh: inside the window's view tree, each frame rebuilt the whole window (Now Playing with Lyrics: 30% of a core, profiled 7 Oct). Clicks pass through it. |
@@ -338,6 +349,8 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | Now Playing alone | **2.8%** | 12.2% | 22.9% / 27.4% |
 | Now Playing + Up Next | **2.7%** | 12.0% | 22.8% / 30.1% |
 | Now Playing + Lyrics | **4.0%** | 17.9% | 25.4% / 35.1% |
+
+**7 Oct, in your real library (31% of a core while playing):** the playing song's animated speaker (`.symbolEffect(.variableColor)`) in lists and shelves took **22.7%** of a core against 3.0% without it, in its own host or not. `PlayingSpeaker` now draws three bars as a Core Animation animation, played by macOS's render server: **2.6%**, the same as a still mark, and no measurable change in WindowServer (15.2% vs 14.5%). Settings › Appearance can still them.
 
 What changed, from profiles (`sample`):
 - **Covers decoded once** (`ArtworkCache.decoded`): repaints were decoding the JPEG and converting its colours each time.
@@ -374,6 +387,7 @@ What changed, from profiles (`sample`):
 - `NN_SELFTEST_SNAP=<folder>`: scenarios save pictures of the window at key moments (two methods: drawn, and from its layers). **Limit:** neither can draw lists (table views) or glass; the scenarios count list rows instead.
 - Run them against the test server: `-serverURL http://127.0.0.1:8765`, `DATABASE_URL=postgresql:///music_test`, and `-discordEnabled NO`.
 
+- **Only on a server the test started (7 Oct):** scenarios check `onOwnTestServer` (the launcher started it, so it has the test database) and refuse otherwise; `selftest.sh` and `perf.sh` refuse a port that is already in use (`NN_TEST_PORT` picks another). Before, "not port 8000" was the only check, and on 7 Oct your app's own server sat on 8765: a perf run used it and wrote one play into your library.
 - **Your settings are borrowed, not changed:** a scenario that changes settings saves them to a file first (`borrowDefaults`) and puts them back at the end (`returnDefaults`). If it dies first, the next self-test launch puts them back before anything else (a crash on 6 Oct had left four Settings sections changed).
 - `NN_SELFTEST_SIDEBAR=1`: New Playlist lines up with every other sidebar row, and a click on it asks for the New Playlist sheet (reported as SKIP when another app is in use: macOS refuses to bring the test window forward, and a click on a window that is not key only selects it).
 - `NN_SELFTEST_LYRICS="<timed song>|<instrumental>|<a JioSaavn song>"`: the lyrics checks above; never prints a lyric. Calls line 13's action instead of clicking it when the window cannot become key, and says so.

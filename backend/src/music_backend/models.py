@@ -18,6 +18,8 @@ class Listing(BaseModel):
     popularity : int | None
     # artwork URL, already rewritten to a large size by the source adapter
     image : str | None = None
+    # the explicit version (JioSaavn's explicit_content, YouTube Music's E badge); None: not known (older rows)
+    explicit : bool | None = None
 
 class BaseSong(BaseModel):
     title: str

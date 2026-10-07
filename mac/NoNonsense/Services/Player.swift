@@ -43,7 +43,8 @@ final class Player {
     /// True while the playing copy is a downloaded file (no server, no internet needed).
     private(set) var playingFile = false
     @ObservationIgnored private let presence: Presence
-    @ObservationIgnored private var timeObserver: Any?
+    /// AVPlayer's own playing / waiting / paused state, observed when it changes (no timer: see `position`)
+    @ObservationIgnored private var controlStatusObservation: NSKeyValueObservation?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
     @ObservationIgnored private var statusObservation: NSKeyValueObservation?
     @ObservationIgnored private var keyMonitor: Any?
@@ -66,9 +67,12 @@ final class Player {
         player.automaticallyWaitsToMinimizeStalling = false
         player.volume = volume
         order.repeatMode = UserDefaults.standard.string(forKey: "repeat").flatMap(PlayQueue.Repeat.init(rawValue:)) ?? .off
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
-                                                      queue: .main) { [weak self] time in
-            MainActor.assumeIsolated { self?.tick(time.seconds) }
+        // No periodic time observer: it set `position` twice a second and every view reading it redrew, the app's
+        // biggest steady cost while playing (7 Oct). `position` now changes only on events; the progress line and
+        // times are drawn by Core Animation (PlaybackTimeline), and code that needs the exact time reads livePosition.
+        controlStatusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] avPlayer, _ in
+            let status = avPlayer.timeControlStatus
+            Task { @MainActor in self?.controlStatusChanged(status) }
         }
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
                                                              object: nil, queue: .main) { [weak self] note in
@@ -147,6 +151,9 @@ final class Player {
 
     /// A playlist changed (a move, an add, a remove). If the queue came from it, the queue follows; else nothing.
     func syncQueue(source: String, items: [(key: String, track: Track)]) {
+        // only the queue that is playing: `order.sync` is a mutating call, and Observation counts any mutation as a
+        // change even when sync returns at once, so opening any playlist redrew the whole window (audit, 7 Oct)
+        guard order.source == source else { return }
         order.sync(source: source, items: items)
         if order.source == source { announceNext() }
     }
@@ -170,6 +177,7 @@ final class Player {
         guard current != nil else { return }
         isPlaying ? player.pause() : player.play()
         isPlaying.toggle()
+        position = livePosition                                     // the clock's new starting point
         publish()
     }
 
@@ -182,7 +190,7 @@ final class Player {
 
     func previous() {
         previousPresses += 1
-        if position > 3 { seek(to: 0); return }     // like every player: first press restarts the song
+        if livePosition > 3 { seek(to: 0); return }     // like every player: first press restarts the song
         reportSkipIfNeeded()
         guard let i = order.indexAfterPrevious() else { seek(to: 0); return }   // the first song, repeat off: restart it
         go(to: i)
@@ -199,8 +207,14 @@ final class Player {
         volume = min(1, max(0, level))
         player.volume = volume
         if isMuted { isMuted = false; player.isMuted = false }
-        UserDefaults.standard.set(volume, forKey: "volume")
+        // saved once the slider settles, not on every pointer move of a drag
+        volumeSave?.cancel()
+        volumeSave = Task { [volume] in
+            try? await Task.sleep(for: .milliseconds(400))
+            if !Task.isCancelled { UserDefaults.standard.set(volume, forKey: "volume") }
+        }
     }
+    @ObservationIgnored private var volumeSave: Task<Void, Never>?
 
     func toggleMute() {
         isMuted.toggle()
@@ -292,6 +306,9 @@ final class Player {
         playingFile = file != nil
         // a downloaded copy plays from its file; any other, through the server (which redirects to the audio file)
         let item = AVPlayerItem(url: file ?? API.playURL(listing, fresh: fresh))
+        // no time-stretching: the default algorithm processed every sample to allow speed changes we never make
+        // (MEMixerChannel::TimePitch, a steady share of the audio thread, profiled 7 Oct). Varispeed at 1x is a pass-through
+        item.audioTimePitchAlgorithm = .varispeed
         // @Sendable: KVO calls this on whatever thread changed the status, not necessarily the main one
         statusObservation = item.observe(\.status) { @Sendable [weak self] item, _ in
             let status = item.status
@@ -306,6 +323,7 @@ final class Player {
     /// A copy would not play (MUS-1, rule 7). The server is asked for a fresh URL of the failed copy: that fixes
     /// its cache for next time, and its answer says WHY the copy failed, which the message then tells you.
     private func statusChanged(_ status: AVPlayerItem.Status) {
+        if status == .readyToPlay { failuresInARow = 0 }         // this song loads: the run of failures is over
         guard status == .failed, let track = current, let failed = playingListing else { return }
         let others = track.listings.filter { $0.key != track.best.key }
 
@@ -341,9 +359,20 @@ final class Player {
     }
 
     private func giveUp(_ track: Track, because reason: String?) {
-        show("Couldn't play “\(track.title)”." + (reason.map { " " + $0 } ?? ""), seconds: 6)
         isBuffering = false
         failuresInARow += 1
+        // three songs in a row would not play: something is wrong for all of them (no internet, the server gone, a
+        // source blocking us). Stop and say so, instead of trying the whole queue: with no internet it cycled (7 Oct)
+        if failuresInARow >= 3 || !Connectivity.shared.online {
+            let why = !Connectivity.shared.online ? "No internet." : (reason ?? "")
+            player.pause(); isPlaying = false
+            failuresInARow = 0
+            show("Stopped: \(why.isEmpty ? "3 songs in a row couldn't play." : why) Press play to try again.", seconds: 10)
+            if reason == "The server didn't answer." { Connectivity.shared.serverDidNotAnswer() }
+            publish()
+            return
+        }
+        show("Couldn't play “\(track.title)”." + (reason.map { " " + $0 } ?? ""), seconds: 6)
         // repeat on and nothing in the queue plays: one full round of failures, then stop instead of looping forever
         go(to: failuresInARow >= queue.count ? nil : order.indexAfterNext())
     }
@@ -370,10 +399,23 @@ final class Player {
         }
     }
 
-    private func tick(_ seconds: Double) {
-        guard seconds.isFinite else { return }
-        position = seconds
-        if player.timeControlStatus == .playing { isBuffering = false; failuresInARow = 0 }
+    /// Playing, waiting for data, or paused, as AVPlayer reports it (on change only). It re-anchors `position`, so
+    /// the timeline restarts from the right place after a stall; and it ends "buffering" (the spinners), which the
+    /// old twice-a-second tick only cleared while playing: paused before audio arrived, a spinner kept spinning.
+    private func controlStatusChanged(_ status: AVPlayer.TimeControlStatus) {
+        switch status {
+        case .playing:
+            // not the failure count: AVPlayer says "playing" as soon as play() is called, before a broken song fails,
+            // so resetting it here meant 3 failures in a row never added up (7 Oct). A song that loads resets it
+            isBuffering = false
+        case .waitingToPlayAtSpecifiedRate:
+            if isPlaying { isBuffering = true }
+        case .paused:
+            isBuffering = false
+        @unknown default:
+            break
+        }
+        position = livePosition
     }
 
     private func itemEnded(_ item: AVPlayerItem?) {
@@ -394,9 +436,10 @@ final class Player {
     // MARK: - taste data (events)
 
     private func reportSkipIfNeeded() {
-        guard let track = current, position > 0 || isPlaying else { return }
+        let now = livePosition
+        guard let track = current, now > 0 || isPlaying else { return }
         // finishing is reported by itemEnded; leaving any earlier is a skip, and WHEN matters
-        if position < Double(track.duration) - 3 { report("skip", track, at: Int(position)) }
+        if now < Double(track.duration) - 3 { report("skip", track, at: Int(now)) }
     }
 
     private func report(_ type: String, _ track: Track, at second: Int) {
@@ -421,14 +464,14 @@ final class Player {
             MPMediaItemPropertyTitle: track.title,
             MPMediaItemPropertyArtist: track.artistLine,
             MPMediaItemPropertyPlaybackDuration: duration,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: livePosition,   // the system counts on from here by itself
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
         ]
         if let album = track.best.album { info[MPMediaItemPropertyAlbumTitle] = album }
         if let art = artwork[track.id] { info[MPMediaItemPropertyArtwork] = art } else { loadArtwork(track) }
         center.nowPlayingInfo = info
         center.playbackState = isPlaying ? .playing : .paused
-        presence.update(track, isPlaying: isPlaying, position: position, playlist: playingFrom)
+        presence.update(track, isPlaying: isPlaying, position: livePosition, playlist: playingFrom)
     }
 
     private func loadArtwork(_ track: Track) {

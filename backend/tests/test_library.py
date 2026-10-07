@@ -131,3 +131,35 @@ def test_endpoints_end_to_end(monkeypatch):
         assert client.delete(f"/liked/{song_id}").status_code == 204
         assert client.delete(f"/liked/{song_id}").status_code == 404
         assert client.post("/events", json=body | {"type": "jump", "position": 0}).status_code == 422
+
+
+# ---------- MUS-19: explicit and clean versions ----------
+
+async def stored_flags(pool):
+    async with pool.connection() as conn:
+        rows = await (await conn.execute("SELECT source_id, explicit FROM listings ORDER BY source_id")).fetchall()
+    return {r["source_id"]: r["explicit"] for r in rows}
+
+
+@pytest.mark.anyio
+async def test_the_explicit_flag_is_stored_and_read_back(pool):
+    loud = listing("jiosaavn", "E1").model_copy(update={"explicit": True})
+    clean = listing("ytmusic", "C1", duration=201).model_copy(update={"explicit": False})
+    async with pool.connection() as conn:
+        song_id = await library.resolve_song(conn, [loud, clean])
+        await library.like(conn, song_id)
+        liked = await library.liked_songs(conn)
+    assert await stored_flags(pool) == {"C1": False, "E1": True}
+    assert {l.id: l.explicit for l in liked[0].listings} == {"C1": False, "E1": True}
+
+
+@pytest.mark.anyio
+async def test_an_unknown_flag_is_filled_in_and_a_known_one_is_kept(pool):
+    unknown = listing("jiosaavn", "U1")                                   # stored before flags existed: None
+    known = listing("ytmusic", "K1", duration=201).model_copy(update={"explicit": True})
+    async with pool.connection() as conn:
+        await library.resolve_song(conn, [unknown, known])
+        assert await stored_flags(pool) == {"K1": True, "U1": None}
+        # seen again, now with flags; the known one arrives (wrongly) as clean: it must not be overwritten
+        await library.resolve_song(conn, [unknown.model_copy(update={"explicit": True}), known.model_copy(update={"explicit": False})])
+    assert await stored_flags(pool) == {"K1": True, "U1": True}

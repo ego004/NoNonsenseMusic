@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS listings (
     PRIMARY KEY (source, source_id)
 );
 
+-- explicit version or not (MUS-19): NULL = not known yet (rows from before 7 Oct, filled in as they are seen again)
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS explicit boolean;
+
 -- "all listings of song S" is a common question; without this it scans the whole table
 CREATE INDEX IF NOT EXISTS listings_song_id_idx ON listings (song_id);
 

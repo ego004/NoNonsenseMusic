@@ -12,7 +12,7 @@ struct ArtworkView: View {
         self.size = size
         self.radius = radius
         // a cover already in the cache shows at once: no empty square fading in every time a screen reappears
-        _image = State(initialValue: url.flatMap { ArtworkCache.shared.cached($0) })
+        _image = State(initialValue: url.flatMap { ArtworkCache.shared.cached($0, size: size) })
     }
 
     var body: some View {
@@ -32,8 +32,8 @@ struct ArtworkView: View {
         .task(id: url) {
             guard let url else { image = nil; return }
             // keep showing the current cover while the next one loads; swap only when it is ready
-            var next = ArtworkCache.shared.cached(url)
-            if next == nil { next = await ArtworkCache.shared.image(for: url) }
+            var next = ArtworkCache.shared.cached(url, size: size)
+            if next == nil { next = await ArtworkCache.shared.image(for: url, size: size) }
             if let next { withAnimation(.easeInOut(duration: 0.28)) { image = next } }
         }
     }
@@ -135,9 +135,7 @@ struct IsolatedBackdrop: NSViewRepresentable {
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
 
-    final class Host: NSHostingView<AnyView> {
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }     // a background: clicks go to what is on top
-    }
+    typealias Host = PassthroughHostingView
 
     func makeNSView(context: Context) -> Host {
         let host = Host(rootView: content)
@@ -150,6 +148,112 @@ struct IsolatedBackdrop: NSViewRepresentable {
     private var content: AnyView {
         AnyView(Backdrop(track: track, strength: strength).environment(player).environment(theme))
     }
+}
+
+/// The app's plain buttons: easy to hit, and (Settings › Appearance › Button feedback) quietly responsive.
+/// The whole label and 6 pt around it take the click; with `.plain`, only the drawn pixels did, so an icon had to be
+/// hit on its strokes (the close chevron, the Lyrics button; 7 Oct). Feedback: a soft highlight under the pointer and a
+/// small press. `highlight: false` for covers, which get the bigger target without the highlight.
+struct QuietButtonStyle: ButtonStyle {
+    var highlight = true
+    func makeBody(configuration: Configuration) -> some View { QuietButton(configuration: configuration, highlight: highlight) }
+}
+
+private struct QuietButton: View {
+    let configuration: ButtonStyleConfiguration
+    let highlight: Bool
+    @AppStorage("buttonFeedback") private var feedback = Look.buttonFeedback
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovering = false
+
+    var body: some View {
+        configuration.label
+            .padding(6)
+            .background {
+                if feedback && highlight && hovering && enabled {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.primary.opacity(0.08))
+                }
+            }
+            .contentShape(.rect)                                 // every point of it clicks, not only the strokes
+            .padding(-6)                                         // the layout stays as it was
+            .scaleEffect(feedback && configuration.isPressed ? 0.94 : 1)
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            // instant, not animated: any animation redraws the whole window on every frame (~5 ms each), and a
+            // 0.12 s fade per hover made a pointer sweep across the bar cost 30-45% of a core (profiled 7 Oct)
+            .onHover { hovering = $0 }
+    }
+}
+
+extension ButtonStyle where Self == QuietButtonStyle {
+    static var quiet: QuietButtonStyle { QuietButtonStyle() }
+    static func quiet(highlight: Bool) -> QuietButtonStyle { QuietButtonStyle(highlight: highlight) }
+}
+
+/// An `NSHostingView` that clicks pass through: for drawings that sit inside or behind controls.
+final class PassthroughHostingView: NSHostingView<AnyView> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// The mark on the playing song (▶ on the others), in lists, shelves and copies. Still by default. The animated SF
+/// Symbol took 22.7% of a core against 2.6% still, in its own host or not (measured 7 Oct). With Settings › Footprint
+/// › Animated, three equaliser bars move instead: a Core Animation animation, played by macOS's render server, not
+/// redrawn by the app frame by frame.
+struct PlayingSpeaker: View {
+    let playing: Bool
+    var font: Font? = nil
+    var style: AnyShapeStyle = AnyShapeStyle(.white)
+    var color: Color? = nil                      // the bars' colour (shape styles cannot reach a layer); nil: white
+    @AppStorage("animatedSpeaker") private var animated = Look.animatedSpeaker
+
+    var body: some View {
+        if playing && animated {
+            EqualizerBars(color: NSColor(color ?? .white)).frame(width: 12, height: 11)
+        } else {
+            Image(systemName: playing ? "speaker.wave.2.fill" : "play.fill").font(font).foregroundStyle(style)
+        }
+    }
+}
+
+/// Three bars that rise and fall forever, as layer animations: set up once, then played by the render server.
+struct EqualizerBars: NSViewRepresentable {
+    let color: NSColor
+
+    final class Bars: NSView {
+        private let bars = (0..<3).map { _ in CALayer() }
+        var color: NSColor = .white { didSet { bars.forEach { $0.backgroundColor = color.cgColor } } }
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+            for (i, bar) in bars.enumerated() {
+                bar.cornerRadius = 1
+                bar.anchorPoint = CGPoint(x: 0.5, y: 0)                   // grow from the bottom
+                layer?.addSublayer(bar)
+                let rise = CABasicAnimation(keyPath: "transform.scale.y")
+                rise.fromValue = 0.3
+                rise.toValue = 1.0
+                rise.duration = [0.42, 0.58, 0.36][i]
+                rise.autoreverses = true
+                rise.repeatCount = .infinity
+                rise.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                bar.add(rise, forKey: "rise")
+            }
+        }
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func layout() {
+            super.layout()
+            let w = bounds.width / 5
+            for (i, bar) in bars.enumerated() {
+                bar.bounds = CGRect(x: 0, y: 0, width: w, height: bounds.height)
+                bar.position = CGPoint(x: w / 2 + CGFloat(i) * w * 2, y: 0)
+            }
+        }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }      // inside buttons: clicks go to the button
+    }
+
+    func makeNSView(context: Context) -> Bars { Bars() }
+    func updateNSView(_ view: Bars, context: Context) { view.color = color }
 }
 
 /// A frame every `interval` seconds from a plain timer, or none while paused. `.animation(minimumInterval:)` kept
@@ -165,6 +269,17 @@ struct DriftSchedule: TimelineSchedule {
             defer { next = paused ? nil : next?.addingTimeInterval(interval) }
             return next
         }
+    }
+}
+
+/// The explicit mark beside a title, as music apps show it.
+struct ExplicitBadge: View {
+    var body: some View {
+        Image(systemName: "e.square.fill")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Explicit")
+            .help("Explicit")
     }
 }
 
@@ -188,43 +303,11 @@ struct LikeButton: View {
                 .contentTransition(.symbolEffect(.replace))
                 .symbolEffect(.bounce, value: liked)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.quiet)
         .help(liked ? "Remove from Liked" : "Like")
     }
 }
 
-/// A thin progress line that thickens on hover and can be dragged to seek.
-struct ProgressBar: View {
-    let position: Double
-    let duration: Double
-    let onSeek: (Double) -> Void
-    var thickness: CGFloat = 3
-    @State private var hovering = false
-    @State private var dragged: Double?
-    @AppStorage("haptics") private var haptics = true
-    @Environment(ThemeStore.self) private var theme
-
-    var body: some View {
-        GeometryReader { geo in
-            let fraction = duration > 0 ? min(1, max(0, (dragged ?? position) / duration)) : 0
-            ZStack(alignment: .leading) {
-                Capsule().fill(.primary.opacity(0.12))
-                Capsule().fill(theme.color(.progress).map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary.opacity(0.7)))   // System: grey
-                    .frame(width: geo.size.width * fraction)
-            }
-            .frame(height: hovering || dragged != nil ? thickness * 2 : thickness)
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { value in dragged = max(0, min(1, value.location.x / geo.size.width)) * duration }
-                .onEnded { _ in if let d = dragged { onSeek(d) }; dragged = nil })
-        }
-        .frame(height: 14)
-        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
-        // while scrubbing: a tick each time the drag crosses a whole minute
-        .sensoryFeedback(.alignment, trigger: dragged.map { Int($0 / 60) }) { _, _ in haptics && dragged != nil }
-    }
-}
 
 /// The see-through window background: the desktop behind the window shows through, blurred. AppKit's
 /// behind-window blur, the mechanism Finder's sidebar uses. macOS makes it opaque when Reduce Transparency is on.
@@ -286,8 +369,14 @@ struct ClearWindow: NSViewRepresentable {
     final class Finder: NSView {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            window?.isOpaque = false
-            window?.backgroundColor = .clear
+            guard let window else { return }
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            // No "restore windows" snapshots: AppKit kept compressing (zlib) and encrypting an image of the window to
+            // disk, the biggest steady CPU cost while playing (profiled 7 Oct). Its size and place are still kept,
+            // by frame autosave (a few numbers in the app's settings).
+            window.isRestorable = false
+            window.setFrameAutosaveName("NoNonsense main window")
         }
     }
 }
@@ -308,7 +397,7 @@ struct VolumeControl: View {
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 22)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.quiet)
             .foregroundStyle(.secondary)
             .help(player.isMuted ? "Unmute" : "Mute")
             .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")

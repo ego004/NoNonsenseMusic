@@ -209,3 +209,15 @@ def test_many_copies_collect_more_votes():
     yt = [make("Starboy", ["The Weeknd"], 231, "ytmusic")]
     songs = rank_songs([js, yt])
     assert songs[0].title == "Blinding Lights"
+
+
+def test_both_sources_report_the_explicit_version():
+    samples = Path(__file__).parent.parent / "samples"
+    raw_js = json.loads((samples / "jiosaavn_search.json").read_text())["results"]
+    js = [jiosaavn.to_listing(r) for r in raw_js]
+    assert [l.explicit for l in js] == [r["explicit_content"] == "1" for r in raw_js]   # "1" / "0" on every result
+    assert any(l.explicit for l in js) and not all(l.explicit for l in js)
+    rows = ytmusic.song_rows(json.loads((samples / "ytmusic_search.json").read_text()))
+    yt = [ytmusic.to_listing(r) for r in rows]
+    assert sum(l.explicit for l in yt) == 1                                 # the one row with the E badge
+    assert all(l.explicit is not None for l in yt)                        # no badge: the clean (or only) version

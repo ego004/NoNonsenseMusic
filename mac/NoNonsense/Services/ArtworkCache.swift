@@ -8,34 +8,50 @@ import SwiftUI
 final class ArtworkCache {
     static let shared = ArtworkCache()
 
-    private let images = NSCache<NSURL, NSImage>()
-    private var loading: [URL: Task<NSImage?, Never>] = [:]
+    /// Decoded covers, at most 96 MB of pixels: past that the least used are dropped (they download again if needed).
+    private let images: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.totalCostLimit = 96 * 1024 * 1024
+        return cache
+    }()
+    private var loading: [String: Task<NSImage?, Never>] = [:]
     private var grids: [URL: [Color]] = [:]
 
-    func cached(_ url: URL) -> NSImage? { images.object(forKey: url as NSURL) }
+    /// Two sizes. A cover shown at up to 128 pt (lists, shelves, the bar) is decoded at 256 px, about 0.25 MB; a larger
+    /// one (Now Playing, cards) at up to 1,200 px. Every cover used to be decoded at full size, ~1.1 MB, even for a
+    /// 44 pt row (7 Oct: the app held 185 MB).
+    private static func pixels(for points: CGFloat) -> Int { points <= 128 ? 256 : 1200 }
+    private static func key(_ url: URL, _ pixels: Int) -> String { "\(pixels)|\(url.absoluteString)" }
 
-    /// The cover. Two views asking for the same URL at once share one download (single-flight).
-    func image(for url: URL) async -> NSImage? {
-        if let hit = cached(url) { return hit }
-        if let running = loading[url] { return await running.value }
+    func cached(_ url: URL, size points: CGFloat = 1000) -> NSImage? {
+        images.object(forKey: Self.key(url, Self.pixels(for: points)) as NSString)
+    }
+
+    /// The cover, decoded for `size` points. Two views asking for the same one at once share one download.
+    func image(for url: URL, size points: CGFloat = 1000) async -> NSImage? {
+        let pixels = Self.pixels(for: points), key = Self.key(url, pixels)
+        if let hit = images.object(forKey: key as NSString) { return hit }
+        if let running = loading[key] { return await running.value }
         let task = Task { () -> NSImage? in
             guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
-            return await Task.detached(priority: .utility) { Self.decoded(data) }.value
+            return await Task.detached(priority: .utility) { Self.decoded(data, maxPixels: pixels) }.value
         }
-        loading[url] = task
+        loading[key] = task
         let image = await task.value
-        loading[url] = nil
-        if let image { images.setObject(image, forKey: url as NSURL) }
+        loading[key] = nil
+        if let image, let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            images.setObject(image, forKey: key as NSString, cost: cg.bytesPerRow * cg.height)
+        }
         return image
     }
 
     /// A cover ready to draw: decoded once, at most 1,200 px (the largest it is ever shown: 560 pt on a Retina
     /// screen), already in sRGB. `NSImage(data:)` kept the compressed JPEG, so every repaint decoded it again and
     /// converted its colours: that was most of Now Playing's CPU (profiled 7 Oct).
-    nonisolated static func decoded(_ data: Data) -> NSImage? {
+    nonisolated static func decoded(_ data: Data, maxPixels: Int = 1200) -> NSImage? {
         let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
                                         kCGImageSourceCreateThumbnailWithTransform: true,
-                                        kCGImageSourceThumbnailMaxPixelSize: 1200]
+                                        kCGImageSourceThumbnailMaxPixelSize: maxPixels]
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
               let space = CGColorSpace(name: CGColorSpace.sRGB),
@@ -51,7 +67,7 @@ final class ArtworkCache {
     /// They become the points of the moving mesh behind the window.
     func colorGrid(for url: URL) async -> [Color]? {
         if let hit = grids[url] { return hit }
-        guard let image = await image(for: url),
+        guard let image = await image(for: url, size: 64),                 // 3×3 colours need only the small one
               let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         var pixels = [UInt8](repeating: 0, count: 3 * 3 * 4)
         let grid: [Color]? = pixels.withUnsafeMutableBytes { buffer in

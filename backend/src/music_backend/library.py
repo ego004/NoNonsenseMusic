@@ -67,10 +67,11 @@ async def resolve_song(conn: AsyncConnection, listings: list[Listing]) -> UUID:
             # executemany: every listing in one round trip (psycopg pipelines them), not one trip per listing
             async with conn.cursor() as cur:
                 await cur.executemany(
-                    """INSERT INTO listings (source, source_id, song_id, title, artists, album, duration, popularity, image)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                       ON CONFLICT (source, source_id) DO NOTHING""",
-                    [[l.source, l.id, song_id, l.title, l.artists, l.album, l.duration, l.popularity, l.image] for l in same],
+                    """INSERT INTO listings (source, source_id, song_id, title, artists, album, duration, popularity, image, explicit)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (source, source_id) DO UPDATE SET explicit = EXCLUDED.explicit
+                       WHERE listings.explicit IS NULL AND EXCLUDED.explicit IS NOT NULL""",   # fill in an unknown flag
+                    [[l.source, l.id, song_id, l.title, l.artists, l.album, l.duration, l.popularity, l.image, l.explicit] for l in same],
                 )
     return song_id
 
@@ -124,7 +125,7 @@ async def _with_listings(conn: AsyncConnection, rows: list[dict]) -> list[Librar
     for l in listing_rows:
         by_song.setdefault(l["song_id"], []).append(Listing(
             source = l["source"], id = l["source_id"], title = l["title"], artists = l["artists"], album = l["album"],
-            duration = l["duration"], popularity = l["popularity"], image = l["image"],
+            duration = l["duration"], popularity = l["popularity"], image = l["image"], explicit = l["explicit"],
         ))
     songs = []
     for r in rows:

@@ -22,7 +22,7 @@ struct PlayerBar: View {
         } label: {
             Image(systemName: symbol).font(.title3)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.quiet)
         .foregroundStyle(.secondary)
         .help(help)
         .accessibilityLabel(help)
@@ -30,7 +30,9 @@ struct PlayerBar: View {
 
     /// Settings › Colours › Player bar: the glass itself, tinted; System leaves it clear.
     private var barGlass: Glass {
-        if let tint = theme.color(.playerBar) { .regular.tint(tint.opacity(0.35)).interactive() } else { .regular.interactive() }
+        // not .interactive(): the bar is not a button, and the glass reacting to the pointer redrew it on every move.
+        // Its buttons keep their own feedback (QuietButtonStyle)
+        if let tint = theme.color(.playerBar) { .regular.tint(tint.opacity(0.35)) } else { .regular }
     }
 
     var body: some View {
@@ -41,11 +43,14 @@ struct PlayerBar: View {
                     Button { player.showNowPlaying = true } label: {
                         ArtworkView(url: track.image, size: 48, radius: 10)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.quiet(highlight: false))
                     .help("Open Now Playing (⇧⌘F)")
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(track.title).textStyle(.callout, weight: .semibold).lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(track.title).textStyle(.callout, weight: .semibold).lineLimit(1)
+                            if track.isExplicit { ExplicitBadge() }
+                        }
                         Text(track.artistLine).textStyle(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
@@ -60,18 +65,9 @@ struct PlayerBar: View {
                         #if DEBUG
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { SelfTest.controlsFrame = $0 }
                         #endif
-                    HStack(spacing: 8) {
-                        Text(formatTime(player.position))
-                            .frame(width: 40, alignment: .trailing)
-                            .selfTestFrame("bar.elapsed")
-                        ProgressBar(position: player.position, duration: player.duration, onSeek: { player.seek(to: $0) })
-                            .selfTestFrame("bar.progress")
-                        Text("-" + formatTime(max(0, player.duration - player.position)))
-                            .frame(width: 40, alignment: .leading)
-                            .selfTestFrame("bar.remaining")
-                    }
-                    .textStyle(.caption2, monospacedDigit: true)
-                    .foregroundStyle(.secondary)
+                    // the line and the times, drawn by Core Animation: this body no longer reads the position at all
+                    PlaybackTimeline()
+                        .selfTestFrame("bar.progress")
                 }
                 .selfTestFrame("bar.centre")
 
@@ -85,7 +81,7 @@ struct PlayerBar: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             .background { fill }
-            .glassEffect(barStyle == .glass ? barGlass : .identity, in: shape)   // interactive: the glass reacts to hover and press
+            .glassEffect(barStyle == .glass ? barGlass : .identity, in: shape)
             .glassEffectID("bar", in: glass)
             .glassEffectTransition(.materialize)
             .frame(maxWidth: 900)
@@ -218,7 +214,7 @@ struct TransportControls: View {
             .accessibilityLabel("Repeat")
             .accessibilityValue(player.repeatMode.label)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.quiet)
     }
 }
 
@@ -298,25 +294,16 @@ struct NowPlayingView: View {
                 }
                 HStack(alignment: .firstTextBaseline) {
                     Text(track.title).textStyle(.title, weight: .bold).lineLimit(2)
+                    if track.isExplicit { ExplicitBadge().font(.body) }
                     Spacer()
                     LikeButton(track: track, font: .title2)
                 }
                 Text(track.artistLine).textStyle(.title3).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(width: side)
-            VStack(spacing: 4) {
-                ProgressBar(position: player.position, duration: player.duration, onSeek: { player.seek(to: $0) },
-                            thickness: 5)
-                HStack {
-                    Text(formatTime(player.position))
-                    Spacer()
-                    Text("-" + formatTime(max(0, player.duration - player.position)))
-                }
-                .textStyle(.caption, monospacedDigit: true)
-                .foregroundStyle(.secondary)
-                // no rolling digits: their animation ran a third of every second and repainted the cover's layer with it
-            }
-            .frame(width: side)
+            // Core Animation draws the line and the times (PlaybackTimeline): this view no longer reads the position
+            PlaybackTimeline(thickness: 5, textStyle: .caption, timesBelow: true)
+                .frame(width: side)
             TransportControls(size: .title, playSize: .system(size: 44), spinnerSize: .regular, modeSize: .title3)
                 .frame(width: side)
             HStack(spacing: 10) {                     // like Apple Music: quiet speaker, slider, loud speaker
@@ -347,7 +334,7 @@ struct NowPlayingView: View {
             Button { player.showNowPlaying = false } label: {
                 Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 36, height: 36)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.quiet)
             .glassEffect(.regular.interactive(), in: .circle)
             .keyboardShortcut(.cancelAction)                      // Esc closes, and so does a pinch in
             .help("Close (Esc)")
@@ -362,7 +349,7 @@ struct NowPlayingView: View {
                             .contentTransition(.symbolEffect(.replace))
                             .frame(width: 36, height: 36)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.quiet)
                     .glassEffect(.regular.interactive(), in: .circle)
                     .help(isFullScreen ? "Exit Full Screen (⌃⌘F)" : "Full Screen (⌃⌘F)")
                 }
@@ -381,7 +368,7 @@ struct NowPlayingView: View {
                 .foregroundStyle(on ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
                 .frame(width: 36, height: 36)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.quiet)
         .glassEffect(on ? .regular.tint(accent.opacity(0.25)).interactive() : .regular.interactive(), in: .circle)
         .help(on ? "Hide \(title)" : "Show \(title)")
         .accessibilityLabel(title)
@@ -428,7 +415,8 @@ struct LyricsPanel: View {
         case .found(let found) where found.lines.isEmpty:
             message("Couldn't find lyrics", symbol: "quote.bubble", shown: "none")
         case .found(let found) where found.synced:
-            TimedLyricsView(lyrics: found)
+            // the playing line, known before the panel is drawn: it opens there instead of scrolling to it
+            TimedLyricsView(lyrics: found, startLine: found.line(at: player.livePosition + 0.1))
         case .found(let found):
             PlainLyricsView(lyrics: found)
         case .unreachable:
@@ -464,6 +452,11 @@ private struct TimedLyricsView: View {
     @Environment(Player.self) private var player
     @State private var current: Int?
 
+    init(lyrics: Lyrics, startLine: Int?) {
+        self.lyrics = lyrics
+        _current = State(initialValue: startLine)
+    }
+
     var body: some View {
         TimedLines(lines: lyrics.lines, current: current)
             .equatable()                                           // redrawn only when the lit line changes
@@ -497,6 +490,7 @@ private struct TimedLines: View, Equatable {
     let current: Int?                                              // nil: before the first line
     @Environment(Player.self) private var player
     @State private var followAgainAt = Date.distantPast             // you scrolled: follow again after this
+    @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion   // seconds per line change (Settings › Lyrics)
 
     static func == (a: TimedLines, b: TimedLines) -> Bool { a.current == b.current && a.lines == b.lines }
 
@@ -506,7 +500,7 @@ private struct TimedLines: View, Equatable {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                         Button { jump(to: line) } label: { row(line, index: index) }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.quiet)
                             .id(index)
                             .selfTestFrame("lyrics.line.\(index)")
                     }
@@ -522,15 +516,22 @@ private struct TimedLines: View, Equatable {
             }
             .onChange(of: current) { _, line in
                 guard let line, Date.now > followAgainAt else { return }
-                // smooth while the app is in front. Behind other apps it jumps: an animated scroll there never
-                // finished (macOS stops drawing frames for a covered window; tested 7 Oct), and it saves the frames
-                if NSApp.isActive {
-                    withAnimation(.smooth(duration: 0.55)) { proxy.scrollTo(line, anchor: .center) }
+                // smooth whenever the window can be seen, in front or not; a covered window jumps: an animated
+                // scroll there never finished (macOS draws no frames for it; tested 7 Oct), and it saves the frames
+                if NSApp.windows.contains(where: { $0.isVisible && $0.occlusionState.contains(.visible) && $0.styleMask.contains(.titled) }) {
+                    withAnimation(.smooth(duration: motion)) { proxy.scrollTo(line, anchor: .center) }
                 } else {
                     proxy.scrollTo(line, anchor: .center)
                 }
             }
-            .onAppear { if let current { proxy.scrollTo(current, anchor: .center) } }
+            // open at the playing line, with no animation: opening inside the panel switch's animation, the first
+            // placement scrolled visibly from the top (7 Oct). Later line changes scroll smoothly (above)
+            .onAppear {
+                guard let current else { return }
+                var still = Transaction()
+                still.disablesAnimations = true
+                withTransaction(still) { proxy.scrollTo(current, anchor: .center) }
+            }
             #if DEBUG
             .onChange(of: current, initial: true) { _, line in SelfTest.lyricsCurrent = line }
             .onAppear { SelfTest.lyricsJump = { index in jump(to: lines[index]) } }     // the click, when a click cannot reach
@@ -544,10 +545,11 @@ private struct TimedLines: View, Equatable {
             .textStyle(size: 21, weight: .bold)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .foregroundStyle(lit ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-            .opacity(lit ? 1 : 0.55)
-            // opacity only: scaling text made every frame of the change re-render it (measured 7 Oct)
-            .animation(.easeOut(duration: 0.25), value: lit)
+            // one colour, faded: switching primary/secondary snapped while only the opacity faded, so the change
+            // looked jumpy (7 Oct). No scaling: it made every frame of the change re-render the text
+            .foregroundStyle(.primary)
+            .opacity(lit ? 1 : 0.38)
+            .animation(.smooth(duration: motion), value: lit)    // the fade and the scroll move together
             .contentShape(.rect)
             .accessibilityLabel(line.text.isEmpty ? "Instrumental break" : line.text)
             .accessibilityAddTraits(lit ? .isSelected : [])
@@ -603,7 +605,7 @@ struct UpNextView: View {
                 Spacer()
                 if !player.upNextEntries.isEmpty {
                     Button("Clear") { withAnimation(.snappy) { player.clearUpNext() } }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.quiet)
                         .foregroundStyle(.secondary)
                         .help("Empty Up Next; this song plays on")
                 }
@@ -649,13 +651,18 @@ private struct UpNextRow: View {
         HStack(spacing: 10) {
             ArtworkView(url: track.image, size: 36, radius: 6)
             VStack(alignment: .leading, spacing: 1) {
-                Text(track.title).textStyle(.callout).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(track.title).textStyle(.callout).lineLimit(1)
+                    if track.isExplicit { ExplicitBadge() }
+                }
                 Text(track.artistLine).textStyle(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
             if hovering {
+                Image(systemName: "line.3.horizontal").font(.caption).foregroundStyle(.tertiary)   // drag me
+                    .transition(.opacity)
                 Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.quiet)
                     .help("Remove from Up Next")
                     .transition(.opacity)
             }
@@ -663,14 +670,16 @@ private struct UpNextRow: View {
         .padding(.horizontal, 6).padding(.vertical, 4)
         .background(hovering ? AnyShapeStyle(.primary.opacity(0.06)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 8, style: .continuous))
         .contentShape(.rect)
-        .onTapGesture(perform: play)
-        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
+        // double-click plays: a single-click tap gesture took the mouse-down, so the list never started a drag and
+        // Up Next could not be reordered (7 Oct). Playlists' rows work the same way
+        .onTapGesture(count: 2, perform: play)
+        .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
         .contextMenu {
             Button("Play Now", action: play)
             Button("Remove from Up Next", role: .destructive, action: remove)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Play \(track.title) now")
+        .accessibilityLabel("\(track.title). Double-click to play now; drag to move")
     }
 }

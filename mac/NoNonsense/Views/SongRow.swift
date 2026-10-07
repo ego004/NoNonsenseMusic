@@ -55,21 +55,22 @@ struct SongRow: View {
                             if isCurrent && player.isBuffering {
                                 ProgressView().controlSize(.small).tint(.white)          // loading this song
                             } else {
-                                Image(systemName: isCurrent && player.isPlaying ? "speaker.wave.2.fill" : "play.fill")
-                                    .foregroundStyle(.white)
-                                    .symbolEffect(.variableColor.iterative, isActive: isCurrent && player.isPlaying)
+                                PlayingSpeaker(playing: isCurrent && player.isPlaying)
                             }
                         }
                     }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.quiet(highlight: false))
             .accessibilityLabel("Play \(track.title)")
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(track.title)
-                    .textStyle(.body, weight: .medium)
-                    .foregroundStyle(isCurrent ? highlight : AnyShapeStyle(.primary))
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(track.title)
+                        .textStyle(.body, weight: .medium)
+                        .foregroundStyle(isCurrent ? highlight : AnyShapeStyle(.primary))
+                        .lineLimit(1)
+                    if track.isExplicit { ExplicitBadge() }
+                }
                 HStack(spacing: 5) {
                     if downloads.isDownloading(track) {
                         ProgressView().controlSize(.mini)
@@ -96,7 +97,7 @@ struct SongRow: View {
                     .padding(.vertical, 4)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.quiet)
                 .help(expanded ? "Hide the listings" : "Every place this song can be played from")
             }
 
@@ -114,7 +115,7 @@ struct SongRow: View {
                     in: .rect(cornerRadius: 10, style: .continuous))
         .contentShape(.rect)
         .onTapGesture(count: 2) { player.play(queue, startAt: index, keys: keys, source: source) }
-        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
+        .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
         .contextMenu {
             Button("Play") { player.play(queue, startAt: index, keys: keys, source: source) }
             Button("Play Next") { player.playNext(track) }
@@ -155,13 +156,13 @@ struct ListingRow: View {
     var body: some View {
         Button(action: play) {
             HStack(spacing: 10) {
-                Image(systemName: isPlaying ? "speaker.wave.2.fill" : "play.fill")
-                    .font(.caption)
-                    .foregroundStyle(isPlaying ? (theme.color(.playing).map(AnyShapeStyle.init) ?? AnyShapeStyle(Color.accentColor)) : AnyShapeStyle(.secondary))
-                    .symbolEffect(.variableColor.iterative, isActive: isPlaying)
+                PlayingSpeaker(playing: isPlaying, font: .caption,
+                               style: isPlaying ? (theme.color(.playing).map(AnyShapeStyle.init) ?? AnyShapeStyle(Color.accentColor)) : AnyShapeStyle(.secondary),
+                               color: theme.color(.playing) ?? .accentColor)
                     .opacity(isPlaying || hovering ? 1 : 0)
                     .frame(width: 16)
                 Text(listing.title).lineLimit(1)
+                if listing.explicit == true { ExplicitBadge() }
                 Text(listing.artists.joined(separator: ", ")).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 12)
                 if isDefault {
@@ -181,7 +182,7 @@ struct ListingRow: View {
                         in: .rect(cornerRadius: 8, style: .continuous))
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.quiet)
         .onHover { hovering = $0 }
         .accessibilityLabel("Play the \(listing.sourceName) listing of \(listing.title)")
     }

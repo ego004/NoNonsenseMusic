@@ -12,6 +12,15 @@ enum Look {
     static let textScale: CGFloat = 1   // the Mac's own text sizes (Settings › Appearance › Text size)
     /// Off: a still background in the playing cover's colours. Moving costs CPU on every frame (see Settings).
     static let animateBackdrop = false
+    /// Off: the playing song's speaker stands still (Settings › Footprint › Animated speaker).
+    /// Seconds a lyric line change takes, the fade and the scroll together (Settings › Lyrics). 0.5 felt quick (7 Oct)
+    static let lyricsMotion = 0.9
+    /// Off: covers on Home show ▶ on hover, nothing more. On: they tilt toward the pointer with a light (it redraws the
+    /// window as the pointer moves over a cover)
+    static let coverTilt = false
+    /// On: a soft highlight under the pointer and a small press on the app's plain buttons (Settings › Appearance)
+    static let buttonFeedback = true
+    static let animatedSpeaker = true      // Core Animation bars: no measurable cost in the app or WindowServer (7 Oct)
 
     // Settings › Appearance › Surfaces: each part's blur and fill. The sidebar and the bar start at 0 / 0: exactly
     // the look they had before these settings (the system's glass alone).
@@ -59,12 +68,47 @@ struct SettingsView: View {
         TabView {
             AppearanceSettings().tabItem { Label("Appearance", systemImage: "paintbrush") }
             TrackpadSettings().tabItem { Label("Trackpad", systemImage: "hand.point.up.left") }
+            PlaybackSettings().tabItem { Label("Playback", systemImage: "play.circle") }
             LyricsSettings().tabItem { Label("Lyrics", systemImage: "quote.bubble") }
             DiscordSettings().tabItem { Label("Discord", systemImage: "person.wave.2") }
             ServerSettings().tabItem { Label("Server", systemImage: "server.rack") }
             FootprintSettings().tabItem { Label("Footprint", systemImage: "gauge.with.dots.needle.33percent") }
         }
         .frame(width: 620)
+        .background(KeepOnScreen())
+    }
+}
+
+/// Moves the Settings window up when a taller tab would push its bottom off the screen. The window grows downward
+/// from where its top was left, so a window opened low ran 62 pt past the bottom (Appearance, 7 Oct) even though
+/// every page fits the screen's height.
+private struct KeepOnScreen: NSViewRepresentable {
+    func makeNSView(context: Context) -> KeepOnScreenView { KeepOnScreenView() }
+    func updateNSView(_ view: KeepOnScreenView, context: Context) {}
+}
+
+final class KeepOnScreenView: NSView {
+    private var observer: NSObjectProtocol?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
+        guard let window else { return }
+        observer = NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.nudge() }
+        }
+        nudge()
+    }
+
+    isolated deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
+
+    private func nudge() {
+        guard let window, let screen = window.screen?.visibleFrame else { return }
+        var frame = window.frame
+        guard frame.minY < screen.minY else { return }
+        frame.origin.y = min(screen.minY, screen.maxY - frame.height)
+        window.setFrameOrigin(frame.origin)
     }
 }
 
@@ -74,6 +118,9 @@ private struct AppearanceSettings: View {
     @AppStorage("windowBlur") private var windowBlur = Look.windowBlur
     @AppStorage("artStrength") private var artStrength = Look.artStrength
     @AppStorage("animateBackdrop") private var animateBackdrop = Look.animateBackdrop
+    @AppStorage("buttonFeedback") private var buttonFeedback = Look.buttonFeedback
+    @AppStorage("animatedSpeaker") private var animatedSpeaker = Look.animatedSpeaker
+    @AppStorage("coverTilt") private var coverTilt = Look.coverTilt
     @AppStorage("textScale") private var textScale = Look.textScale
     @AppStorage("cardSize") private var cardSize = Double(Look.cardSize)
     // which sections are open, remembered; Colours (seven rows) starts closed
@@ -99,6 +146,20 @@ private struct AppearanceSettings: View {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                Toggle(isOn: $buttonFeedback) {
+                    Text("Button feedback")
+                    Text("A soft highlight under the pointer and a small press. Buttons take clicks around their icon either way.")
+                        .foregroundStyle(.secondary)
+                }
+                Toggle(isOn: $coverTilt) {
+                    Text("Covers tilt toward the pointer")
+                    Text("With a light that follows it. Redraws the window on every pointer move over a cover: CPU while you hover.")
+                        .foregroundStyle(.secondary)
+                }
+                Toggle(isOn: $animatedSpeaker) {
+                    Text("Moving bars on the playing song")
+                    Text("macOS animates them, not the app: no measurable cost.").foregroundStyle(.secondary)
+                }
                 Toggle(isOn: $animateBackdrop) {
                     Text("Moving background")
                     // measured 7 Oct, a debug build on an Apple silicon Mac, a song playing: still vs moving
@@ -204,6 +265,9 @@ private struct AppearanceSettings: View {
                         nowPlayingSolid = Look.nowPlayingSolid
                         nowPlayingColour = Look.nowPlayingColour
                         animateBackdrop = Look.animateBackdrop
+                        buttonFeedback = Look.buttonFeedback
+                        animatedSpeaker = Look.animatedSpeaker
+                        coverTilt = Look.coverTilt
                         textScale = Look.textScale
                         cardSize = Double(Look.cardSize)
                         theme.reset()
@@ -279,6 +343,27 @@ private struct TrackpadSettings: View {
     }
 }
 
+/// Settings › Playback.
+private struct PlaybackSettings: View {
+    @AppStorage("versionPreference") private var version = "explicit"
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("When a song has both", selection: $version) {
+                    Text("Play the explicit version").tag("explicit")
+                    Text("Play the clean version").tag("clean")
+                }
+                .pickerStyle(.radioGroup)
+            } footer: {
+                Text("Explicit versions show 🅴. Open a song's versions to see each one and play any of them. Applies to songs listed from now on.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .settingsPage()
+    }
+}
+
 /// When the app asks the server for lyrics (Settings › Lyrics).
 enum LyricsFetch: String, CaseIterable, Identifiable {
     case songStart, onOpen
@@ -288,6 +373,7 @@ enum LyricsFetch: String, CaseIterable, Identifiable {
 
 private struct LyricsSettings: View {
     @AppStorage("lyricsFetch") private var fetch = LyricsFetch.songStart
+    @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion
 
     var body: some View {
         Form {
@@ -296,6 +382,12 @@ private struct LyricsSettings: View {
                     ForEach(LyricsFetch.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.radioGroup)
+                LabeledContent {
+                    RangeSlider(value: $motion, in: 0.3...1.5, low: "Quick", high: "Slow")
+                } label: {
+                    Text("Line change")
+                    Text(String(format: "%.1f s: the light and the scroll move together", motion)).foregroundStyle(.secondary)
+                }
             } footer: {
                 Text("The first time a song's lyrics are asked for, the server looks them up (about 1–2 seconds); after that it answers from its own store at once. Fetching when a song starts means Lyrics opens with them ready. Downloaded songs keep their lyrics, so they show offline.")
                     .foregroundStyle(.secondary)
@@ -438,11 +530,17 @@ private struct ServerSettings: View {
     @AppStorage("serverReload") private var reloads = false
     @Environment(ServerLauncher.self) private var server
     @State private var serverOK: Bool?
+    // drafts, saved on Return: a field bound to the setting saved whatever it showed, even a test window's
+    // launch-argument address, when its window closed (that is how 8765 became your saved address, 7 Oct)
+    @State private var addressDraft = ""
+    @State private var folderDraft = ""
 
     var body: some View {
         Form {
             Section {
-                TextField("Address", text: $serverURL)
+                TextField("Address", text: $addressDraft, prompt: Text(API.defaultServer))
+                    .onSubmit { serverURL = addressDraft.trimmingCharacters(in: .whitespaces).isEmpty ? API.defaultServer : addressDraft }
+                    .onAppear { addressDraft = serverURL }
                 LabeledContent("Status") {
                     switch serverOK {
                     case .none: Text("Checking…").foregroundStyle(.secondary)
@@ -450,7 +548,9 @@ private struct ServerSettings: View {
                     case .some(false): Label("Not reachable", systemImage: "xmark.circle.fill").foregroundStyle(.red)
                     }
                 }
-                TextField("Backend folder", text: $backendFolder)
+                TextField("Backend folder", text: $folderDraft)
+                    .onSubmit { backendFolder = folderDraft }
+                    .onAppear { folderDraft = backendFolder }
                 LabeledContent("Auto-start") { Text(server.summary).foregroundStyle(.secondary) }
                 Toggle(isOn: $reloads) {
                     Text("Reload when the backend's code changes")
@@ -466,7 +566,7 @@ private struct ServerSettings: View {
                     Button("Open server log") { NSWorkspace.shared.open(ServerLauncher.logURL) }
                 }
             } footer: {
-                Text("When nothing answers at a local address, the app starts the backend in this folder (one process, listening on this Mac only) and stops it when the app quits. A server you started yourself in a terminal is left alone.")
+                Text("When nothing answers at a local address, the app starts the backend in this folder (one process, listening on this Mac only) and stops it when the app quits. A server you started yourself in a terminal is left alone. Press Return to apply a new address or folder.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -519,6 +619,7 @@ private struct FootprintSettings: View {
     @State private var meter = FootprintMeter()
     @AppStorage("animateBackdrop") private var animateBackdrop = Look.animateBackdrop
     @AppStorage("serverReload") private var reloads = false
+    @AppStorage("searchPrefetch") private var searchPrefetch = Prefetcher.searchDefault
 
     var body: some View {
         Form {
@@ -538,6 +639,15 @@ private struct FootprintSettings: View {
                 Toggle(isOn: $animateBackdrop) {
                     Text("Moving background")
                     Text("About 5% more of one core in the main window, 10–14% more in Now Playing, while music plays.")
+                        .foregroundStyle(.secondary)
+                }
+                Picker(selection: $searchPrefetch) {
+                    Text("None").tag(0)
+                    Text("The top result").tag(1)
+                    Text("The top 5").tag(5)
+                } label: {
+                    Text("Get search results ready")
+                    Text("Each one is a YouTube lookup on your server (~2 s of its work) and one more request YouTube sees. The ones made ready start at once when clicked; others wait ~2 s.")
                         .foregroundStyle(.secondary)
                 }
                 Toggle(isOn: $reloads) {

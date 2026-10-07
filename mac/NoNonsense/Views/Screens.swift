@@ -55,7 +55,7 @@ struct SidebarView: View {
                 Button { library.newPlaylistRequest = .init(track: nil) } label: {
                     Label { Text("New Playlist").selfTestFrame("sidebar.title:New Playlist") } icon: { Image(systemName: "plus").selfTestFrame("sidebar.icon:New Playlist") }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.quiet)
                 .foregroundStyle(.secondary)
                 .help("New Playlist (⌘N)")
             } header: {
@@ -64,7 +64,7 @@ struct SidebarView: View {
         }
         .safeAreaInset(edge: .bottom) {
             SettingsLink { Label("Settings", systemImage: "gearshape") }
-                .buttonStyle(.plain)
+                .buttonStyle(.quiet)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16).padding(.bottom, 14)
@@ -182,7 +182,7 @@ struct SearchView: View {
                     results = response.songs.map(Track.init)
                     sources = response.sources
                 }
-                Prefetcher.shared.searchChanged(results.prefix(5).map(\.best))   // the top results start at once if clicked
+                Prefetcher.shared.searchChanged(results.prefix(5).map(\.best))   // the top results (as many as Settings › Footprint says) start at once
                 failed = false
             } catch {
                 if !Task.isCancelled { failed = true }
@@ -286,7 +286,7 @@ struct SearchBar: View {
                 ProgressView().controlSize(.small)
             } else if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.quiet)
                     .help("Clear")
             }
         }
@@ -334,7 +334,7 @@ struct RecentSearchChips: View {
                     Text("Recent searches").textStyle(.title3, weight: .semibold)
                     Spacer()
                     Button("Clear") { withAnimation(.snappy) { raw = "" } }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.quiet)
                         .foregroundStyle(.secondary)
                 }
                 GlassEffectContainer(spacing: 8) {
@@ -365,7 +365,7 @@ private struct RecentChip: View {
             Text(query).textStyle(.callout).lineLimit(1)
             if hovering {
                 Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.quiet)
                     .help("Remove")
                     .transition(.scale.combined(with: .opacity))
             }
@@ -374,7 +374,7 @@ private struct RecentChip: View {
         .contentShape(.capsule)
         .glassEffect(.regular.interactive(), in: .capsule)
         .onTapGesture(perform: search)
-        .onHover { h in withAnimation(.snappy(duration: 0.15)) { hovering = h } }
+        .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
         .contextMenu { Button("Remove", action: remove) }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
@@ -450,11 +450,15 @@ struct TiltCard<Art: View>: View {
     var play: (() -> Void)? = nil
     @ViewBuilder let art: () -> Art
     @State private var pointer: CGPoint?                 // where the pointer is on the card, 0...1 each way
+    @State private var plainHover = false                // tilt off: only whether the pointer is over it
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Settings › Appearance › Cover tilt. Off by default: the tilt springs on every pointer move and animates the
+    // shadow's blur, and each frame redraws the whole window (profiled 7 Oct). Off, hover only shows ▶, instantly
+    @AppStorage("coverTilt") private var tiltOn = Look.coverTilt
 
     var body: some View {
-        let hovering = pointer != nil
-        let tilt = reduceMotion ? nil : pointer
+        let hovering = tiltOn ? pointer != nil : plainHover
+        let tilt = (reduceMotion || !tiltOn) ? nil : pointer
         art()
             .frame(width: side, height: side)
             .clipShape(.rect(cornerRadius: radius, style: .continuous))
@@ -475,7 +479,7 @@ struct TiltCard<Art: View>: View {
                             .frame(width: 36, height: 36)
                             .glassEffect(.regular.interactive(), in: .circle)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.quiet)
                     .padding(10)
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
                     .accessibilityLabel("Play")
@@ -483,9 +487,11 @@ struct TiltCard<Art: View>: View {
             }
             .rotation3DEffect(.degrees(tilt.map { ($0.y - 0.5) * -9 } ?? 0), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
             .rotation3DEffect(.degrees(tilt.map { ($0.x - 0.5) * 9 } ?? 0), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
-            .shadow(color: .black.opacity(hovering ? 0.32 : 0.14), radius: hovering ? 18 : 8, y: hovering ? 12 : 4)
-            .scaleEffect(hovering ? 1.035 : 1)
+            .shadow(color: .black.opacity(tilt != nil ? 0.32 : 0.14), radius: tilt != nil ? 18 : 8, y: tilt != nil ? 12 : 4)
+            .scaleEffect(tilt != nil ? 1.035 : 1)
+            .onHover { h in if !tiltOn { plainHover = h } }
             .onContinuousHover { phase in
+                guard tiltOn else { return }
                 switch phase {
                 case .active(let at):
                     withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.8)) {

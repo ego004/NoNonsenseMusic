@@ -323,7 +323,7 @@ enum SelfTest {
             // play the first result (muted): the search should now be a recent search. Yours are put back after.
             let savedRecent = UserDefaults.standard.object(forKey: "recentSearches")
             UserDefaults.standard.removeObject(forKey: "recentSearches")
-            if API.baseURL.port != 8000 {
+            if await onOwnTestServer() {
                 if !player.isMuted { player.toggleMute() }
                 NotificationCenter.default.post(name: .selfTestPlayFirstResult, object: nil)   // as a double-click on the first row
                 try? await Task.sleep(for: .seconds(1))
@@ -441,7 +441,7 @@ enum SelfTest {
         guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_PLAYLISTS"] else { return }
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard API.baseURL.port != 8000 else { report("playlists: refusing to run against your own server (port 8000)"); NSApp.terminate(nil); return }
+            guard await onOwnTestServer() else { report("playlists: refusing: the server answering was not started by this test (it may hold your library)"); NSApp.terminate(nil); return }
             if !player.isMuted { player.toggleMute() }
             // Play and Shuffle remember shuffle in YOUR settings (a test window shares them): put it back before quitting
             let savedShuffle = UserDefaults.standard.object(forKey: "shuffle")
@@ -522,7 +522,7 @@ enum SelfTest {
         guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_HOME"] else { return }
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard API.baseURL.port != 8000 else { report("home: refusing to run against your own server (port 8000)"); NSApp.terminate(nil); return }
+            guard await onOwnTestServer() else { report("home: refusing: the server answering was not started by this test (it may hold your library)"); NSApp.terminate(nil); return }
             guard let found = try? await API.search(query) else { report("home: search failed"); NSApp.terminate(nil); return }
             let songs = found.songs.prefix(6).map(Track.init)
             let name = "Self-test Mix \(Int.random(in: 100...999))"
@@ -574,7 +574,7 @@ enum SelfTest {
         guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_NOWPLAYING"] else { return }
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard API.baseURL.port != 8000 else { report("nowplaying: refusing to run against your own server (port 8000)"); NSApp.terminate(nil); return }
+            guard await onOwnTestServer() else { report("nowplaying: refusing: the server answering was not started by this test (it may hold your library)"); NSApp.terminate(nil); return }
             if !player.isMuted { player.toggleMute() }
             guard let found = try? await API.search(query) else { report("nowplaying: search failed"); NSApp.terminate(nil); return }
             player.play(found.songs.prefix(4).map(Track.init))
@@ -620,7 +620,7 @@ enum SelfTest {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
             report("idle: on Home now")
             try? await Task.sleep(for: .seconds(seconds))
-            if let query = ProcessInfo.processInfo.environment["NN_SELFTEST_IDLE_PLAY"], API.baseURL.port != 8000,
+            if let query = ProcessInfo.processInfo.environment["NN_SELFTEST_IDLE_PLAY"], await onOwnTestServer(),
                let found = try? await API.search(query) {
                 if !player.isMuted { player.toggleMute() }
                 player.play(found.songs.prefix(3).map(Track.init))
@@ -640,7 +640,7 @@ enum SelfTest {
         let parts = spec.split(separator: "|").map(String.init)
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard API.baseURL.port != 8000, parts.count == 2 else { report("prefetch: test server and two searches needed"); NSApp.terminate(nil); return }
+            guard await onOwnTestServer(), parts.count == 2 else { report("prefetch: test server and two searches needed"); NSApp.terminate(nil); return }
             let noRedirect = URLSession(configuration: .ephemeral, delegate: StopRedirects(), delegateQueue: nil)
             func time(_ listing: Listing) async -> String {
                 let start = Date()
@@ -678,7 +678,7 @@ enum SelfTest {
         guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_UPNEXT"] else { return }
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard API.baseURL.port != 8000, let found = try? await API.search(query) else { report("upnext: test server and a search needed"); NSApp.terminate(nil); return }
+            guard await onOwnTestServer(), let found = try? await API.search(query) else { report("upnext: test server and a search needed"); NSApp.terminate(nil); return }
             if !player.isMuted { player.toggleMute() }
             let saved = UserDefaults.standard.string(forKey: "nowPlayingPanel")
             UserDefaults.standard.set("upNext", forKey: "nowPlayingPanel")
@@ -705,7 +705,7 @@ enum SelfTest {
         guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_DOWNLOADS"] else { return }
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard API.baseURL.port != 8000, downloads.folder.lastPathComponent == "Downloads-selftest",
+            guard await onOwnTestServer(), downloads.folder.lastPathComponent == "Downloads-selftest",
                   let found = try? await API.search(query) else { report("downloads: test server, test folder and a search needed"); NSApp.terminate(nil); return }
             var failures = 0
             @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
@@ -729,7 +729,7 @@ enum SelfTest {
             check("the server is really off", !(await API.health()))
             player.play([songs[1]])
             try? await Task.sleep(for: .seconds(3))
-            let position = player.position
+            let position = player.livePosition
             report(String(format: "downloads: with the server off: playing %@, from its file: %@, buffering: %@, position %.1f s", songs[1].title,
                           player.playingFile ? "yes" : "no", player.isBuffering ? "yes" : "no", position))
             check("with the server off, a download plays from its file", player.playingFile && player.isPlaying && !player.isBuffering && position > 0.5)
@@ -842,6 +842,16 @@ enum SelfTest {
         }
     }
 
+    /// True only for a server this test app started itself (with the test database from its environment), on a port
+    /// that is not 8000. "Not 8000" alone was not enough: on 7 Oct your own app's server sat on 8765 (your saved address
+    /// had become the test one), a test found it answering, used it, and wrote one play into your library.
+    /// Waits for the launcher to finish starting (it marks its server started only on its own next check, up to half a
+    /// second after /health first answers: checking sooner refused a good run, 7 Oct).
+    static func onOwnTestServer() async -> Bool {
+        await ServerLauncher.shared.ensureRunning()
+        return API.baseURL.port != 8000 && ServerLauncher.shared.state == .started
+    }
+
     /// Where a self-test saves the settings it is about to change (`borrowDefaults`).
     private static let restoreFile = FileManager.default.temporaryDirectory.appending(path: "nn-selftest-defaults.plist")
 
@@ -869,7 +879,7 @@ enum SelfTest {
         guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_BAR"] else { return }
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard API.baseURL.port != 8000, let found = try? await API.search(query), found.songs.count >= 2,
+            guard await onOwnTestServer(), let found = try? await API.search(query), found.songs.count >= 2,
                   let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }), let root = window.contentView?.superview
             else { report("bar: test server, a search and a window needed"); NSApp.terminate(nil); return }
             var failures = 0
@@ -886,7 +896,7 @@ enum SelfTest {
 
             @MainActor func layout(_ label: String) {
                 guard let bar = frames["bar"], let song = frames["bar.song"], let centre = frames["bar.centre"], let buttons = frames["bar.buttons"],
-                      let progress = frames["bar.progress"], let elapsed = frames["bar.elapsed"], let remaining = frames["bar.remaining"]
+                      let progress = frames["bar.progress"]
                 else { check("\(label): every part reports where it is", false, "\(frames.keys.filter { $0.hasPrefix("bar") }.sorted())"); return }
                 let controls = controlsFrame
                 report(String(format: "bar: %@: bar %.0f × %.0f pt; centre %.0f pt wide; progress line %.0f pt; buttons %.0f pt; controls centre off by %.1f pt",
@@ -894,14 +904,33 @@ enum SelfTest {
                 check("\(label): ⏮ ▶ ⏭ at the bar's exact centre (within 1 pt)", abs(controls.midX - bar.midX) <= 1, String(format: "%.1f", controls.midX - bar.midX))
                 check("\(label): the progress line is under the controls, not on the bar's edge",
                       progress.minY >= controls.maxY - 1 && bar.maxY - progress.maxY >= 6, String(format: "%.0f pt from the bottom", bar.maxY - progress.maxY))
-                check("\(label): the times sit beside the line, not on it", elapsed.maxX <= progress.minX + 0.5 && remaining.minX >= progress.maxX - 0.5)
+                check("\(label): the timeline (both times and the line) fits in the centre column", progress.minX >= centre.minX - 0.5 && progress.maxX <= centre.maxX + 0.5)
                 check("\(label): the song, the centre and the buttons do not overlap", song.maxX <= centre.minX + 0.5 && buttons.minX >= centre.maxX - 0.5,
                       String(format: "song ends %.0f, centre %.0f…%.0f, buttons start %.0f", song.maxX, centre.minX, centre.maxX, buttons.minX))
                 check("\(label): the buttons stay inside the bar", buttons.maxX <= bar.maxX - 8, String(format: "%.0f > %.0f", buttons.maxX, bar.maxX - 8))
             }
+            // the window opens at whatever size your own app was left at (they share settings): set the wide size first
+            let saved = window.frame
+            window.setFrame(NSRect(x: saved.minX, y: saved.minY, width: 1180, height: saved.height), display: true)
+            try? await Task.sleep(for: .seconds(1))
             layout("at \(Int(window.frame.width)) pt")
             let wide = buttonsWidth()
-            let saved = window.frame
+            // the timeline moves by itself: a Core Animation animation on the played part, and the time text ticking
+            if let timeline = descendants(of: window.contentView!.superview!).compactMap({ $0 as? TimelineLayersView }).first {
+                let before = timeline.debugState
+                try? await Task.sleep(for: .seconds(2.2))
+                let after = timeline.debugState
+                let seen = window.occlusionState.contains(.visible)
+                report("bar: timeline: animating \(after.animating), elapsed \(before.elapsed) -> \(after.elapsed), window visible: \(seen), playing \(player.isPlaying), buffering \(player.isBuffering), live \(String(format: "%.1f", player.livePosition)) s")
+                check("the played line is a running Core Animation animation (the app draws no frames for it)", after.animating)
+                if seen {
+                    check("the elapsed time advances by itself", before.elapsed != after.elapsed)
+                } else {
+                    report("bar SKIP the elapsed time: the window is covered, and the times update only while it can be seen (by design)")
+                }
+            } else {
+                check("the bar's timeline is there", false)
+            }
             window.setFrame(NSRect(x: saved.minX, y: saved.minY, width: 900, height: saved.height), display: true)
             try? await Task.sleep(for: .seconds(1))
             layout("narrowest window, \(Int(window.frame.width)) pt")
@@ -967,10 +996,12 @@ enum SelfTest {
         let hold = ProcessInfo.processInfo.environment["NN_SELFTEST_PERF_HOLD"].flatMap(Double.init) ?? 12
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard API.baseURL.port != 8000, let found = try? await API.search(query), !found.songs.isEmpty
+            guard await onOwnTestServer(), let found = try? await API.search(query), !found.songs.isEmpty
             else { report("perf: test server and a search needed"); NSApp.terminate(nil); return }
             borrowDefaults(["nowPlayingPanel", "animateBackdrop"])
             if !player.isMuted { player.toggleMute() }
+            // above other windows for the run: a covered window is not drawn, so "visible" phases measured nothing (7 Oct)
+            NSApp.windows.first { $0.styleMask.contains(.titled) }?.level = .floating
             player.play(found.songs.prefix(3).map(Track.init))
             try? await Task.sleep(for: .seconds(6))                       // buffering, artwork, the first lyrics
             // (name, Now Playing open, its panel, background moving)
@@ -979,6 +1010,10 @@ enum SelfTest {
                 ("Now Playing + Up Next", true, .upNext, true), ("Now Playing + Lyrics", true, .lyrics, true),
                 ("Lyrics, still bg", true, .lyrics, false), ("Up Next, still bg", true, .upNext, false),
                 ("Now Playing alone, still bg", true, .none, false), ("main window, still bg", false, .none, false),
+                ("Recently Played, playing song shown", false, .none, false),
+                ("idle: paused, Home", false, .none, false),
+                ("playing, window minimised", false, .none, false),
+                ("playing, Home, window visible", false, .none, false),
             ]
             // NN_SELFTEST_PERF_PHASES="main window|Now Playing alone": only these
             let only = ProcessInfo.processInfo.environment["NN_SELFTEST_PERF_PHASES"].map { Set($0.split(separator: "|").map(String.init)) }
@@ -986,12 +1021,218 @@ enum SelfTest {
                 UserDefaults.standard.set(moving, forKey: "animateBackdrop")
                 UserDefaults.standard.set(panel.rawValue, forKey: "nowPlayingPanel")
                 player.showNowPlaying = open
+                // the list where the playing song shows its animated speaker (its play was just recorded)
+                if name == "Recently Played, playing song shown" { NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.recent)) }
+                let window = NSApp.windows.first { $0.styleMask.contains(.titled) && $0.title != "Settings" }
+                if name.hasPrefix("idle") || name.hasPrefix("playing, ") {
+                    NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.home))
+                }
+                if name.hasPrefix("idle") { if player.isPlaying { player.togglePlayPause() } }
+                if name.hasPrefix("playing, ") && !player.isPlaying { player.togglePlayPause() }
+                if name == "playing, window minimised" { window?.miniaturize(nil) }
+                if name == "playing, Home, window visible" { window?.deminiaturize(nil) }
                 try? await Task.sleep(for: .seconds(2))                   // transitions finish before sampling
                 report("perf: phase \(name)")
+                if let w = window { report("perf: window visible \(w.occlusionState.contains(.visible)), minimised \(w.isMiniaturized)") }
                 try? await Task.sleep(for: .seconds(hold))
             }
+            await interactionPhases(player: player, songs: found.songs.map(Track.init), hold: hold, only: only)
             report("perf: done")
             returnDefaults()
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// Interactions, each repeated for the whole hold so the samples measure what it costs while you use the app
+    /// ("about 1% while interacting", 7 Oct). The window is not the active one (a test cannot make it so), but it is
+    /// above the others, so it is drawn. Each reports what it did, as evidence that it really happened.
+    private static func interactionPhases(player: Player, songs: [Track], hold: Double, only: Set<String>?) async {
+        UserDefaults.standard.set(false, forKey: "animateBackdrop")
+        let window = NSApp.windows.first { $0.styleMask.contains(.titled) && $0.title != "Settings" }
+        var done = 0
+        let phases: [(String, @MainActor () async -> Void, @MainActor () async -> Void)] = [
+            ("act: Now Playing opens and closes every 2 s", {
+                player.showNowPlaying = false
+                NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.home))
+            }, {
+                player.showNowPlaying.toggle(); done += 1
+                try? await Task.sleep(for: .seconds(2))
+            }),
+            ("act: Now Playing panels switch every 2 s", {
+                player.showNowPlaying = true
+            }, {
+                let order: [NowPlayingPanel] = [.upNext, .lyrics, .none]
+                UserDefaults.standard.set(order[done % 3].rawValue, forKey: "nowPlayingPanel"); done += 1
+                try? await Task.sleep(for: .seconds(2))
+            }),
+            ("act: the next song every 3 s", {
+                player.showNowPlaying = false
+                NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.home))
+            }, {
+                player.play(songs, startAt: done % max(1, min(songs.count, 4))); done += 1
+                try? await Task.sleep(for: .seconds(3))
+            }),
+            ("act: scrolling Recently Played", {
+                NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.recent))
+            }, {
+                // a trackpad flick down, then back up: 20 steps over 0.4 s each way, the way fingers move
+                let down = await scroll(window, by: -12, steps: 20)
+                let up = await scroll(window, by: 12, steps: 20)
+                if down && up { done += 1 }
+                try? await Task.sleep(for: .seconds(1))
+            }),
+            ("act: typing a search", {
+                NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.search))
+            }, {
+                // "arijit singh" at 150 ms a letter (one search fires, after the 350 ms pause), its results, then cleared
+                guard let root = window?.contentView?.superview,
+                      let field = descendants(of: root).compactMap({ $0 as? NSTextField }).first(where: { $0.placeholderString == "Songs, artists, albums" })
+                else { try? await Task.sleep(for: .seconds(1)); return }
+                for text in (1...12).map({ String("arijit singh".prefix($0)) }) + ["", ""] {
+                    field.stringValue = text
+                    (field.delegate as? NSTextFieldDelegate)?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: field))
+                    try? await Task.sleep(for: .milliseconds(text.isEmpty ? 1000 : 150))
+                    if text.count == 12 { try? await Task.sleep(for: .seconds(2)) }   // the results arrive and show
+                }
+                done += 1
+            }),
+        ]
+        for (name, setup, step) in phases where only?.contains(name) ?? true {
+            if !player.isPlaying { player.togglePlayPause() }
+            await setup()
+            try? await Task.sleep(for: .seconds(1.5))
+            done = 0
+            let actions = Task { @MainActor in while !Task.isCancelled { await step() } }
+            try? await Task.sleep(for: .seconds(1))
+            report("perf: phase \(name)")
+            try? await Task.sleep(for: .seconds(hold))
+            actions.cancel()
+            report("perf: \(name): \(done) time(s)")
+            try? await Task.sleep(for: .seconds(0.5))
+        }
+        player.showNowPlaying = false
+    }
+
+    /// Posts trackpad scroll events (began, changed…, ended) at the middle of the window's content, into the app's
+    /// own queue, 20 ms apart. True if a scroll view under that point moved.
+    private static func scroll(_ window: NSWindow?, by dy: Int32, steps: Int) async -> Bool {
+        guard let window, let content = window.contentView else { return false }
+        let inWindow = NSPoint(x: content.bounds.midX + 80, y: content.bounds.midY)
+        let onScreen = window.convertPoint(toScreen: inWindow)
+        let screenTop = NSScreen.screens.first?.frame.height ?? 0
+        let scrollView = content.hitTest(inWindow).flatMap { v in sequence(first: v, next: \.superview).first { $0 is NSScrollView } } as? NSScrollView
+        let before = scrollView?.contentView.bounds.origin.y
+        for i in 0...(steps + 1) {
+            let phase: Int64 = i == 0 ? 1 : i == steps + 1 ? 4 : 2                       // began, changed, ended
+            guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: phase == 2 ? dy : 0, wheel2: 0, wheel3: 0)
+            else { continue }
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+            cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
+            cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
+            cg.location = CGPoint(x: onScreen.x, y: screenTop - onScreen.y)
+            if let event = NSEvent(cgEvent: cg) { NSApp.postEvent(event, atStart: false) }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+        return before != nil && scrollView?.contentView.bounds.origin.y != before
+    }
+
+    /// With `NN_SELFTEST_CONNECTION=1` (its own test server, muted): five songs that cannot play stop the player at the
+    /// third with a "Stopped" message (they used to cycle through the whole queue); then the server stops, the banner's
+    /// state turns to "not connected", and Try Again's steps bring it back.
+    static func runConnectionCheckIfAsked(player: Player) {
+        guard ProcessInfo.processInfo.environment["NN_SELFTEST_CONNECTION"] != nil else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard await onOwnTestServer() else { report("connection: refusing: the server answering was not started by this test"); NSApp.terminate(nil); return }
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("connection \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            if !player.isMuted { player.toggleMute() }
+            // made-up JioSaavn ids: the server answers 404 at once, nothing outside is asked
+            let broken = (1...5).map { n in
+                Track(best: Listing(source: "jiosaavn", id: "selftest-gone-\(n)", title: "Gone \(n)", artists: ["Self-test"], album: nil,
+                                    duration: 200, popularity: nil, image: nil), listings: [])
+            }
+            player.play(broken)
+            var stopped = false
+            for _ in 0..<60 {
+                try? await Task.sleep(for: .milliseconds(250))
+                if !player.isPlaying && !player.isBuffering && (player.errorMessage ?? "").hasPrefix("Stopped") { stopped = true; break }
+            }
+            report("connection: now on \(player.current?.title ?? "-"), playing \(player.isPlaying), message: \(player.errorMessage ?? "-")")
+            check("five songs that cannot play: it stops at the third and says so", stopped && player.current?.title == "Gone 3")
+
+            check("the server answers at first: no banner", Connectivity.shared.serverAnswers)
+            ServerLauncher.shared.stop()
+            try? await Task.sleep(for: .seconds(1))
+            await Connectivity.shared.checkServer()
+            check("the server stopped: the banner says Server not connected", !Connectivity.shared.serverAnswers)
+            await ServerLauncher.shared.ensureRunning()                          // what Try Again does
+            let back = await Connectivity.shared.checkServer()
+            check("Try Again: the server starts again and the banner goes", back && Connectivity.shared.serverAnswers)
+            report("connection: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// With `NN_SELFTEST_COVERS="<search>|<search>"`: loads the results' covers at list size (44 pt), then at Now Playing
+    /// size (560 pt), and reports the decoded pixels held for each (the app's phys_footprint did not show them, 7 Oct).
+    static func runCoversCheckIfAsked() {
+        guard let spec = ProcessInfo.processInfo.environment["NN_SELFTEST_COVERS"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard await onOwnTestServer() else { report("covers: refusing: the server answering was not started by this test"); NSApp.terminate(nil); return }
+            var urls: [URL] = []
+            for q in spec.split(separator: "|") {
+                if let found = try? await API.search(String(q)) { urls += found.songs.compactMap { Track(best: $0.best, listings: $0.listings).image } }
+            }
+            urls = Array(Set(urls))
+            @MainActor func pixelsMB(_ size: CGFloat) async -> (mb: Double, side: Int) {
+                var bytes = 0, side = 0
+                for url in urls {
+                    if let cg = await ArtworkCache.shared.image(for: url, size: size)?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                        bytes += cg.bytesPerRow * cg.height; side = max(side, cg.width)
+                    }
+                }
+                return (Double(bytes) / 1_048_576, side)
+            }
+            let s = await pixelsMB(44)
+            let l = await pixelsMB(560)
+            report(String(format: "covers: decoded pixels held: list size %.1f MB (largest %d px), Now Playing size %.1f MB (largest %d px)", s.mb, s.side, l.mb, l.side))
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// With `NN_SELFTEST_EXPLICIT="<search>"` (its own test server): a song that has an explicit and a clean version
+    /// plays the explicit one by default and the clean one with Settings › Playback › clean; the flags reach the app.
+    static func runExplicitCheckIfAsked() {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_EXPLICIT"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard await onOwnTestServer(), let found = try? await API.search(query) else { report("explicit: refusing, or the search failed"); NSApp.terminate(nil); return }
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("explicit \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            let flagged = found.songs.flatMap(\.listings).filter { $0.explicit != nil }.count
+            let total = found.songs.flatMap(\.listings).count
+            check("every listing in the search carries the flag", flagged == total, "\(flagged) of \(total)")
+            guard let both = found.songs.first(where: { s in s.listings.contains { $0.explicit == true } && s.listings.contains { $0.explicit == false } }) else {
+                check("a song with both versions in the results", false); NSApp.terminate(nil); return
+            }
+            report("explicit: \(both.title): \(both.listings.filter { $0.explicit == true }.count) explicit and \(both.listings.filter { $0.explicit == false }.count) clean copies; the server's pick is \(both.best.explicit == true ? "explicit" : "clean")")
+            borrowDefaults(["versionPreference"])
+            UserDefaults.standard.removeObject(forKey: "versionPreference")
+            check("by default the explicit version is the one that plays", Track(best: both.best, listings: both.listings).best.explicit == true)
+            UserDefaults.standard.set("clean", forKey: "versionPreference")
+            check("with Playback › clean, the clean version plays", Track(best: both.best, listings: both.listings).best.explicit == false)
+            returnDefaults()
+            report("explicit: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
             NSApp.terminate(nil)
         }
     }
@@ -1040,7 +1281,7 @@ enum SelfTest {
         let parts = spec.split(separator: "|").map(String.init)
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard API.baseURL.port != 8000, parts.count == 3, downloads.folder.lastPathComponent == "Downloads-selftest",
+            guard await onOwnTestServer(), parts.count == 3, downloads.folder.lastPathComponent == "Downloads-selftest",
                   let found = try? await API.search(parts[0]), found.songs.count >= 3,
                   let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) })
             else { report("lyrics: test server, three searches and the test folder needed"); NSApp.terminate(nil); return }
@@ -1142,6 +1383,22 @@ enum SelfTest {
                 player.showNowPlaying = true
                 report("lyrics: hold end \(Date().timeIntervalSince1970)")
                 UserDefaults.standard.set(NowPlayingPanel.lyrics.rawValue, forKey: "nowPlayingPanel")
+            }
+
+            // 3b. switching from Up Next to Lyrics opens at the playing line, not scrolled there in front of you
+            if player.isPlaying { player.togglePlayPause() }
+            UserDefaults.standard.set(NowPlayingPanel.upNext.rawValue, forKey: "nowPlayingPanel")
+            try? await Task.sleep(for: .seconds(1))
+            player.seek(to: Double(timed.lines[24].startMs ?? 0) / 1000 + 0.3)
+            try? await Task.sleep(for: .seconds(0.5))
+            UserDefaults.standard.set(NowPlayingPanel.lyrics.rawValue, forKey: "nowPlayingPanel")
+            try? await Task.sleep(for: .seconds(0.15))                      // far less than any animation
+            if let line = frames["lyrics.line.24"], let panel = frames["lyrics.panel"] {
+                report(String(format: "lyrics: 0.15 s after switching to Lyrics, line 24 is %.0f pt from the panel's centre", line.midY - panel.midY))
+                check("switching to Lyrics opens at the playing line (within 40 pt at once)", abs(line.midY - panel.midY) < 40 && lyricsCurrent == 24,
+                      String(format: "%.0f pt, lit %@", line.midY - panel.midY, String(describing: lyricsCurrent)))
+            } else {
+                check("the lyrics panel came back", false)
             }
 
             // 4. an instrumental: nobody has words, the panel says so

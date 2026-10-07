@@ -167,6 +167,12 @@ Every id is a UUID: a malformed one is 422 (FastAPI), an unknown one is 404 (our
 - **Why:** a new client per request opens a new connection each time (a TCP handshake, then a TLS handshake) and throws it away. A kept client reuses its open connection. Measured 6 Oct, medians of 5 searches: YouTube Music 599 ms → 463 ms, JioSaavn 283 ms → 193 ms. Tested offline: 5 requests through one `SharedClient` open 1 connection; 5 through new clients open 5.
 - **How:** the client is made on first use, not at import (an `AsyncClient` belongs to the event loop it first runs in, and there is none at import); a closed one is replaced, so tests can start and stop the server many times.
 
+## Explicit versions (MUS-19, 7 Oct)
+- `Listing.explicit`: `True` explicit, `False` clean, `None` not known. JioSaavn: `explicit_content == "1"`; YouTube Music: `is_explicit(item)`, the row's E badge.
+- `listings.explicit` (boolean, nullable; `schema.sql` adds it). `resolve_song` fills in an unknown flag when a listing is seen again (`ON CONFLICT … DO UPDATE … WHERE listings.explicit IS NULL`) and never overwrites a known one.
+- The server's `pick_best` does not look at it: the app picks your version (Settings › Playback).
+- `scripts/backfill_explicit.py`: fills unknown flags from the sources (JioSaavn details, 20 per call; YouTube searches, 2 s apart). Run once on 7 Oct: 111 of 111 filled.
+
 ## sources/__init__.py
 
 Every source module offers the same two functions, and reports failures with the same two errors:

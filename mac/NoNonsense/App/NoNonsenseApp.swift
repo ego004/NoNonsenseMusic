@@ -65,10 +65,17 @@ struct NoNonsenseApp: App {
                     SelfTest.runLyricsCheckIfAsked(player: player, lyrics: lyrics, downloads: downloads)
                     SelfTest.runPerfIfAsked(player: player)
                     SelfTest.runFootprintCheckIfAsked()
+                    SelfTest.runConnectionCheckIfAsked(player: player)
+                    SelfTest.runCoversCheckIfAsked()
+                    SelfTest.runExplicitCheckIfAsked()
                     #endif
                 }
         }
         .windowToolbarStyle(.unified)
+        // no "restore windows" snapshots: AppKit compressed (zlib) and encrypted an image of the window to disk,
+        // again and again while playing (7 of 10 s in a profile, 7 Oct). The window's size and place are still kept
+        // (frame autosave, in ClearWindow). Setting isRestorable on the NSWindow did not stick: SwiftUI owns it
+        .restorationBehavior(.disabled)
         // the window can never be smaller than the content's minimum size (it was, and the player bar got cut off)
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1180, height: 760)

@@ -46,6 +46,8 @@ def to_listing(result: dict) -> Listing:
         popularity = result.get("play_count") or None,
         # the search gives a 150x150 cover; the same URL with 500x500 is the large one
         image = result["image"].replace("150x150", "500x500") if result.get("image") else None,
+        # "1" or "0"; missing would mean JioSaavn changed its reply: then unknown, not clean
+        explicit = result["explicit_content"] == "1" if "explicit_content" in result else None,
     )
 
 async def get_song_url(song_id: str, kbps : str = "320") -> str:

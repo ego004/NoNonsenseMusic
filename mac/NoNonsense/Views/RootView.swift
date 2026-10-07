@@ -65,10 +65,11 @@ struct RootView: View {
                             .sensoryFeedback(.error, trigger: player.problems)
                     }
                 }
+                // the message's spring on the message and the bar only: on the whole area, it animated the list too
+                .animation(.spring(response: 0.45, dampingFraction: 0.8), value: player.errorMessage ?? library.message)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 18)
             }
-            .animation(.spring(response: 0.45, dampingFraction: 0.8), value: player.errorMessage ?? library.message)
             // a background takes the size of what it is behind and can never enlarge it
             // the desktop, blurred (WindowBlur), under a wash of the playing song's artwork (Backdrop)
             .background {
@@ -90,13 +91,10 @@ struct RootView: View {
             .scrollEdgeEffectStyle(.soft, for: .top)
             .animation(.spring(response: 0.45, dampingFraction: 0.86), value: player.current == nil)
         }
-        .overlay {
-            if player.showNowPlaying && player.current != nil {
-                NowPlayingView()
-                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
-            }
-        }
-        .animation(.spring(response: 0.42, dampingFraction: 0.9), value: player.showNowPlaying)
+        // no internet, or no server: said once, at the top, for as long as it lasts (not a message per failed song)
+        .overlay(alignment: .top) { ConnectionBanner().padding(.top, 10) }
+        // Now Playing in its own host, faded in and out by Core Animation: see NowPlayingLayer
+        .overlay { NowPlayingLayer(shown: player.showNowPlaying && player.current != nil).ignoresSafeArea() }
         #if DEBUG
         // a self-test window opens on your screen too: this says it is not your app, and not your library (6 Oct)
         .overlay(alignment: .top) {
@@ -115,7 +113,7 @@ struct RootView: View {
         .tint(theme.color(.buttons))                                    // Settings › Appearance › Colours
         .task(id: [player.current?.image?.absoluteString ?? "", scheme == .dark ? "dark" : "light"]) {
             let next = await ArtworkCache.shared.accent(for: player.current?.image, dark: scheme == .dark)
-            withAnimation(.easeInOut(duration: 0.8)) { theme.songColor = next }   // what "Song" means everywhere
+            theme.songColor = next   // what "Song" means everywhere. At once: fading it 0.8 s redrew the whole window every frame
         }
         .modifier(PlaylistSheets(selection: $selection))
         .environment(\.textScale, textScale)              // every textStyle in the window, Now Playing included
@@ -127,6 +125,7 @@ struct RootView: View {
         #endif
         .task {
             await server.ensureRunning()     // starts the backend if nothing answers (Services/ServerLauncher.swift)
+            await Connectivity.shared.checkServer()
             await library.refresh()
         }
         // Settings › Lyrics › when a song starts: this song's lyrics, and the next one's, so Lyrics opens ready.
@@ -136,6 +135,112 @@ struct RootView: View {
             lyrics.fetch(current)
             if let next = player.upNext.first { lyrics.fetch(next) }
         }
+    }
+}
+
+/// Now Playing, drawn by its own NSHostingView over the window and shown and hidden by Core Animation (a fade with a
+/// slight zoom, 0.3 s, played by macOS's render server).
+///
+/// Why: as a SwiftUI overlay with a SwiftUI transition, every frame of opening or closing rebuilt the whole window's
+/// drawing (the list under it, the sidebar, the bar): about 250 ms of CPU per open or close, 16% of a core when
+/// opened and closed every 2 s (measured 7 Oct). Here the window's own view does not change at all when Now Playing
+/// opens; Now Playing is built once per opening, and taken down when it closes, so it costs nothing while closed.
+private struct NowPlayingLayer: NSViewRepresentable {
+    let shown: Bool
+    @Environment(Player.self) private var player
+    @Environment(LibraryStore.self) private var library
+    @Environment(ThemeStore.self) private var theme
+    @Environment(LyricsStore.self) private var lyrics
+    @Environment(DownloadStore.self) private var downloads
+    @Environment(ServerLauncher.self) private var server
+    @Environment(Presence.self) private var presence
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeNSView(context: Context) -> NowPlayingContainer { NowPlayingContainer() }
+
+    func updateNSView(_ view: NowPlayingContainer, context: Context) {
+        view.show(shown, zoom: !reduceMotion) {
+            // everything the window's views can ask for; what changes (colours, text size) is read inside, so
+            // this is set once per opening and never replaced while open
+            AnyView(NowPlayingRoot()
+                .environment(player).environment(library).environment(theme).environment(lyrics)
+                .environment(downloads).environment(server).environment(presence))
+        }
+    }
+}
+
+/// What RootView gives every screen, given again inside Now Playing's own host: the tint and the text size.
+private struct NowPlayingRoot: View {
+    @Environment(ThemeStore.self) private var theme
+    @AppStorage("textScale") private var textScale = Look.textScale
+
+    var body: some View {
+        NowPlayingView()
+            .tint(theme.color(.buttons))
+            .environment(\.textScale, textScale)
+    }
+}
+
+final class NowPlayingContainer: NSView {
+    private var host: NSHostingView<AnyView>?
+    private(set) var shown = false
+
+    // closed (or closing): clicks go through to the window under it
+    override func hitTest(_ point: NSPoint) -> NSView? { shown ? super.hitTest(point) : nil }
+
+    func show(_ shown: Bool, zoom: Bool, content: () -> AnyView) {
+        guard shown != self.shown else { return }
+        self.shown = shown
+        if shown {
+            let host = self.host ?? {
+                let host = NSHostingView(rootView: AnyView(EmptyView()))
+                host.sizingOptions = []                                 // takes the frame it is given; asks for none
+                host.frame = bounds
+                host.autoresizingMask = [.width, .height]
+                host.wantsLayer = true
+                addSubview(host)
+                self.host = host
+                return host
+            }()
+            host.rootView = content()
+            host.isHidden = false
+            animate(host, in: true, zoom: zoom)
+        } else if let host {
+            animate(host, in: false, zoom: zoom) { [weak self] in
+                guard self?.shown == false else { return }              // opened again while it was closing
+                host.isHidden = true
+                host.rootView = AnyView(EmptyView())                     // nothing left to keep up to date while closed
+            }
+        }
+    }
+
+    /// A fade, and a zoom from 98.5% around the middle (no zoom with Reduce Motion), on the host's layer.
+    private func animate(_ host: NSView, in opening: Bool, zoom: Bool, done: (() -> Void)? = nil) {
+        guard let layer = host.layer else { done?(); return }
+        let mid = CGPoint(x: bounds.midX, y: bounds.midY)
+        func scaled(_ s: CGFloat) -> CATransform3D {
+            CATransform3DConcat(CATransform3DConcat(CATransform3DMakeTranslation(-mid.x, -mid.y, 0), CATransform3DMakeScale(s, s, 1)),
+                                CATransform3DMakeTranslation(mid.x, mid.y, 0))
+        }
+        let (from, to): (Float, Float) = opening ? (0, 1) : (1, 0)
+        let small = scaled(zoom ? 0.985 : 1)
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { done?() } }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = layer.presentation()?.opacity ?? from    // from where it is, if it was mid-way
+        fade.toValue = to
+        let end = opening ? CATransform3DIdentity : small
+        let grow = CABasicAnimation(keyPath: "transform")
+        grow.fromValue = NSValue(caTransform3D: layer.presentation()?.transform ?? (opening ? small : CATransform3DIdentity))
+        grow.toValue = NSValue(caTransform3D: end)
+        let both = CAAnimationGroup()
+        both.animations = [fade, grow]
+        both.duration = opening ? 0.3 : 0.22
+        both.timingFunction = CAMediaTimingFunction(name: opening ? .easeOut : .easeIn)
+        host.alphaValue = CGFloat(to)                             // AppKit keeps the layer's opacity from this
+        layer.transform = end
+        layer.add(both, forKey: "showing")
+        CATransaction.commit()
     }
 }
 
@@ -168,5 +273,44 @@ private struct PlaylistSheets: ViewModifier {
             } message: { _ in
                 Text("Its songs stay in your library.")
             }
+    }
+}
+
+/// "No internet" or "Server not connected", at the top of the window while it lasts; Try Again for the server.
+private struct ConnectionBanner: View {
+    @Environment(ServerLauncher.self) private var server
+    @Environment(LibraryStore.self) private var library
+    @State private var retrying = false
+    private var connectivity: Connectivity { .shared }
+
+    var body: some View {
+        Group {
+            if !connectivity.online {
+                banner("No internet · downloaded songs still play", symbol: "wifi.slash")
+            } else if !connectivity.serverAnswers {
+                banner("Server not connected", symbol: "bolt.horizontal.circle") {
+                    Button(retrying ? "Trying…" : "Try Again") {
+                        retrying = true
+                        Task {
+                            await server.ensureRunning()
+                            if await Connectivity.shared.checkServer() { await library.refresh() }
+                            retrying = false
+                        }
+                    }
+                    .disabled(retrying)
+                }
+            }
+        }
+        .animation(.snappy(duration: 0.3), value: [connectivity.online, connectivity.serverAnswers])
+    }
+
+    private func banner(_ text: String, symbol: String, @ViewBuilder action: () -> some View = { EmptyView() }) -> some View {
+        HStack(spacing: 10) {
+            Label(text, systemImage: symbol).textStyle(.callout, weight: .medium)
+            action()
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .glassEffect(.regular, in: .capsule)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }

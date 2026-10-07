@@ -11,6 +11,8 @@ nonisolated struct Listing: Codable, Hashable, Sendable {
     let duration: Int
     let popularity: Int?
     let image: String?
+    /// The explicit version (MUS-19); nil: not known (listings stored before 7 Oct, until they are seen again)
+    var explicit: Bool? = nil
 
     /// Unique across sources: the same id string could exist on two sources.
     var key: String { "\(source):\(id)" }
@@ -28,6 +30,7 @@ nonisolated struct Listing: Codable, Hashable, Sendable {
         try c.encode(duration, forKey: .duration)
         try c.encode(popularity, forKey: .popularity)    // nil -> null
         try c.encode(image, forKey: .image)
+        try c.encode(explicit, forKey: .explicit)        // nil -> null
     }
     var sourceName: String { source == "jiosaavn" ? "JioSaavn" : "YouTube Music" }
     var quality: String { source == "jiosaavn" ? "AAC 320 kbps" : "AAC 128 kbps" }
@@ -176,7 +179,14 @@ struct Track: Identifiable, Hashable {
 
     var artistLine: String { artists.joined(separator: ", ") }
 
-    init(best: Listing, listings: [Listing]) {
+    init(best serverBest: Listing, listings: [Listing]) {
+        // your version (Settings › Playback): when a song has both, the explicit or the clean one plays and is shown.
+        // The server picks by source and popularity, which chose the clean Les (7 Oct)
+        let wantExplicit = Track.prefersExplicit
+        let inOrder = [serverBest] + listings.sorted {           // the server's pick, then its source, then most played
+            ($0.source == serverBest.source ? 0 : 1, -($0.popularity ?? 0)) < ($1.source == serverBest.source ? 0 : 1, -($1.popularity ?? 0))
+        }
+        let best = inOrder.first { $0.explicit == wantExplicit } ?? serverBest
         self.id = best.key
         self.title = best.title
         self.artists = best.artists
@@ -190,6 +200,11 @@ struct Track: Identifiable, Hashable {
         }
         self.listings = [best] + others
     }
+
+    /// Settings › Playback › Version: true (the default) plays a song's explicit version when it has one.
+    static var prefersExplicit: Bool { (UserDefaults.standard.string(forKey: "versionPreference") ?? "explicit") == "explicit" }
+
+    var isExplicit: Bool { best.explicit == true }
 
     init(_ song: SearchSong) { self.init(best: song.best, listings: song.listings) }
     init(_ song: LibrarySong) { self.init(best: song.best, listings: song.listings) }
