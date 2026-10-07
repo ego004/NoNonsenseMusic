@@ -154,18 +154,23 @@ class ListingURLCache:
         except SourceBlocked:
             self._strike(source)        # the source itself said "blocked": pause it, then pass the error on
             raise
-        self.strikes[source] = 0        # it answered: the next block starts again from the short pause
+        if not self._is_paused(source):
+            self.strikes[source] = 0        # it answered: the next block starts again from the short pause
         await self.set(source, song_id, url)
         return url
 
     def _refuse_if_paused(self, source: str) -> None:
         """During a source's pause, raise SourceBlocked straight away: no request goes to the source."""
-        until = self.blocked_until.get(source, 0)
-        if time.time() < until:
-            raise SourceBlocked(f"{source} is paused after a bot check until {time.strftime('%H:%M:%S', time.localtime(until))}")
+        if self._is_paused(source):
+            raise SourceBlocked(f"{source} is paused after a bot check until {time.strftime('%H:%M:%S', time.localtime(self.blocked_until[source]))}")
+
+    def _is_paused(self, source: str) -> bool:
+        return self.blocked_until.get(source, 0) > time.time()
 
     def _strike(self, source: str) -> None:
         """One more bot check in a row: pause = START x 2^(strikes - 1), at most MAX."""
+        if self._is_paused(source):
+            return
         self.strikes[source] = self.strikes.get(source, 0) + 1
         minutes = min(settings.backoff_max_minutes, settings.backoff_start_minutes * 2 ** (self.strikes[source] - 1))
         self.blocked_until[source] = time.time() + minutes * 60
