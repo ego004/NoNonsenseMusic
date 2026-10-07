@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import 'cover.dart';
+import 'lyrics_panel.dart';
 import 'player_bar.dart';
 import 'scope.dart';
 import 'song_row.dart';
@@ -34,6 +35,19 @@ class NowPlaying extends StatelessWidget {
                     left: 20, top: 16,
                     child: IconButton.filledTonal(tooltip: 'Close (Esc)', onPressed: () => p.setShowNowPlaying(false), icon: const Icon(FluentIcons.chevron_down_24_regular)),
                   ),
+                  // the panel beside the song; press the showing one again and the song is alone
+                  Positioned(
+                    right: 20, top: 16,
+                    child: Row(children: [
+                      for (final (id, icon, label) in [('lyrics', FluentIcons.comment_quote_24_regular, 'Lyrics'), ('upNext', FluentIcons.text_bullet_list_ltr_24_regular, 'Up Next')])
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: p.panel == id
+                              ? IconButton.filled(tooltip: 'Hide $label', onPressed: () => p.setPanel(id), icon: Icon(icon))
+                              : IconButton.filledTonal(tooltip: 'Show $label', onPressed: () => p.setPanel(id), icon: Icon(icon)),
+                        ),
+                    ]),
+                  ),
                   Center(
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       SizedBox(
@@ -51,8 +65,18 @@ class NowPlaying extends StatelessWidget {
                           const Transport(size: 28, play: 44),
                         ]),
                       ),
-                      const SizedBox(width: 48),
-                      const SizedBox(width: 340, height: 520, child: UpNext()),
+                      if (p.panel != 'none') ...[
+                        const SizedBox(width: 48),
+                        SizedBox(
+                          width: 340,
+                          height: (box.maxHeight - 120).clamp(300.0, 560.0).toDouble(),
+                          child: Container(
+                            decoration: BoxDecoration(color: theme.colorScheme.onSurface.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(20)),
+                            padding: const EdgeInsets.all(12),
+                            child: p.panel == 'lyrics' ? const LyricsPanel() : const UpNext(),
+                          ),
+                        ),
+                      ],
                     ]),
                   ),
                 ]);
@@ -72,10 +96,7 @@ class UpNext extends StatelessWidget {
     final p = Scope.of(context).player;
     final theme = Theme.of(context);
     final entries = p.queue.upcoming;
-    return Container(
-      decoration: BoxDecoration(color: theme.colorScheme.onSurface.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(20)),
-      padding: const EdgeInsets.all(12),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(padding: const EdgeInsets.fromLTRB(6, 4, 6, 8), child: Text('Up Next', style: theme.textTheme.titleMedium)),
         Expanded(
           child: entries.isEmpty
@@ -104,7 +125,6 @@ class UpNext extends StatelessWidget {
                   },
                 ),
         ),
-      ]),
-    );
+      ]);
   }
 }

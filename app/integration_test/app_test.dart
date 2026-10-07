@@ -12,6 +12,8 @@ import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart' show MediaKit;
 import 'package:nononsense/core/api.dart';
 import 'package:nononsense/core/library.dart';
+import 'package:nononsense/core/lyrics.dart';
+import 'package:nononsense/core/settings.dart';
 import 'package:nononsense/core/player.dart';
 import 'package:nononsense/main.dart';
 import 'package:nononsense/ui/song_row.dart';
@@ -40,13 +42,21 @@ Future<void> until(WidgetTester tester, bool Function() done, {int seconds = 20}
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('search, play, Now Playing, Up Next, Add to Queue', (tester) async {
-    expect(Api.base, isNot(contains(':8000')), reason: 'a test runs only against a test server, never your library');
+  testWidgets('Home, search, play, Now Playing (Up Next, lyrics), Add to Queue, a playlist', (tester) async {
     MediaKit.ensureInitialized();
+    final settings = Settings();
+    await settings.load();
+    expect(Api.base, isNot(contains(':8000')), reason: 'a test runs only against a test server, never your library');
     final player = Player()..setVolume(0);
-    final library = Library();
-    await tester.pumpWidget(RepaintBoundary(key: shot, child: NoNonsenseApp(player: player, library: library)));
-    await tester.pump(const Duration(seconds: 1));
+    final library = Library()..playlistChanged = player.playlistChanged;
+    final lyrics = LyricsStore();
+    await tester.pumpWidget(RepaintBoundary(key: shot, child: NoNonsenseApp(player: player, library: library, lyrics: lyrics, settings: settings)));
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.textContaining('Good '), findsOneWidget, reason: 'the app opens on Home');
+    await snap(tester, 'home');
+
+    await tester.tap(find.text('Search'));
+    await tester.pump(const Duration(milliseconds: 500));
 
     await tester.enterText(find.byType(TextField), 'arijit singh');
     await until(tester, () => find.byType(SongRow).evaluate().length > 3);
@@ -71,10 +81,39 @@ void main() {
 
     player.setShowNowPlaying(true);
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('Up Next'), findsOneWidget);
+    expect(find.text('Up Next'), findsWidgets);
     await snap(tester, 'now-playing');
+
+    // lyrics beside the song: found (or "Couldn't find lyrics"), never stuck on "Finding lyrics…"
+    player.setPanel('lyrics');
+    await until(tester, () => lyrics.of(player.current!) != null, seconds: 15);
+    await tester.pump(const Duration(seconds: 1));
+    final found = lyrics.of(player.current!);
+    expect(found, isNotNull, reason: 'the server answered for lyrics');
+    debugPrint('LYRICS ${found!.lines.length} lines, synced ${found.synced}, from ${found.sourceName}');
+    await snap(tester, 'lyrics');
+    player.setPanel('upNext');
     player.setShowNowPlaying(false);
     await tester.pump(const Duration(milliseconds: 400));
+
+    // a playlist: made, filled with 3 songs, opened, its rows in order; then deleted
+    final name = 'Flutter test ${DateTime.now().millisecondsSinceEpoch % 10000}';
+    expect(await library.createPlaylist(name), isNull);
+    final id = library.playlists.firstWhere((p) => p.name == name).id;
+    final three = player.queue.tracks.take(3).toList();
+    for (final t in three) {
+      await library.add(t, id);
+    }
+    await tester.pump(const Duration(milliseconds: 300)); // the sidebar shows it
+    await tester.tap(find.text(name));
+    await until(tester, () => find.byType(SongRow).evaluate().length == 3);
+    expect(library.details[id]!.tracks.map((t) => t.id), three.map((t) => t.id));
+    await snap(tester, 'playlist');
+    await library.moveItem(id, 2, 0);
+    await library.loadPlaylist(id);
+    expect(library.details[id]!.tracks.first.id, three[2].id, reason: 'a move reaches the server');
+    await library.deletePlaylist(id);
+    expect(library.playlists.any((p) => p.id == id), isFalse);
     player.togglePlayPause();
     await tester.pump(const Duration(milliseconds: 500));
   });

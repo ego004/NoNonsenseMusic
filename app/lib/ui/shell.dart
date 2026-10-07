@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
+import 'home.dart';
 import 'now_playing.dart';
 import 'player_bar.dart';
+import 'playlist_screen.dart';
 import 'scope.dart';
 import 'screens.dart';
+import 'settings_screen.dart';
 
-enum Section { search, liked, recent }
+enum Section { home, search, liked, recent, playlist, settings }
 
 /// The window: the sidebar, the chosen screen, the floating player bar, and Now Playing over everything when open.
 /// Space plays and pauses, ← → seek 5 s (not while typing), as on the Mac.
@@ -20,7 +23,13 @@ class Shell extends StatefulWidget {
 }
 
 class _ShellState extends State<Shell> {
-  Section section = Section.search;
+  Section section = Section.home;
+  String? playlistId;
+
+  void _open(Section sec, {String? playlist}) {
+    setState(() { section = sec; playlistId = playlist; });
+    if (sec == Section.liked || sec == Section.recent || sec == Section.home) Scope.of(context).library.refresh();
+  }
 
   @override
   void didChangeDependencies() {
@@ -51,29 +60,51 @@ class _ShellState extends State<Shell> {
               child: Container(
               width: 220,
               padding: const EdgeInsets.fromLTRB(10, 40, 10, 10),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                for (final (sec, icon, label) in [
-                  (Section.search, FluentIcons.search_24_regular, 'Search'),
-                  (Section.liked, FluentIcons.heart_24_regular, 'Liked Songs'),
-                  (Section.recent, FluentIcons.history_24_regular, 'Recently Played'),
-                ])
-                  ListTile(
-                    dense: true,
-                    selected: section == sec,
-                    selectedTileColor: theme.colorScheme.primary.withValues(alpha: 0.12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    leading: Icon(icon, size: 20),
-                    title: Text(label),
-                    onTap: () { setState(() => section = sec); if (sec != Section.search) s.library.refresh(); },
-                  ),
-              ]),
+              child: ListenableBuilder(
+                listenable: s.library,
+                builder: (context, _) {
+                  Widget row(IconData icon, String label, bool on, VoidCallback tap) => ListTile(
+                        dense: true,
+                        selected: on,
+                        selectedTileColor: theme.colorScheme.primary.withValues(alpha: 0.12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        leading: Icon(icon, size: 20),
+                        title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        onTap: tap,
+                      );
+                  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    for (final (sec, icon, label) in [
+                      (Section.home, FluentIcons.home_24_regular, 'Home'),
+                      (Section.search, FluentIcons.search_24_regular, 'Search'),
+                      (Section.liked, FluentIcons.heart_24_regular, 'Liked Songs'),
+                      (Section.recent, FluentIcons.history_24_regular, 'Recently Played'),
+                    ])
+                      row(icon, label, section == sec, () => _open(sec)),
+                    Padding(padding: const EdgeInsets.fromLTRB(14, 18, 0, 6), child: Text('Playlists', style: theme.textTheme.labelMedium)),
+                    Expanded(
+                      child: ListView(children: [
+                        for (final p in s.library.playlists)
+                          row(FluentIcons.music_note_2_24_regular, p.name, section == Section.playlist && playlistId == p.id, () => _open(Section.playlist, playlist: p.id)),
+                        row(FluentIcons.add_24_regular, 'New Playlist', false, () async {
+                          final name = await askName(context, title: 'New Playlist');
+                          if (name != null) await s.library.createPlaylist(name);
+                        }),
+                      ]),
+                    ),
+                    row(FluentIcons.settings_24_regular, 'Settings', section == Section.settings, () => _open(Section.settings)),
+                  ]);
+                },
+              ),
             ),
             ),
             Expanded(
               child: switch (section) {
+                Section.home => Home(openPlaylist: (id) => _open(Section.playlist, playlist: id)),
                 Section.search => const SearchScreen(),
                 Section.liked => const SongListScreen(liked: true),
                 Section.recent => const SongListScreen(liked: false),
+                Section.playlist => PlaylistScreen(key: ValueKey(playlistId), id: playlistId!, onDeleted: () => _open(Section.home)),
+                Section.settings => const SettingsScreen(),
               },
             ),
           ]),

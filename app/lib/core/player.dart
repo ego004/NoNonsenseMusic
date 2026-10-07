@@ -24,6 +24,8 @@ class Player extends ChangeNotifier {
   bool isPlaying = false;
   bool isBuffering = false;
   bool showNowPlaying = false;
+  /// Beside the song in Now Playing: 'upNext', 'lyrics' or 'none'.
+  String panel = 'upNext';
   double volume = 1;
   String? message; // "Couldn't play …", shown for a few seconds
   Timer? _messageTimer;
@@ -115,6 +117,14 @@ class Player extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A playlist changed: if the queue came from it, the queue follows (PlayQueue.sync).
+  void playlistChanged(PlaylistDetail d) {
+    if (queue.source != d.queueSource) return;
+    queue.sync(d.queueSource, d.items);
+    _announce();
+    notifyListeners();
+  }
+
   void toggleShuffle() {
     queue.setShuffle(!queue.isShuffled);
     _announce();
@@ -136,6 +146,8 @@ class Player extends ChangeNotifier {
     _audio.setVolume(volume * 100);
     notifyListeners();
   }
+
+  void setPanel(String p) => _set(() => panel = panel == p ? 'none' : p);
 
   void setShowNowPlaying(bool on) => _set(() => showNowPlaying = on && current != null);
 

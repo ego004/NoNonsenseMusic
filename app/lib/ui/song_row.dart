@@ -3,6 +3,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/models.dart';
 import 'cover.dart';
+import 'playlist_screen.dart';
 import 'scope.dart';
 
 /// One song: cover, title (🅴 when explicit), artists, heart, length. Double-click plays it with the rest of the list
@@ -10,7 +11,11 @@ import 'scope.dart';
 class SongRow extends StatefulWidget {
   final List<Track> queue;
   final int index;
-  const SongRow({super.key, required this.queue, required this.index});
+  /// In a playlist: its item ids and queue name (its edits reach a playing queue), and "Remove from …".
+  final List<String>? keys;
+  final String? source;
+  final ({String name, VoidCallback remove})? removeFrom;
+  const SongRow({super.key, required this.queue, required this.index, this.keys, this.source, this.removeFrom});
 
   @override
   State<SongRow> createState() => _SongRowState();
@@ -25,7 +30,7 @@ class _SongRowState extends State<SongRow> {
     final track = widget.queue[widget.index];
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
-    void play() => s.player.play(widget.queue, startAt: widget.index);
+    void play() => s.player.play(widget.queue, startAt: widget.index, keys: widget.keys, source: widget.source);
     return MouseRegion(
       onEnter: (_) => setState(() => hovering = true),
       onExit: (_) => setState(() => hovering = false),
@@ -85,8 +90,14 @@ class _SongRowState extends State<SongRow> {
         const PopupMenuItem(value: 'queue', child: Text('Add to Queue')),
         const PopupMenuDivider(),
         PopupMenuItem(value: 'like', child: Text(liked ? 'Remove from Liked' : 'Like')),
+        const PopupMenuItem(value: 'playlist', child: Text('Add to Playlist…')),
+        if (widget.removeFrom != null) ...[
+          const PopupMenuDivider(),
+          PopupMenuItem(value: 'remove', child: Text('Remove from “${widget.removeFrom!.name}”')),
+        ],
       ],
     );
+    if (!context.mounted) return;
     switch (chosen) {
       case 'play':
         play();
@@ -96,6 +107,25 @@ class _SongRowState extends State<SongRow> {
         s.player.addToQueue(track);
       case 'like':
         s.library.toggleLike(track);
+      case 'remove':
+        widget.removeFrom?.remove();
+      case 'playlist':
+        final to = await showMenu<String>(
+          context: context,
+          position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
+          items: [
+            const PopupMenuItem(value: '+', child: Text('New Playlist…')),
+            const PopupMenuDivider(),
+            for (final p in s.library.playlists) PopupMenuItem(value: p.id, child: Text(p.name)),
+          ],
+        );
+        if (to == null || !context.mounted) return;
+        if (to == '+') {
+          final name = await askName(context, title: 'New Playlist with “${track.title}”');
+          if (name != null) await s.library.createPlaylist(name, adding: track);
+        } else {
+          await s.library.add(track, to);
+        }
     }
   }
 }

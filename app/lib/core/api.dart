@@ -76,6 +76,83 @@ class Api {
     if (listings.isEmpty) return;
     await _send('POST', 'prefetch', {'listings': listings.take(50).map((l) => {'source': l.source, 'source_id': l.id}).toList()});
   }
+
+  // playlists and lyrics
+  static Future<List<PlaylistSummary>> playlists() async =>
+      ((await _get('playlists'))['playlists'] as List).map((p) => PlaylistSummary.fromJson(p as Map<String, dynamic>)).toList();
+  static Future<PlaylistDetail> playlist(String id) async => PlaylistDetail.fromJson(await _get('playlists/$id') as Map<String, dynamic>);
+  static Future<PlaylistSummary> create(String name) async => PlaylistSummary.fromJson(await _send('POST', 'playlists', {'name': name}));
+  static Future<void> rename(String id, String name) => _send('PATCH', 'playlists/$id', {'name': name});
+  static Future<void> delete(String id) => _send('DELETE', 'playlists/$id', const {});
+  static Future<void> add(List<Listing> listings, String to) =>
+      _send('POST', 'playlists/$to/items', {'listings': listings.map((l) => l.toJson()).toList()});
+  static Future<void> remove(String itemId, String from) => _send('DELETE', 'playlists/$from/items/$itemId', const {});
+
+  /// A move names the row's new neighbours (above, below), so one row changes on the server.
+  static Future<void> moveItem(String playlist, String item, String? top, String? bottom) =>
+      _send('POST', 'playlists/$playlist/items/$item/move', {'top_neighbour_id': top, 'bottom_neighbour_id': bottom});
+
+  static Future<Lyrics> lyrics(Track t) async {
+    final youtube = t.listings.where((l) => l.source == 'ytmusic').map((l) => l.id).firstOrNull;
+    final j = await _send('POST', 'lyrics', {
+      'song_name': t.title,
+      'artist_name': t.artists.join(', '), // every artist: LRCLIB's fuller record (50 lines vs 5, measured 7 Oct)
+      'song_duration': t.duration,
+      'youtube_id': youtube,
+    }) as Map<String, dynamic>;
+    return Lyrics(j['lyrics_source'] as String?, j['synced'] as bool,
+        [for (final l in j['lines'] as List) LyricLine((l['start_ms'] as num?)?.toInt(), l['text'] as String)]);
+  }
+}
+
+// MARK: playlists (MUS-2) and lyrics (MUS-12)
+
+class PlaylistSummary {
+  final String id, name;
+  final int songCount, duration;
+  PlaylistSummary(this.id, this.name, this.songCount, this.duration);
+  factory PlaylistSummary.fromJson(Map<String, dynamic> j) =>
+      PlaylistSummary(j['id'] as String, j['name'] as String, (j['song_count'] as num).toInt(), (j['duration'] as num).toInt());
+}
+
+/// One playlist's rows, in order. `itemId` names a row: a song added twice is two rows.
+class PlaylistDetail {
+  final PlaylistSummary summary;
+  final List<(String itemId, Track track)> items;
+  PlaylistDetail(this.summary, this.items);
+  factory PlaylistDetail.fromJson(Map<String, dynamic> j) => PlaylistDetail(PlaylistSummary.fromJson(j), [
+        for (final i in j['items'] as List) ((i['item_id'] as String), Track.fromSong(i['song'] as Map<String, dynamic>)),
+      ]);
+  List<Track> get tracks => items.map((i) => i.$2).toList();
+  List<String> get keys => items.map((i) => i.$1).toList();
+  String get queueSource => 'playlist:${summary.id}';
+  PlaylistDetail withItems(List<(String, Track)> items) => PlaylistDetail(summary, items);
+}
+
+class LyricLine {
+  final int? startMs; // null: plain lyrics
+  final String text;
+  LyricLine(this.startMs, this.text);
+}
+
+class Lyrics {
+  final String? source; // "lrclib" | "ytmusic" | null: nobody had them
+  final bool synced;
+  final List<LyricLine> lines;
+  Lyrics(this.source, this.synced, this.lines);
+  String? get sourceName => source == 'lrclib' ? 'LRCLIB' : source == 'ytmusic' ? 'YouTube Music' : null;
+
+  /// The line being sung at `seconds`, or -1 before the first.
+  int lineAt(double seconds) {
+    final ms = seconds * 1000;
+    var found = -1;
+    for (var i = 0; i < lines.length; i++) {
+      final start = lines[i].startMs;
+      if (start == null || start > ms) break;
+      found = i;
+    }
+    return found;
+  }
 }
 
 class ApiError implements Exception {

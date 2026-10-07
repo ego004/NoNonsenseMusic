@@ -8,6 +8,7 @@ import '../core/play_queue.dart';
 import 'cover.dart';
 import 'scope.dart';
 import 'song_row.dart';
+import 'waiting.dart';
 
 /// The floating bar: the song on the left, ⏮ ▶ ⏭ with the progress line in the centre, Up Next and volume on the
 /// right. Hidden until a song plays. Click the cover or the title to open Now Playing.
@@ -91,7 +92,7 @@ class Transport extends StatelessWidget {
       IconButton(iconSize: size * 0.8, tooltip: 'Shuffle', color: q.isShuffled ? accent : null, onPressed: p.toggleShuffle, icon: const Icon(FluentIcons.arrow_shuffle_24_regular)),
       IconButton(iconSize: size, tooltip: 'Previous', onPressed: p.previous, icon: const Icon(FluentIcons.previous_24_filled)),
       p.isBuffering
-          ? SizedBox(width: play + 16, height: play + 16, child: const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)))
+          ? SizedBox(width: play + 16, height: play + 16, child: Center(child: Waiting(size: play * 0.8, tooltip: 'Loading the song…')))
           : IconButton(iconSize: play, tooltip: p.isPlaying ? 'Pause' : 'Play', onPressed: p.togglePlayPause,
               icon: Icon(p.isPlaying ? FluentIcons.pause_24_filled : FluentIcons.play_24_filled)),
       IconButton(iconSize: size, tooltip: 'Next', onPressed: p.next, icon: const Icon(FluentIcons.next_24_filled)),
@@ -139,7 +140,8 @@ class _ProgressState extends State<Progress> {
     final dur = p.duration;
     final pos = _dragged ?? p.position;
     final small = Theme.of(context).textTheme.labelSmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
-    return Row(children: [
+    // its own layer: the tick each second repaints the line and the times, not the window around them
+    return RepaintBoundary(child: Row(children: [
       SizedBox(width: 40, child: Text(formatTime(pos), textAlign: TextAlign.right, style: small)),
       Expanded(
         child: SliderTheme(
@@ -153,6 +155,6 @@ class _ProgressState extends State<Progress> {
         ),
       ),
       SizedBox(width: 44, child: Text('-${formatTime(dur - pos)}', style: small)),
-    ]);
+    ]));
   }
 }

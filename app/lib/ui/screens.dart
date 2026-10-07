@@ -7,6 +7,7 @@ import '../core/api.dart';
 import '../core/models.dart';
 import 'scope.dart';
 import 'song_row.dart';
+import 'waiting.dart';
 
 /// Search: a big bar, results under it. Waits 350 ms after typing stops, as the Mac app does.
 class SearchScreen extends StatefulWidget {
@@ -66,7 +67,7 @@ class _SearchScreenState extends State<SearchScreen> {
             decoration: InputDecoration(
               hintText: 'Songs, artists, albums',
               prefixIcon: const Icon(FluentIcons.search_24_regular),
-              suffixIcon: loading ? const Padding(padding: EdgeInsets.all(14), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))) : null,
+              suffixIcon: loading ? const Waiting(tooltip: 'Searching…') : null,
               filled: true,
               fillColor: theme.colorScheme.onSurface.withValues(alpha: 0.06),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(28), borderSide: BorderSide.none),
