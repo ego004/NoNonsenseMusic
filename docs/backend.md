@@ -381,7 +381,7 @@ Each source module also has `http`, its `SharedClient` (above); the lifespan clo
 | Method | Does |
 |---|---|
 | `__call__` | The rule: unless `serve_fresh`, `get`. Nothing good? Fetch from the source, then `set`. Returns the URL. A source error passes through, so failures are never stored |
-| `get` | Memory, then the table. Returns `None` if missing or expired (`is_expired` of that source). **A memory hit touches only memory** (`_cache_hit`); a table hit copies the URL into memory (`_remember`) and marks the row used (`_db_hit`), with no trim (nothing was added) |
+| `get` | Memory, then the table. Returns `None` if missing or expired (`is_expired` of that source). Any hit marks its row used (`_db_hit`: one `UPDATE` of `hit_at`), so the trim drops the least recently used; a table hit also copies the URL into memory (`_remember`). No trim on a hit: a hit adds no row |
 | `set` | After a real fetch: `_remember`, then `_set_db` (the upsert and the trim: the table grows only here) |
 | `_remember` | Memory: store as the most recently used, drop the least recently used past the limit |
 | `_db_hit` | Table: `hit_at = now()` for one row |
@@ -389,7 +389,7 @@ Each source module also has `http`, its `SharedClient` (above); the lifespan clo
 | `_get_db` | Table: the URL for `(source, source_id)`, or `None` |
 | `_set_db` | Table: one upsert (`fetched_at` changes only if the URL changed; `hit_at = now()`), then a trim to the newest `cache_max_size_in_db` by `hit_at`. One block, one commit |
 
-**Changed 7 Oct:** every hit, even from memory, went through `set`, so each wrote the table twice (an upsert and the trim's `DELETE … ORDER BY hit_at OFFSET`): 300 hits sent 600 statements, on every `/play` and every prefetch check of a cached listing. Now a memory hit sends none (300 hits: 0 statements, under a microsecond each). **The trade:** a memory hit no longer moves the row's `hit_at`, so the table's trim (past 6,000 rows) orders rows by their last table hit or store, not their last use; a URL played often from memory could leave the table while it stays in memory (it is fetched again after a restart). Two tests guard it: a memory hit never touches the table; a table hit fills memory and marks its row without storing it again.
+**Changed 7 Oct:** every hit, even from memory, went through `set`, so each wrote the table twice (an upsert and the trim's `DELETE … ORDER BY hit_at OFFSET`): 300 hits sent 600 statements (median 0.345 ms each), on every `/play` and every prefetch check of a cached listing. Now a hit sends one statement, the `hit_at` update (300 hits: 300 statements, median 0.124 ms), and the trim runs only when a new URL is stored, the only time the table can grow. Your rule is kept: `hit_at` is the last use, memory hits included. As before, a memory hit waits for Postgres (for that one update). Two tests guard it: a memory hit only marks its row; a table hit fills memory and marks its row without storing it again.
 
 **Checked 5 Oct 2026 (before that change):** a memory hit keeps `fetched_at` and moves `hit_at`; a fresh fetch with a new URL moves `fetched_at`, with the same URL (JioSaavn) it does not; with a limit of 3, storing P Q R, replaying P, then adding S leaves R P S (Q, the least recently used, goes). With every hit going through `set`: memory stays at its limit after a restart (5 table hits, limit 3 → 3), and a memory hit costs 0.83 ms with 6,000 rows in the table (the upsert + trim). `DELETE` + `INSERT` instead of the upsert crashed with `UniqueViolation` when two requests wrote one listing at once.
 

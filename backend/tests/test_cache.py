@@ -354,15 +354,20 @@ def test_a_paused_source_answers_502_without_asking_it(client, monkeypatch):
 # ---------- hits read, they do not write (7 Oct: every hit wrote the table twice) ----------
 
 @pytest.mark.anyio
-async def test_a_memory_hit_does_not_touch_the_table(pool):
+async def test_a_memory_hit_only_marks_its_row_used(pool):
     cache = ListingURLCache({"ytmusic": SlowSource()}, pool)
     song = new_id()
     url = await cache("ytmusic", song)
+    async with pool.connection() as conn:                    # pretend it was last used a day ago
+        await conn.execute("UPDATE listing_urls SET hit_at = now() - interval '1 day' WHERE source_id = %s", [song])
 
-    async def no_table(*args):
-        raise AssertionError("a memory hit reached the table")
-    cache._get_db = cache._set_db = cache._db_hit = no_table
+    async def no_store_or_read(*args):
+        raise AssertionError("a memory hit stored or read the table")
+    cache._get_db = cache._set_db = no_store_or_read            # the upsert and the trim live in _set_db
     assert await cache("ytmusic", song) == url
+    async with pool.connection() as conn:
+        row = await (await conn.execute("SELECT hit_at > now() - interval '1 minute' AS recent FROM listing_urls WHERE source_id = %s", [song])).fetchone()
+    assert row["recent"]                                     # marked used: the trim keeps it
 
 
 @pytest.mark.anyio
