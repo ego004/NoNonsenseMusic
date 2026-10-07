@@ -1502,11 +1502,12 @@ enum SelfTest {
         }
     }
 }
-#endif
 
+// inside #if DEBUG with the rest: in a Release build this file has no imports, and only debug code uses these
 extension Notification.Name {
     /// A self-test asks RootView to show something (object: a playlist's UUID, or a Destination).
     static let selfTestOpen = Notification.Name("NNSelfTestOpen")
     /// A self-test asks SearchView to play its first result, as a double-click on that row would.
     static let selfTestPlayFirstResult = Notification.Name("NNSelfTestPlayFirstResult")
 }
+#endif
