@@ -180,4 +180,9 @@ def extract_audio_url(song_id: str) -> str:
     return info["url"]
 
 def is_expired(song_url: str) -> bool:
-    return int(re.search(r'[?&]expire=(\d+)', song_url).group(1)) - int(time.time()) <= settings.youtube_cache_expiry_threshold * 60
+    """links are expected to have ?expire= format for expiry. If such an expiry cant be found, we simply assume the link does not expire.
+    in any case, the client can make a serve_fresh request if the link turns out to be expired."""
+    expire = re.search(r'[?&]expire=(\d+)', song_url)
+    if expire is None:
+        return False
+    return int(expire.group(1)) - int(time.time()) <= settings.youtube_cache_expiry_threshold * 60

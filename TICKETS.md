@@ -297,7 +297,9 @@ Claude writes the pytest tests (against `music_test`). The app work (sidebar, pl
 
 Found by reading the code and, where it says *reproduced*, by running it with fake replies (no network). Each one: what goes wrong, how to see it, what done looks like. Where the fix goes is yours to find: reproduce it first, then follow it through the code. Bring "BUG-n ready" and Claude reviews it and writes the test.
 
-### BUG-1 · A YouTube link without `?expire=` breaks `/play` for that song, for good
+### BUG-1 · A YouTube link without `?expire=` breaks `/play` for that song, for good ✅ (7 Oct)
+**Done (your decision):** `is_expired` no longer crashes; a link whose expiry it cannot read counts as fresh (its docstring says so): YouTube links carry `?expire=`, and if one ever does not, the app's `serve_fresh` recovers after one failed try. Tests: 5 in `tests/test_sources.py` (two of them fail on the old code with the original `AttributeError`). Considered and left: reading `/expire/…/` in the path too, a warning log line.
+
 **What goes wrong:** the cache reads a YouTube link's expiry from its `expire=` query parameter. yt-dlp can also return links that carry it in the path (`…/expire/1759999999/…`). Such a link is stored; every later `/play` of that song then answers **500**, even after a restart (the link is in the table). `serve_fresh` works once, and stores the same kind of link again.
 **Reproduced (7 Oct):** play → 200; play again → 500 (`AttributeError`); `serve_fresh` → 200; play again → 500.
 **Done when:** a link whose expiry cannot be read is never a crash and never served as fresh; a test with a path-style link shows it; nothing logs a URL or an IP.
