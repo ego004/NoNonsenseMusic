@@ -9,6 +9,7 @@ struct PlaylistView: View {
     @Environment(DownloadStore.self) private var downloads
     @State private var gone = false
     @State private var loading = true
+    @State private var selection: Set<UUID> = []
 
     private var detail: PlaylistDetail? { library.details[id] }
 
@@ -44,7 +45,7 @@ struct PlaylistView: View {
 
     private func songs(_ detail: PlaylistDetail) -> some View {
         let tracks = detail.tracks
-        return List {
+        return List(selection: $selection) {
             header(detail, tracks)
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
@@ -53,12 +54,13 @@ struct PlaylistView: View {
 
             ForEach(Array(detail.items.enumerated()), id: \.element.itemID) { i, entry in
                 SongRow(track: tracks[i], queue: tracks, index: i, keys: detail.keys, source: detail.queueSource,
-                        removeLabel: "Remove from “\(detail.name)”") {
+                        removeLabel: "Remove from “\(detail.name)”", remove: {
                     Task { await library.remove(entry, from: detail.id) }
-                }
+                }, doubleClickPlays: false)
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
+                .selfTestFrame("playlist.row:\(i)")
             }
             .onMove { from, to in Task { await library.moveItems(in: detail.id, from: from, to: to) } }
 
@@ -76,6 +78,12 @@ struct PlaylistView: View {
             }
         }
         .listStyle(.plain)
+        // a double-click plays the song: the list's own, because a double-click gesture on the rows stopped every drag
+        // (SongRow.doubleClickPlays, 8 Oct). The rows keep their own right-click menus (an empty one here)
+        .contextMenu(forSelectionType: UUID.self) { _ in } primaryAction: { ids in
+            guard let id = ids.first, let i = detail.items.firstIndex(where: { $0.itemID == id }) else { return }
+            player.play(tracks, startAt: i, keys: detail.keys, source: detail.queueSource)
+        }
         .scrollContentBackground(.hidden)
         .animation(.snappy(duration: 0.3), value: detail.keys)          // rows slide when one is removed or added
         .sensoryFeedback(.levelChange, trigger: detail.keys)            // a light tick as the order changes (Force Touch trackpads)

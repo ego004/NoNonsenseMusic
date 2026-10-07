@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		05A462C3FB25607BCB5ED070 /* Hands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C81726CBB84545203781C75C /* Hands.swift */; };
 		06ED42D3B0F7A7FD121A2AC7 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93FF752447B1866FD59A5D9D /* LibraryStore.swift */; };
 		0AC4DD34629ED87068AF6E5F /* LyricsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 881C5D7D7460D755FDFC0061 /* LyricsStore.swift */; };
 		0E59F343C250DEB67EB7B342 /* Screens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 187B65FDE5C1D9B4300ACE83 /* Screens.swift */; };
@@ -64,6 +65,7 @@
 		B5C8CE53A38023E1F773BDBD /* Presence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Presence.swift; sourceTree = "<group>"; };
 		C1CCB0A2FA5D8AEBEEC6204F /* Connectivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connectivity.swift; sourceTree = "<group>"; };
 		C646EB60CF5521894381A0AB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		C81726CBB84545203781C75C /* Hands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hands.swift; sourceTree = "<group>"; };
 		CF34CE64DF6A78F1C8313C22 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
 		D2B2FE4C7E6EEAA589159B7F /* ThemeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -102,6 +104,7 @@
 		A366DD47A305AF5756A79EAA /* Debug */ = {
 			isa = PBXGroup;
 			children = (
+				C81726CBB84545203781C75C /* Hands.swift */,
 				9C3D0063CBD5878029E2E727 /* SelfTest.swift */,
 			);
 			path = Debug;
@@ -236,6 +239,7 @@
 				AC27727CE31320E20CA90F5F /* Connectivity.swift in Sources */,
 				7764B8459C18BB33A437F195 /* DownloadStore.swift in Sources */,
 				243BA470092BE8B508E40FE8 /* Footprint.swift in Sources */,
+				05A462C3FB25607BCB5ED070 /* Hands.swift in Sources */,
 				C3D45EF8E04EE77DA5CECD1A /* Home.swift in Sources */,
 				06ED42D3B0F7A7FD121A2AC7 /* LibraryStore.swift in Sources */,
 				0AC4DD34629ED87068AF6E5F /* LyricsStore.swift in Sources */,

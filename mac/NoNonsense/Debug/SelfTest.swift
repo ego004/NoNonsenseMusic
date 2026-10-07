@@ -1490,7 +1490,7 @@ enum SelfTest {
 
     private static func center(of r: NSRect) -> NSPoint { NSPoint(x: r.midX, y: r.midY) }
 
-    private static func descendants(of view: NSView) -> [NSView] { view.subviews + view.subviews.flatMap(descendants) }
+    static func descendants(of view: NSView) -> [NSView] { view.subviews + view.subviews.flatMap(descendants) }
 
     /// "ClassName < Parent < Grandparent": enough to tell the sidebar from the detail column
     private static func describe(_ view: NSView?) -> String {

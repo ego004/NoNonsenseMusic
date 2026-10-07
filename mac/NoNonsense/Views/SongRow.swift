@@ -12,6 +12,8 @@ struct SongRow: View {
     var removeLabel = "Remove"
     /// In a playlist: "Remove from …" in the right-click menu.
     var remove: (() -> Void)? = nil
+    /// False where the list handles the double-click (a list you can reorder: see `row`).
+    var doubleClickPlays = true
     @Environment(Player.self) private var player
     @Environment(LibraryStore.self) private var library
     @Environment(DownloadStore.self) private var downloads
@@ -43,7 +45,11 @@ struct SongRow: View {
     private var row: some View {
         SongRowLine(track: track, expanded: $expanded) { player.play(queue, startAt: index, keys: keys, source: source) }
             .contentShape(.rect)
-            .onTapGesture(count: 2) { player.play(queue, startAt: index, keys: keys, source: source) }
+            // off in a list you reorder: any double-tap gesture on a row, simultaneous or not, takes the mouse-down the
+            // list needs to start a drag, so a playlist's songs could not be dragged (real input, 8 Oct). There the list
+            // itself plays on a double-click (PlaylistView)
+            .simultaneousGesture(TapGesture(count: 2).onEnded { player.play(queue, startAt: index, keys: keys, source: source) },
+                                 including: doubleClickPlays ? .all : .subviews)
             .contextMenu {
                 Button("Play") { player.play(queue, startAt: index, keys: keys, source: source) }
                 Button("Play Next") { player.playNext(track) }

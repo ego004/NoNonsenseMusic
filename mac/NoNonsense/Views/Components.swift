@@ -790,6 +790,9 @@ final class ScrollElasticityView: NSView {
     }
 
     private func set() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["NN_DEBUG_NO_ELASTICITY"] != nil { return }   // experiment: SwiftUI's own
+        #endif
         guard let scroll = enclosingScrollView else { return }
         if scroll.verticalScrollElasticity != vertical { scroll.verticalScrollElasticity = vertical }
         if scroll.horizontalScrollElasticity != horizontal { scroll.horizontalScrollElasticity = horizontal }

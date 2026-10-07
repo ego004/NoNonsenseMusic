@@ -68,6 +68,7 @@ struct NoNonsenseApp: App {
                     SelfTest.runConnectionCheckIfAsked(player: player)
                     SelfTest.runCoversCheckIfAsked()
                     SelfTest.runExplicitCheckIfAsked()
+                    SelfTest.runHandsCheckIfAsked(player: player, library: library)
                     #endif
                 }
         }

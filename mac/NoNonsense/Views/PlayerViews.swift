@@ -916,6 +916,7 @@ struct UpNextView: View {
                             withAnimation(.snappy) { player.removeFromUpNext(at: offset) }
                         }
                         .padding(.horizontal, 6)
+                        .selfTestFrame("upNext.row:\(offset)")
                     }
                     .animation(.snappy(duration: 0.3), value: player.upNextEntries.map(\.id))
                     .padding(.bottom, 8)

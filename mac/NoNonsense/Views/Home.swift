@@ -75,6 +75,7 @@ struct HomeView: View {
             HStack(alignment: .top, spacing: 20) {
                 ForEach(Array(tracks.enumerated()), id: \.element.id) { i, track in
                     CoverTile(track: track, side: cardSize) { player.play(library.recent, startAt: i) }
+                        .selfTestFrame("home.cover:\(i)")
                 }
             }
             .padding(.vertical, 12)                         // room for the hover lift and its shadow
@@ -83,6 +84,7 @@ struct HomeView: View {
         .scrollIndicators(.never)                           // .hidden still showed them with a mouse
         .defaultScrollAnchor(.leading)
         .scrollClipDisabled()
+        .selfTestFrame("home.recentShelf")
     }
 
     private var playlistGrid: some View {
@@ -114,6 +116,7 @@ struct HomeView: View {
         }
         .scrollIndicators(.never)
         .defaultScrollAnchor(.leading)
+        .selfTestFrame("home.likedShelf")
     }
 
     private var firstStep: some View {
