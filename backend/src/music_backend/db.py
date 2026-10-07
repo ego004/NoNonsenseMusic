@@ -15,8 +15,11 @@ SCHEMA = Path(__file__).resolve().parents[2] / "schema.sql"   # backend/schema.s
 
 
 def make_pool(url: str) -> AsyncConnectionPool:
-    # dict_row: rows come back as {"column": value} instead of bare tuples
-    return AsyncConnectionPool(url, open = False, kwargs = {"row_factory" : dict_row})
+    # dict_row: rows come back as {"column": value} instead of bare tuples.
+    # One connection kept open, up to 8 under load (4 prefetch workers and your requests), extras closed after a
+    # minute idle. The default kept 4 open all the time: 4 Postgres processes, 7-11 MB each (measured 7 Oct)
+    return AsyncConnectionPool(url, open = False, kwargs = {"row_factory" : dict_row},
+                               min_size = 1, max_size = 8, max_idle = 60)
 
 
 async def apply_schema(pool: AsyncConnectionPool) -> None:

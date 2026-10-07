@@ -47,8 +47,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="music", lifespan=lifespan)
-# INFO for everything (keeps httpx's own DEBUG chatter out of the terminal), DEBUG for our own logger
+# INFO for everything, DEBUG for our own logger. httpx logs every request it sends at INFO ("HTTP Request: …"):
+# WARNING for it, so the log keeps what matters (it was 80 of 2,178 lines, 7 Oct)
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+class _NoHealthChecks(logging.Filter):
+    """Leaves /health out of the access log: the app asks it while waiting for the server to start, and the lines
+    say nothing (/health was 1,141 of 2,178 log lines, 7 Oct)."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "/health" not in record.getMessage()
+
+
+logging.getLogger("uvicorn.access").addFilter(_NoHealthChecks())
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 

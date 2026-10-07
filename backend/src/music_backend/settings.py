@@ -38,7 +38,5 @@ class Settings(BaseSettings):
     # days: plain or empty lyrics are asked for again after this long (timed lyrics are kept for good)
     lyrics_recheck_days: float = 7
 
-    # not used yet: jiosaavn.py still has its own copy of the key
-    jiosaavn_des_key: str | None = None
 
 settings = Settings()

@@ -349,3 +349,40 @@ def test_a_paused_source_answers_502_without_asking_it(client, monkeypatch):
     assert client.get(f"/play/ytmusic/{new_id()}?serve_fresh=true", follow_redirects=False).status_code == 502
     assert len(calls) == 1                                   # the app's serve_fresh retries no longer reach YouTube
 
+
+
+# ---------- hits read, they do not write (7 Oct: every hit wrote the table twice) ----------
+
+@pytest.mark.anyio
+async def test_a_memory_hit_does_not_touch_the_table(pool):
+    cache = ListingURLCache({"ytmusic": SlowSource()}, pool)
+    song = new_id()
+    url = await cache("ytmusic", song)
+
+    async def no_table(*args):
+        raise AssertionError("a memory hit reached the table")
+    cache._get_db = cache._set_db = cache._db_hit = no_table
+    assert await cache("ytmusic", song) == url
+
+
+@pytest.mark.anyio
+async def test_a_table_hit_fills_memory_and_marks_the_row_used_without_storing_it_again(pool):
+    source, song = SlowSource(), new_id()
+    url = await ListingURLCache({"ytmusic": source}, pool)("ytmusic", song)
+    async with pool.connection() as conn:                    # pretend it was last used a day ago
+        await conn.execute("UPDATE listing_urls SET hit_at = now() - interval '1 day' WHERE source_id = %s", [song])
+
+    fresh = ListingURLCache({"ytmusic": source}, pool)       # a restarted server: memory is empty
+    stored = []
+    real_set_db = fresh._set_db
+
+    async def counting_set_db(*args):
+        stored.append(args)
+        await real_set_db(*args)
+    fresh._set_db = counting_set_db
+    assert await fresh("ytmusic", song) == url
+    assert source.calls == 1 and stored == []                # from the table: no fetch, no second store
+    assert ("ytmusic", song) in fresh.cache                  # and now in memory
+    async with pool.connection() as conn:
+        row = await (await conn.execute("SELECT hit_at > now() - interval '1 minute' AS recent FROM listing_urls WHERE source_id = %s", [song])).fetchone()
+    assert row["recent"]                                     # marked used, so the trim keeps it
