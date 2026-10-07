@@ -5,12 +5,16 @@ struct ArtworkView: View {
     let url: URL?
     var size: CGFloat
     var radius: CGFloat = 8
+    /// Asked when a new cover is ready: false swaps it at once (the bar's cover while Now Playing covers it: a fade
+    /// nobody sees still made Now Playing's blur re-blur the whole window on every frame of it)
+    var fades: () -> Bool = { true }
     @State private var image: NSImage?
 
-    init(url: URL?, size: CGFloat, radius: CGFloat = 8) {
+    init(url: URL?, size: CGFloat, radius: CGFloat = 8, fades: @escaping () -> Bool = { true }) {
         self.url = url
         self.size = size
         self.radius = radius
+        self.fades = fades
         // a cover already in the cache shows at once: no empty square fading in every time a screen reappears
         _image = State(initialValue: url.flatMap { ArtworkCache.shared.cached($0, size: size) })
     }
@@ -36,7 +40,7 @@ struct ArtworkView: View {
             if next == nil { next = await ArtworkCache.shared.image(for: url, size: size) }
             // cancelled: the url changed while this one loaded (⏭ twice quickly); the newer task shows its own
             guard let ready = next, !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.28)) { image = ready }
+            withAnimation(fades() ? .easeInOut(duration: 0.28) : nil) { image = ready }
         }
     }
 }
@@ -48,6 +52,9 @@ struct Backdrop: View {
     let track: Track?
     var strength: Double = 1
     var base: AnyShapeStyle? = nil
+    /// The main window's: while Now Playing covers it, a new song's colours swap at once. Its 1.1 s crossfade, unseen,
+    /// was redrawn by the app every frame and made Now Playing's blur re-blur the whole window each time
+    var underNowPlaying = false
     @AppStorage("animateBackdrop") private var animate = Look.animateBackdrop
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.controlActiveState) private var windowState      // .inactive when another app is in front
@@ -95,14 +102,16 @@ struct Backdrop: View {
         .ignoresSafeArea()
         .task(id: source) {
             let key = source
-            if theme.mode(.background) == .system { withAnimation(.easeInOut(duration: 0.8)) { mesh = nil }; return }
+            // read here, not in the body: opening Now Playing must not redraw this
+            let seen = !(underNowPlaying && player.showNowPlaying)
+            if theme.mode(.background) == .system { withAnimation(seen ? .easeInOut(duration: 0.8) : nil) { mesh = nil }; return }
             if theme.mode(.background) == .custom, let base = Color(hex: theme.hex(.background)) {
-                withAnimation(.easeInOut(duration: 0.8)) { mesh = (key, Self.shades(of: base)) }
+                withAnimation(seen ? .easeInOut(duration: 0.8) : nil) { mesh = (key, Self.shades(of: base)) }
                 return
             }
-            guard let url = track?.image else { withAnimation(.easeInOut(duration: 0.8)) { mesh = nil }; return }
+            guard let url = track?.image else { withAnimation(seen ? .easeInOut(duration: 0.8) : nil) { mesh = nil }; return }
             guard let colors = await ArtworkCache.shared.colorGrid(for: url), !Task.isCancelled else { return }   // a newer song's mesh wins
-            withAnimation(.easeInOut(duration: 1.1)) { mesh = (key, colors) }
+            withAnimation(seen ? .easeInOut(duration: 1.1) : nil) { mesh = (key, colors) }
         }
     }
 
@@ -134,6 +143,7 @@ struct Backdrop: View {
 struct IsolatedBackdrop: NSViewRepresentable {
     let track: Track?
     var strength: Double
+    var underNowPlaying = false                                         // the main window's (see Backdrop)
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
 
@@ -148,7 +158,7 @@ struct IsolatedBackdrop: NSViewRepresentable {
     func updateNSView(_ host: Host, context: Context) { host.rootView = content }
 
     private var content: AnyView {
-        AnyView(Backdrop(track: track, strength: strength).environment(player).environment(theme))
+        AnyView(Backdrop(track: track, strength: strength, underNowPlaying: underNowPlaying).environment(player).environment(theme))
     }
 }
 

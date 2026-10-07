@@ -80,7 +80,7 @@ struct RootView: View {
                     // never how see-through the window is (stacked layers made it nearly opaque before, 5 Oct).
                     ZStack {
                         Color(nsColor: .windowBackgroundColor)
-                        IsolatedBackdrop(track: player.current, strength: artStrength)
+                        IsolatedBackdrop(track: player.current, strength: artStrength, underNowPlaying: true)
                     }
                     .opacity(max(windowOpacity, Look.minWindowOpacity))   // a value saved before the floor existed may be lower
                 }

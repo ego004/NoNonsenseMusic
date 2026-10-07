@@ -41,7 +41,7 @@ struct PlayerBar: View {
                 // the song
                 HStack(spacing: 12) {
                     Button { player.showNowPlaying = true } label: {
-                        ArtworkView(url: track.image, size: 48, radius: 10)
+                        ArtworkView(url: track.image, size: 48, radius: 10, fades: { [player] in !player.showNowPlaying })
                     }
                     .buttonStyle(.quiet(highlight: false))
                     .help("Open Now Playing (⇧⌘F)")
@@ -448,10 +448,15 @@ struct LyricsPanel: View {
 /// Timed lyrics: lit line, kept in the middle, click to seek. The light moves only when a line changes: a task
 /// sleeps until the next line is due (reading the player's live position), and anything that moves the clock starts
 /// it again. A 10-a-second timer cost 14% of a core more than Up Next (6 Oct); a half-second check cost a wake twice a
-/// second for nothing (audit, 7 Oct): now one wake per line.
+/// second for nothing (audit, 7 Oct): now one wake per line. The lines themselves are Core Animation layers
+/// (LyricLinesView): a line change was a SwiftUI scroll and fade, redrawn by the app up to 120 times a second for the
+/// whole change; with a line every second or so that never stopped: 30–40% of a core (measured 7 Oct, Fake_Opps).
 private struct TimedLyricsView: View {
     let lyrics: Lyrics
     @Environment(Player.self) private var player
+    @Environment(\.textScale) private var textScale
+    @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion       // seconds per line change (Settings › Lyrics)
+    @AppStorage("buttonFeedback") private var feedback = Look.buttonFeedback  // the highlight under the pointer
     @State private var current: Int?
 
     init(lyrics: Lyrics, startLine: Int?) {
@@ -460,13 +465,18 @@ private struct TimedLyricsView: View {
     }
 
     var body: some View {
-        TimedLines(lines: lyrics.lines, current: current)
-            .equatable()                                           // redrawn only when the lit line changes
-            // starts again on play, pause, a stall and its end (`position` is re-anchored) and every seek: the sleep
-            // below is never left counting from an old time
-            .task(id: [player.isPlaying && !player.isBuffering ? 1.0 : 0.0, player.position, Double(player.seeks)]) {
-                await follow()
-            }
+        LyricLines(lines: lyrics.lines, current: current, motion: motion, fontSize: 21 * textScale, feedback: feedback) {
+            jump(to: $0)
+        }
+        // starts again on play, pause, a stall and its end (`position` is re-anchored) and every seek: the sleep
+        // below is never left counting from an old time
+        .task(id: [player.isPlaying && !player.isBuffering ? 1.0 : 0.0, player.position, Double(player.seeks)]) {
+            await follow()
+        }
+        #if DEBUG
+        .onChange(of: current, initial: true) { _, line in SelfTest.lyricsCurrent = line }
+        .onAppear { SelfTest.lyricsJump = { jump(to: $0) } }              // the click, when a click cannot reach
+        #endif
     }
 
     /// Lights the line, then, while the song plays, sleeps until the next line is due. Nothing runs between lines.
@@ -488,85 +498,290 @@ private struct TimedLyricsView: View {
         if line != current { current = line }
         return now
     }
-}
-
-private struct TimedLines: View, Equatable {
-    let lines: [LyricLine]
-    let current: Int?                                              // nil: before the first line
-    @Environment(Player.self) private var player
-    @State private var followAgainAt = Date.distantPast             // you scrolled: follow again after this
-    @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion   // seconds per line change (Settings › Lyrics)
-
-    static func == (a: TimedLines, b: TimedLines) -> Bool { a.current == b.current && a.lines == b.lines }
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                        Button { jump(to: line) } label: { row(line, index: index) }
-                            .buttonStyle(.quiet)
-                            .id(index)
-                            .selfTestFrame("lyrics.line.\(index)")
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 140)                           // room for the first and last lines to sit in the middle
-            }
-            .scrollIndicators(.never)
-            // no fade mask at the edges: measured 6 Oct, it cost ~2% of a core more while playing (a mask redraws
-            // offscreen); the lines clip at the panel's edge, as Up Next's do
-            .onScrollPhaseChange { _, phase in
-                if phase == .interacting { followAgainAt = .now.addingTimeInterval(4) }
-            }
-            .onChange(of: current) { _, line in
-                guard let line, Date.now > followAgainAt else { return }
-                // smooth whenever the window can be seen, in front or not; a covered window jumps: an animated
-                // scroll there never finished (macOS draws no frames for it; tested 7 Oct), and it saves the frames
-                if NSApp.windows.contains(where: { $0.isVisible && $0.occlusionState.contains(.visible) && $0.styleMask.contains(.titled) }) {
-                    withAnimation(.smooth(duration: motion)) { proxy.scrollTo(line, anchor: .center) }
-                } else {
-                    proxy.scrollTo(line, anchor: .center)
-                }
-            }
-            // open at the playing line, with no animation: opening inside the panel switch's animation, the first
-            // placement scrolled visibly from the top (7 Oct). Later line changes scroll smoothly (above)
-            .onAppear {
-                guard let current else { return }
-                var still = Transaction()
-                still.disablesAnimations = true
-                withTransaction(still) { proxy.scrollTo(current, anchor: .center) }
-            }
-            #if DEBUG
-            .onChange(of: current, initial: true) { _, line in SelfTest.lyricsCurrent = line }
-            .onAppear { SelfTest.lyricsJump = { index in jump(to: lines[index]) } }     // the click, when a click cannot reach
-            #endif
-        }
-    }
-
-    private func row(_ line: LyricLine, index: Int) -> some View {
-        let lit = index == current
-        return Text(line.text.isEmpty ? "♪" : line.text)
-            .textStyle(size: 21, weight: .bold)
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // one colour, faded: switching primary/secondary snapped while only the opacity faded, so the change
-            // looked jumpy (7 Oct). No scaling: it made every frame of the change re-render the text
-            .foregroundStyle(.primary)
-            .opacity(lit ? 1 : 0.38)
-            .animation(.smooth(duration: motion), value: lit)    // the fade and the scroll move together
-            .contentShape(.rect)
-            .accessibilityLabel(line.text.isEmpty ? "Instrumental break" : line.text)
-            .accessibilityAddTraits(lit ? .isSelected : [])
-    }
 
     /// Click a line: play from where it starts.
-    private func jump(to line: LyricLine) {
-        guard let ms = line.startMs else { return }
-        followAgainAt = .distantPast                               // follow from here at once
+    private func jump(to index: Int) {
+        guard lyrics.lines.indices.contains(index), let ms = lyrics.lines[index].startMs else { return }
         player.seek(to: Double(ms) / 1000)
         if !player.isPlaying { player.togglePlayPause() }
     }
+}
+
+/// The timed lines, as a view SwiftUI hands to AppKit.
+private struct LyricLines: NSViewRepresentable {
+    let lines: [LyricLine]
+    let current: Int?                                              // nil: before the first line
+    let motion: Double
+    let fontSize: CGFloat
+    let feedback: Bool
+    let jump: (Int) -> Void
+
+    func makeNSView(context: Context) -> LyricLinesView { LyricLinesView() }
+
+    func updateNSView(_ view: LyricLinesView, context: Context) {
+        view.update(lines: lines, current: current, motion: motion, fontSize: fontSize, feedback: feedback, jump: jump)
+    }
+}
+
+/// One text layer per line, all inside one `strip` layer. A line change sets where the strip and two opacities end
+/// up, once; macOS's render server plays the movement (as for the progress line): the app does nothing per frame.
+/// Scroll to look around (following stops for 4 s); click a line to play from it; the lines clip at the panel's edge.
+final class LyricLinesView: NSView {
+    private let strip = CALayer()                  // every line; moved as one to bring the lit line to the middle
+    private let hover = CALayer()                  // Button feedback: a soft highlight under the line the pointer is on
+    private var texts: [CATextLayer] = []
+    private var tops: [CGFloat] = []               // each line's top, measured down from the strip's top
+    private var heights: [CGFloat] = []
+    private var lines: [LyricLine] = []
+    private var current: Int?
+    private var motion = Look.lyricsMotion
+    private var fontSize: CGFloat = 21
+    private var feedback = true
+    private var jump: (Int) -> Void = { _ in }
+    private var offset: CGFloat = 0                // how far the strip's top sits above the view's top (a scroll offset)
+    private var followAgainAt = Date.distantPast   // you scrolled: the light is followed again after this
+    private var builtWidth: CGFloat = -1
+    private var pressed: Int?
+    private var hovered: Int?
+
+    private static let spacing: CGFloat = 14
+    private static let inset: CGFloat = 20
+    private static let unlit: Float = 0.38         // one colour, faded: switching primary/secondary snapped (7 Oct)
+    private static let introGap: CGFloat = 140     // before the first line: it sits this far below the top
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        strip.anchorPoint = CGPoint(x: 0, y: 1)                     // placed by its top-left corner
+        hover.cornerRadius = 8
+        hover.isHidden = true
+        strip.addSublayer(hover)
+        layer?.addSublayer(strip)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func update(lines: [LyricLine], current: Int?, motion: Double, fontSize: CGFloat, feedback: Bool, jump: @escaping (Int) -> Void) {
+        self.motion = motion
+        self.feedback = feedback
+        self.jump = jump
+        if lines != self.lines || fontSize != self.fontSize {
+            self.lines = lines
+            self.fontSize = fontSize
+            self.current = current
+            build()                                                 // other text: the layers again, placed at once
+            return
+        }
+        guard current != self.current else { return }
+        let old = self.current
+        self.current = current
+        light(from: old)
+    }
+
+    // MARK: layout
+
+    /// The layers for every line, measured for this width, placed with no animation.
+    private func build() {
+        let width = bounds.width
+        guard width > 0 else { return }                             // not laid out yet: layout() builds
+        builtWidth = width
+        still { texts.forEach { $0.removeFromSuperlayer() } }       // no fade-out: Core Animation fades removals by itself
+        texts = []; tops = []; heights = []
+        let textWidth = max(1, width - 2 * Self.inset)
+        let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
+        let colour = resolved(.labelColor)
+        let scale = window?.backingScaleFactor ?? 2
+        var y: CGFloat = 0
+        for (i, line) in lines.enumerated() {
+            let text = NSAttributedString(string: line.text.isEmpty ? "♪" : line.text, attributes: [.font: font, .foregroundColor: colour])
+            let height = ceil(text.boundingRect(with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
+                                                options: [.usesLineFragmentOrigin, .usesFontLeading]).height) + 2
+            let layer = CATextLayer()
+            layer.string = text
+            layer.isWrapped = true
+            layer.alignmentMode = .left
+            layer.contentsScale = scale
+            layer.opacity = i == current ? 1 : Self.unlit
+            texts.append(layer); tops.append(y); heights.append(height)
+            y += height + Self.spacing
+        }
+        let total = max(0, y - Self.spacing)
+        still {
+            strip.bounds = CGRect(x: 0, y: 0, width: textWidth, height: total)
+            for (i, layer) in texts.enumerated() {
+                // layers count y from the bottom: line i's top is tops[i] below the strip's top
+                layer.frame = CGRect(x: 0, y: total - tops[i] - heights[i], width: textWidth, height: heights[i])
+                strip.addSublayer(layer)
+            }
+            hover.isHidden = true
+        }
+        hovered = nil
+        followAgainAt = .distantPast
+        offset = target()
+        place(animated: false)
+    }
+
+    override func layout() {
+        super.layout()
+        if bounds.width != builtWidth { build(); return }           // another width wraps the lines differently
+        offset = Date.now > followAgainAt ? target() : clamped(offset)
+        place(animated: false)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { build() }                                // the screen's scale, for sharp text
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        build()                                                     // light or dark: the text's colour
+    }
+
+    /// The offset that puts the lit line in the middle; before the first line, the first one `introGap` from the top.
+    private func target() -> CGFloat {
+        guard let i = current, tops.indices.contains(i) else { return -Self.introGap }
+        return tops[i] + heights[i] / 2 - bounds.height / 2
+    }
+
+    /// As far as you can scroll: the first line in the middle (or lower) to the last line in the middle.
+    private func clamped(_ value: CGFloat) -> CGFloat {
+        guard let first = heights.first, let lastTop = tops.last, let last = heights.last else { return value }
+        let low = min(-Self.introGap, first / 2 - bounds.height / 2)
+        let high = max(low, lastTop + last / 2 - bounds.height / 2)
+        return min(high, max(low, value))
+    }
+
+    // MARK: motion
+
+    /// The new line lights, the old one fades, and (unless you scrolled in the last 4 s) the strip brings it to the
+    /// middle: one animation each, set up here once and played by the render server.
+    private func light(from old: Int?) {
+        let changes: [(Int?, Float)] = [(old, Self.unlit), (current, 1)]
+        for (index, opacity) in changes {
+            guard let i = index, texts.indices.contains(i) else { continue }
+            let from = texts[i].presentation()?.opacity ?? texts[i].opacity
+            still { texts[i].opacity = opacity }
+            if motion > 0 { texts[i].add(Self.animation("opacity", from: from, to: opacity, duration: motion), forKey: "light") }
+        }
+        guard Date.now > followAgainAt else { return }
+        offset = target()
+        place(animated: true)
+    }
+
+    /// Puts the strip at `offset`, sliding there from wherever it is now when `animated`.
+    private func place(animated: Bool) {
+        let to = CGPoint(x: Self.inset, y: bounds.height + offset)
+        let from = strip.presentation()?.position ?? strip.position
+        still { strip.position = to }
+        if animated, motion > 0, from != to {
+            strip.add(Self.animation("position", from: NSValue(point: from), to: NSValue(point: to), duration: motion), forKey: "follow")
+        }
+        #if DEBUG
+        recordFrames()
+        #endif
+    }
+
+    /// 60 frames a second at most: smooth, half the render server's work of a 120 Hz screen.
+    private static func animation(_ keyPath: String, from: Any, to: Any, duration: Double) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = from
+        animation.toValue = to
+        animation.duration = duration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        animation.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+        return animation
+    }
+
+    /// A change with no implicit animation (Core Animation animates most layer changes by itself otherwise).
+    private func still(_ change: () -> Void) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        change()
+        CATransaction.commit()
+    }
+
+    // MARK: scroll, click, hover
+
+    override func scrollWheel(with event: NSEvent) {
+        guard !texts.isEmpty else { return }
+        // you look around: the light is not followed for 4 s; the next line change after that brings it back
+        followAgainAt = .now.addingTimeInterval(4)
+        if let moving = strip.presentation(), strip.animation(forKey: "follow") != nil {
+            offset = moving.position.y - bounds.height                  // stop the follow where it is, then scroll from there
+            strip.removeAnimation(forKey: "follow")
+        }
+        let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 12
+        offset = clamped(offset - delta)
+        place(animated: false)
+    }
+
+    override func mouseDown(with event: NSEvent) { pressed = line(at: convert(event.locationInWindow, from: nil)) }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { pressed = nil }
+        guard let i = line(at: convert(event.locationInWindow, from: nil)), i == pressed else { return }
+        followAgainAt = .distantPast                                // follow from the clicked line at once
+        jump(i)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    override func mouseMoved(with event: NSEvent) { setHovered(line(at: convert(event.locationInWindow, from: nil))) }
+    override func mouseExited(with event: NSEvent) { setHovered(nil) }
+
+    /// Settings › Appearance › Button feedback: the same soft highlight as the app's other plain buttons.
+    private func setHovered(_ index: Int?) {
+        guard index != hovered else { return }
+        hovered = index
+        still {
+            guard feedback, let i = index, texts.indices.contains(i) else { hover.isHidden = true; return }
+            hover.frame = texts[i].frame.insetBy(dx: -6, dy: -6)
+            hover.backgroundColor = resolved(NSColor.labelColor.withAlphaComponent(0.08)).cgColor
+            hover.isHidden = false
+        }
+    }
+
+    /// The line under a point of this view (a line takes 6 pt around it, like a button), if any.
+    private func line(at point: NSPoint) -> Int? {
+        let y = bounds.height - point.y + offset                    // in the strip, measured down from its top
+        guard let i = tops.lastIndex(where: { $0 <= y + 6 }), y <= tops[i] + heights[i] + 6 else { return nil }
+        return i
+    }
+
+    /// A dynamic colour (it differs in light and dark) as it looks in this view now.
+    private func resolved(_ colour: NSColor) -> NSColor {
+        var out = colour
+        effectiveAppearance.performAsCurrentDrawingAppearance { out = NSColor(cgColor: colour.cgColor) ?? colour }
+        return out
+    }
+
+    // MARK: accessibility: the panel reads as the line being sung
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? { "Lyrics" }
+    override func accessibilityValue() -> Any? {
+        guard let i = current, lines.indices.contains(i) else { return nil }
+        return lines[i].text.isEmpty ? "Instrumental break" : lines[i].text
+    }
+
+    #if DEBUG
+    /// Self-tests measure where each line is: window points from the top, as SwiftUI's global frames are.
+    private func recordFrames() {
+        guard let height = window?.contentView?.frame.height else { return }
+        for i in texts.indices {
+            let inView = CGRect(x: Self.inset, y: bounds.height + offset - tops[i] - heights[i], width: strip.bounds.width, height: heights[i])
+            let r = convert(inView, to: nil)
+            SelfTest.frames["lyrics.line.\(i)"] = CGRect(x: r.minX, y: height - r.maxY, width: r.width, height: r.height)
+        }
+    }
+    #endif
 }
 
 /// Plain lyrics: no times, so nothing to light; they scroll.
