@@ -236,6 +236,11 @@ final class Player {
         return now.isFinite ? now : position
     }
 
+    /// ← and →: a few seconds back or on, within the song (not past its end: that would skip it).
+    func seek(by seconds: Double) {
+        seek(to: min(max(0, livePosition + seconds), max(0, duration - 1)))
+    }
+
     func seek(to seconds: Double) {
         position = seconds
         seeks += 1
@@ -246,7 +251,7 @@ final class Player {
     /// still be 0 from the song's start (it changes only on events), so nothing would change. Lyrics follow this.
     private(set) var seeks = 0
 
-    /// Space plays/pauses anywhere in the window, except while typing in a text field. And while typing, ⌘← ⌘→ ⌘↑ ⌘↓
+    /// Space plays/pauses anywhere in the window, and ← → seek 5 s, except while typing in a text field. And while typing, ⌘← ⌘→ ⌘↑ ⌘↓
     /// move the cursor, as in any text field: menus answer their shortcuts before the field sees the key, so the
     /// Controls menu's Next, Previous and Volume took them (audit, 7 Oct). A monitor sees the key before the menus do.
     func installKeyMonitor() {
@@ -262,6 +267,18 @@ final class Player {
                     return true
                 }
                 return typed ? nil : event
+            }
+            // ← → : 5 s back or on (as on YouTube). Not while typing (the field's cursor) or on a focused slider
+            let isPlainArrow = (event.keyCode == 123 || event.keyCode == 124)
+                && event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]).isEmpty
+            if isPlainArrow {
+                let seeked = MainActor.assumeIsolated { () -> Bool in
+                    let focused = NSApp.keyWindow?.firstResponder
+                    guard let self, self.current != nil, !(focused is NSText), !(focused is NSSlider) else { return false }
+                    self.seek(by: event.keyCode == 124 ? 5 : -5)
+                    return true
+                }
+                return seeked ? nil : event
             }
             let isPlainSpace = event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
             guard isPlainSpace else { return event }

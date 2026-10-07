@@ -45,17 +45,19 @@ struct PlaybackTimeline: View {
                     Color.clear
                         .contentShape(.rect)
                         .frame(width: track, height: timesBelow ? 14 : geo.size.height)
-                        .position(x: geo.size.width / 2, y: timesBelow ? 7 : geo.size.height / 2)
+                        // the gesture before `.position`: its x then counts from the line's left end. After it, x
+                        // counted from the bar's left edge, the elapsed time's width included, so a click on the bar
+                        // landed that much further on (~44 pt; Now Playing's full-width line was right: 7 Oct)
                         .gesture(DragGesture(minimumDistance: 0)
                             .onChanged { value in
-                                let x = value.location.x
-                                dragged = max(0, min(1, x / track)) * player.duration
+                                dragged = max(0, min(1, value.location.x / track)) * player.duration
                             }
                             .onEnded { _ in
                                 if let d = dragged { player.seek(to: d) }
                                 dragged = nil
                             })
                         .onHover { hovering = $0 }
+                        .position(x: geo.size.width / 2, y: timesBelow ? 7 : geo.size.height / 2)
                 }
             }
             // while scrubbing: a tick each time the drag crosses a whole minute

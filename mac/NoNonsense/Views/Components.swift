@@ -755,3 +755,43 @@ extension View {
         modifier(ScaledText(size: size, weight: weight, monospacedDigit: false))
     }
 }
+
+/// How far a SwiftUI ScrollView may stretch past its edges (the rubber band), which SwiftUI has no modifier for on
+/// macOS: `scrollBounceBehavior(.basedOnSize)` stops it only while the content fits. Put it behind the scroll view's
+/// content (`.background(ScrollElasticity(...))`): it finds the AppKit scroll view that draws it. Takes no clicks.
+struct ScrollElasticity: NSViewRepresentable {
+    var vertical: NSScrollView.Elasticity = .automatic
+    var horizontal: NSScrollView.Elasticity = .automatic
+
+    func makeNSView(context: Context) -> ScrollElasticityView { ScrollElasticityView() }
+
+    func updateNSView(_ view: ScrollElasticityView, context: Context) {
+        view.vertical = vertical
+        view.horizontal = horizontal
+        view.apply()
+    }
+}
+
+final class ScrollElasticityView: NSView {
+    var vertical: NSScrollView.Elasticity = .automatic
+    var horizontal: NSScrollView.Elasticity = .automatic
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        apply()
+    }
+
+    /// Now, and once more after SwiftUI's own update of the scroll view, which may set it back
+    func apply() {
+        set()
+        Task { @MainActor [weak self] in self?.set() }      // runs after the current update, on the main thread
+    }
+
+    private func set() {
+        guard let scroll = enclosingScrollView else { return }
+        if scroll.verticalScrollElasticity != vertical { scroll.verticalScrollElasticity = vertical }
+        if scroll.horizontalScrollElasticity != horizontal { scroll.horizontalScrollElasticity = horizontal }
+    }
+}
