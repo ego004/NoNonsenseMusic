@@ -23,11 +23,6 @@ INSTRUMENTAL = {"instrumental": True, "plainLyrics": None, "syncedLyrics": None}
 
 
 @pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
-@pytest.fixture
 def lrclib(monkeypatch):
     """Sets what the fake LRCLIB answers: a status and body, or an exception. Records every request."""
     state = {"status": 404, "body": {"name": "TrackNotFound"}, "raise": None, "requests": []}

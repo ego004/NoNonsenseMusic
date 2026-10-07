@@ -337,7 +337,9 @@ Found by reading the code and, where it says *reproduced*, by running it with fa
 **Done when:** a negative (or absurd) limit is a 422 before any SQL runs.
 **Docs:** FastAPI [Query parameters and validation](https://fastapi.tiangolo.com/tutorial/query-params-str-validations/) (numbers: `ge`, `le`)
 
-### STRIP · A lighter server (optional, one evening)
+### STRIP · A lighter server ✅ (7 Oct, Claude, on your request; your review)
+**Done:** FastAPI without its Cloud tools (six packages gone from `uv.lock`, 96 → 89 MB measured); `GET /` removed; one `single_flight` for both caches; a table hit is one `UPDATE … RETURNING`; the prefetch worker's check marks nothing (`_has_fresh`, with a test that fails on the old check); `tests/conftest.py` holds `anyio_backend` and the plain `pool` (two files keep their own `pool` on purpose: they clean differently). 164 passed. **Left for you:** the unused `jiosaavn_cache_expiry_threshold` setting (`settings.py` refuses any `.env` key it does not know, so the field, `.env.example` and your own `backend/.env` must lose it in the same step, or the server will not start).
+
 From the same audit. The server idles at ~0.2% of a core (uvicorn's own 10-a-second tick; only another server would remove it), so this is about memory and less code:
 - `fastapi[standard]` loads FastAPI Cloud's tools (Sentry among them) on every start: `fastapi[standard-no-fastapi-cloud-cli]` measured 96 → 89 MB, with no change to how the app starts the server.
 - Unused: the `jiosaavn_cache_expiry_threshold` setting (and its line in `.env.example`), `GET /`.

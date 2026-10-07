@@ -69,10 +69,6 @@ SOURCES = {"jiosaavn" : jiosaavn, "ytmusic" : ytmusic}
 assert set(SOURCES) == set(get_args(SourceName)), f"SOURCES {set(SOURCES)} != SourceName {get_args(SourceName)}"
 
 
-@app.get("/")
-async def root():
-    return {"app_name": "NoNonsenseMusic", "api_version": "1.0"}
-
 @app.get("/health")
 async def health():
     return {"status": "ok"}

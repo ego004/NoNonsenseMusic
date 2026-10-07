@@ -13,11 +13,6 @@ def listing(source, id, title="Blinding Lights", artists=("The Weeknd",), durati
 
 
 @pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
-@pytest.fixture
 async def pool():
     pool = db.make_pool(TEST_URL)
     await pool.open()

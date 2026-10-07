@@ -42,9 +42,6 @@ Files, in the order a request touches them:
 - **How:** makes the pool (`db.make_pool`), opens it, creates missing tables (`db.apply_schema`), stores the pool in `app.state.pool`, makes the URL cache and starts the prefetch workers. At shutdown, in this order: cancels the workers and the lookups still running, closes the sources' kept connections (`source.http.close()`) and LRCLIB's (`lyrics.http`), closes the pool.
 - **Called by:** FastAPI, once.
 
-### `root()` — `GET /`
-- **Does:** says hello. **Returns:** `{"app_name": "NoNonsenseMusic", "api_version": "1.0"}`.
-
 ### `health()` — `GET /health`
 - **Does:** shows the server is alive. **Returns:** `{"status": "ok"}`. **Called by:** the app's Settings window.
 
@@ -387,12 +384,14 @@ Each source module also has `http`, its `SharedClient` (above); the lifespan clo
 | Method | Does |
 |---|---|
 | `__call__` | The rule: unless `serve_fresh`, `get`. Nothing good? Fetch from the source, then `set`. Returns the URL. A source error passes through, so failures are never stored |
-| `get` | Memory, then the table. Returns `None` if missing or expired (`is_expired` of that source). Any hit marks its row used (`_db_hit`: one `UPDATE` of `hit_at`), so the trim drops the least recently used; a table hit also copies the URL into memory (`_remember`). No trim on a hit: a hit adds no row |
+| `get` | Memory, then the table. Returns `None` if missing or expired (`is_expired` of that source). Any hit marks its row used, so the trim drops the least recently used: a memory hit with `_db_hit`, a table hit with `_take_db` (reads and marks in one statement), and a table hit also copies the URL into memory (`_remember`). No trim on a hit: a hit adds no row. This is the way in for a play; the prefetch worker uses `_has_fresh` |
 | `set` | After a real fetch: `_remember`, then `_set_db` (the upsert and the trim: the table grows only here) |
 | `_remember` | Memory: store as the most recently used, drop the least recently used past the limit |
 | `_db_hit` | Table: `hit_at = now()` for one row |
 | `_cache_hit` | Memory: `move_to_end`, and drop the oldest if over the limit |
-| `_get_db` | Table: the URL for `(source, source_id)`, or `None` |
+| `_get_db` | Table: the URL for `(source, source_id)`, or `None`; only reads |
+| `_take_db` | Table: the URL, and `hit_at = now()`, in one `UPDATE … RETURNING` (it was a `SELECT`, then an `UPDATE`: two round trips) |
+| `_has_fresh` | Whether a good URL is cached, marking nothing (memory read without reordering, else `_get_db`): the prefetch worker's check. It used `get`, so "least recently used" meant "least recently prefetched" |
 | `_set_db` | Table: one upsert (`fetched_at` changes only if the URL changed; `hit_at = now()`), then a trim to the newest `cache_max_size_in_db` by `hit_at`. One block, one commit |
 
 **Changed 7 Oct:** every hit, even from memory, went through `set`, so each wrote the table twice (an upsert and the trim's `DELETE … ORDER BY hit_at OFFSET`): 300 hits sent 600 statements (median 0.345 ms each), on every `/play` and every prefetch check of a cached listing. Now a hit sends one statement, the `hit_at` update (300 hits: 300 statements, median 0.124 ms), and the trim runs only when a new URL is stored, the only time the table can grow. Your rule is kept: `hit_at` is the last use, memory hits included. As before, a memory hit waits for Postgres (for that one update). Two tests guard it: a memory hit only marks its row; a table hit fills memory and marks its row without storing it again.
@@ -400,8 +399,9 @@ Each source module also has `http`, its `SharedClient` (above); the lifespan clo
 **Checked 5 Oct 2026 (before that change):** a memory hit keeps `fetched_at` and moves `hit_at`; a fresh fetch with a new URL moves `fetched_at`, with the same URL (JioSaavn) it does not; with a limit of 3, storing P Q R, replaying P, then adding S leaves R P S (Q, the least recently used, goes). With every hit going through `set`: memory stays at its limit after a restart (5 table hits, limit 3 → 3), and a memory hit costs 0.83 ms with 6,000 rows in the table (the upsert + trim). `DELETE` + `INSERT` instead of the upsert crashed with `UniqueViolation` when two requests wrote one listing at once.
 
 ### Single-flight (MUS-1 step 2)
-- `_start_lookup(source, id)`: the lookup already running for a listing (in `running`), or a new one started as a task and registered at once. `__call__` and the prefetch workers both use it, so one listing is never looked up twice at the same moment. Requests wait behind `asyncio.shield`: a cancelled request (a skipped song) ends only its own wait.
-- `_lookup(source, id)`: the lookup itself; its `finally` removes it from `running`, worked or failed, so failures are never kept.
+- `single_flight(running, key, work)` (a module function, used by both caches): the lookup already running for `key` (in `running`), or a new one started as a task and registered at once; when it ends, worked or failed, the key leaves `running`, so failures are never kept. It was written out twice.
+- `_start_lookup(source, id)`: `single_flight` per listing. `__call__` and the prefetch workers both use it, so one listing is never looked up twice at the same moment. Requests wait behind `asyncio.shield`: a cancelled request (a skipped song) ends only its own wait.
+- `_lookup(source, id)`: the lookup itself.
 
 ### Backoff (MUS-1 step 2b)
 - `blocked_until[source]`, `strikes[source]`: per source, because a bot check blocks the IP, not one song.
@@ -410,13 +410,13 @@ Each source module also has `http`, its `SharedClient` (above); the lifespan clo
 
 ### Prefetch (MUS-1 step 3)
 - `prefetch(listings)`: empties `prefetch_queue` and puts the new list in (no waiting).
-- `prefetch_worker()`: `num_prefetch_workers` of them, started in `lifespan` and cancelled at shutdown (before the pool closes, with any lookups still running). Forever: take a listing; skip it if running or cached; else look it up. Expected failures (a gone song, a blip, a pause) log one line; anything else logs a traceback; the worker always carries on.
+- `prefetch_worker()`: `num_prefetch_workers` of them, started in `lifespan` and cancelled at shutdown (before the pool closes, with any lookups still running). Forever: take a listing; skip it if running or cached (`_has_fresh`: a prefetch does not count as a use); else look it up. Expected failures (a gone song, a blip, a pause) log one line; anything else logs a traceback; the worker always carries on.
 
 ### `LyricsCache(pool)`
 - **Does:** keeps lyrics replies in the `lyrics` table, one row per song as the app asks for it: `(song_name, artist_name, song_duration, youtube_id or '')`. With and without a YouTube copy are two rows (the answers can differ).
 - **Use:** `reply = await lyrics_cache(song)`. The lifespan builds one: `app.state.lyrics_cache`; its running lookups are cancelled at shutdown with the URL cache's.
 - **Called by:** `POST /lyrics`.
-- **Why not `ListingURLCache` renamed:** lyrics are per song, not per listing; timed lyrics never go stale; one table read is 3–4 ms, so no memory level; no backoff, no workers. Only single-flight is shared.
+- **Why not `ListingURLCache` renamed:** lyrics are per song, not per listing; timed lyrics never go stale; one table read is 3–4 ms, so no memory level; no backoff, no workers. Only single-flight is shared (`single_flight`).
 
 | Rule | Why |
 |---|---|
