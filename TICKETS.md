@@ -408,6 +408,8 @@ Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens
 
 ## MUS-12 · Lyrics, lit line by line
 
+**Status (6 Oct):** steps 1 and 2 done (`POST /lyrics`, `lyrics.py`: a `LYRICS_SOURCES` loop, your design: timed from any source wins, else the first plain, else empty). 34 tests, offline, plus 11 for the cache on music_test. Measured: *Les* from LRCLIB, timed, 115 lines, 0.6 s; LRCLIB missing, YouTube timed, 2.0 s. *Corrlinks and JPay* turned out to be on LRCLIB after all (the earlier "not found" was most likely a 503), so it no longer tests step 2. Step 3 done too: `LyricsCache` and the `lyrics` table (timed kept for good; plain or empty asked again after 7 days; nothing kept when a source failed). Measured: 704 ms not stored, 3–4 ms stored. **App done too (7 Oct):** the Lyrics panel (lit line kept in the middle, click to seek, "Couldn't find lyrics"), Settings › Lyrics (when a song starts, and the next song's; or only when Lyrics opens), downloads keep their lyrics for offline. 15 self-test checks pass. With a still background, Now Playing with Lyrics takes ~4% of one core.
+
 **Problem:** Now Playing shows no words. You want the lyrics, and when they are timed, the line being sung lit up.
 
 **Decided (6 Oct 2026)**
