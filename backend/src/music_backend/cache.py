@@ -72,14 +72,16 @@ class ListingURLCache:
             )
 
     async def get(self, source: str, song_id: str) -> str | None:
-        """One URL or None: memory first, then the table. A memory hit touches only memory; a table hit copies the URL
-        into memory and marks the row used. Every hit used to write the table twice (an upsert and the trim's
-        DELETE): 600 statements for 300 hits, measured 7 Oct, on every /play and every prefetch check."""
+        """One URL or None: memory first, then the table. Any hit marks the row used (one UPDATE of hit_at), so the
+        trim drops the least recently used; a table hit also copies the URL into memory. Every hit used to write the
+        table twice (an upsert and the trim's DELETE): 600 statements for 300 hits, measured 7 Oct. Now one per hit,
+        and no trim: a hit adds no row, so it cannot grow the table."""
         url = self.cache.get((source, song_id))
         if url is not None:
             if self.sources[source].is_expired(url):
                 return None
             self._cache_hit(source, song_id)
+            await self._db_hit(source, song_id)
             return url
         url = await self._get_db(source, song_id)
         if url is None or self.sources[source].is_expired(url):
