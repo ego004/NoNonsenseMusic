@@ -171,6 +171,7 @@ The order songs play in. The Player owns one; the self-test checks every rule (`
 - **Does:** keeps songs on this Mac to play without the server or the internet. Files in `~/Library/Application Support/NoNonsense/Downloads`, with `index.json` holding each song's details, so the Downloads list works with the server off. Self-tests use `Downloads-selftest`.
 - **Downloading:** whatever `/play` points to (this Mac has the server's IP, so YouTube's IP-bound URLs work), the best copy first, then the others. `download(all:name:)` does a playlist one song at a time.
 - **Playing:** `Player.startCurrent` plays the downloaded copy's file if there is one (`playingFile`); a broken file falls back to streaming the other copies.
+- **Lyrics (7 Oct):** each download keeps its lyrics beside it (`<file>.lyrics.json`, via `downloaded` → `LyricsStore.keep`), so they show offline; removing a download removes them too.
 - **Checked 6 Oct (`NN_SELFTEST_DOWNLOADS`):** two songs in 2.5 s (15.1 MB and 12.4 MB at 320 kbps); with the server stopped, a download played from its file; remove and remove-all leave the folder empty.
 - **Limit, measured 6 Oct:** YouTube throttles direct downloads to about playback speed: one 5.1 MB YouTube song took 159 s (JioSaavn: about 1 s per song).
 
@@ -188,8 +189,10 @@ The order songs play in. The Player owns one; the self-test checks every rule (`
 ## Services/ServerLauncher.swift
 
 ### `ServerLauncher` (`@Observable`)
-- **Does:** when the app opens and nothing answers `/health` at a local address, starts the backend: `uv run fastapi dev src/music_backend/main.py --port 8000` in the backend folder. Stops it when the app quits. A server you started yourself is left alone.
-- **Why `fastapi dev`:** it reloads when you edit the backend, and listens on `127.0.0.1` only. (`fastapi run` would listen on every network.)
+- **Does:** when the app opens and nothing answers `/health` at a local address, starts the backend in the backend folder, and stops it when the app quits. A server you started yourself is left alone.
+- **How (7 Oct):** `uv sync` (installs anything the backend newly needs, then exits), then **one process**: `.venv/bin/fastapi run --host 127.0.0.1 src/music_backend/main.py --port 8000` (`--host`: on its own, `fastapi run` listens on every network). Measured: 1 process, 96–97 MB. Before, `uv run fastapi dev` kept 3–4 processes and 218–236 MB: `uv` waiting (28 MB), a file watcher and the server.
+- **Reload mode:** Settings › Server › *Reload when the backend's code changes* (`serverReload`, off by default) runs `uv run fastapi dev` as before, for writing the backend. **Restart** applies a change. `serverPIDs` is the server and everything under it (Settings › Footprint measures them).
+- **Log trimming:** past 512 KB the log keeps its last 2,000 lines when the app starts a server (it was 1 MB after two days). Self-tests' servers write to `server-selftest.log`: they were over half of the log.
 - **Backend folder:** Settings → Server. Default `~/projects/music/backend`, built from the home folder.
 - **Log:** `~/Library/Logs/NoNonsense/server.log` (Settings → Open server log).
 - **Checked 5 Oct 2026:** server down → it answers 1.1 s after the app opens → gone after the app quits.
@@ -242,12 +245,26 @@ The order songs play in. The Player owns one; the self-test checks every rule (`
 
 | Function | Returns |
 |---|---|
-| `image(for:)` | The cover. Two views asking for the same URL at once share one download (single-flight). |
+| `image(for:)` | The cover, **decoded once** (`decoded(_:)`: at most 1,200 px, already sRGB, off the main thread). Two views asking for the same URL at once share one download (single-flight). `NSImage(data:)` kept the compressed JPEG, so each repaint decoded it again and converted its colours: most of Now Playing's 23% CPU (profiled 7 Oct). |
 | `cached(_:)` | The cover if already loaded, without waiting. |
 | `colorGrid(for:)` | The cover shrunk to 3×3 pixels: nine colours, each where it sits on the cover. The background mesh is made from them. |
 | `accent(for:dark:)` | The cover's most vivid colour, made readable; `nil` for grey covers (the system accent stays). Tints sliders, the progress line and the heart. |
 
 ---
+
+## Services/LyricsStore.swift
+
+### `LyricsStore` (`@Observable`)
+- **Does:** each song's lyrics (MUS-12), from `POST /lyrics` (`API.lyrics(for:)`: title, every artist joined, duration, and a YouTube copy's id when there is one; all artists matched LRCLIB's fuller record: 50 lines vs 5 with the first artist alone, measured 7 Oct). Kept in memory for the session, by song.
+- **States:** `loading`, `found(Lyrics)` (`lines` may be empty: nobody has them), `unreachable` (the panel offers Try Again).
+- **When:** Settings › Lyrics: when a song starts, the next song's too (default; `RootView` asks), or only when Lyrics opens. Each song is asked for once. A downloaded song answers from its file, with no network.
+- **Checked 7 Oct (`NN_SELFTEST_LYRICS`, 15 checks):** *Les*: 115 timed lines from LRCLIB 0.7 s after it started; the next song fetched ahead; nothing lit during the intro; a seek lights its line, 19 pt from the panel's centre; a click on line 13 played from 49.50 s (the line starts at 49.35 s); an instrumental says Couldn't find lyrics; a download kept 42 timed lines and showed them with the server off.
+
+## Services/Footprint.swift
+
+### `FootprintMeter` (`@Observable`)
+- **Does:** what this app, and the server it started, use right now: CPU as a share of one core, memory as Activity Monitor counts it (`proc_pid_rusage`; CPU comes in Mach clock units, 125/3 ns each on Apple silicon, checked against `getrusage`). Settings › Footprint reads it once a second, only while that page is open.
+- **Checked 7 Oct (`NN_SELFTEST_FOOTPRINT`, against `top`):** app 0.6–0.8% and 46–47 MB (top: 0.7%, 47 MB); server 0.0–0.1% and 78 MB (top: 0.0%, 78 MB).
 
 ## Services/Shuffle.swift
 
@@ -284,7 +301,7 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | | `PlayerBarLayout` | The bar's layout: the centre gets what the sides leave (280–480 pt), and both sides always get the same width, so the centre is the bar's exact centre whatever the title. Measured 6 Oct: at a 1,180 pt window the centre is 363 pt and the progress line 267 pt; at the narrowest window (900 pt) 280 pt and 184 pt; ⏮ ▶ ⏭ 0.0 pt off centre in both. |
 | | `TransportControls` | Shuffle ⏮ ▶ ⏭ Repeat, shared by the bar and Now Playing. Shuffle and repeat are the same width on each side, so ▶ stays centred; when on they take the Buttons colour on a soft disc, and repeat's icon morphs to `repeat.1`. While a song loads, the play button is a spinner (so is the cover on the row you clicked). |
 | | `NowPlayingPanel` | What sits beside the song in Now Playing: Up Next, Lyrics, or nothing (remembered as `nowPlayingPanel`). |
-| | `LyricsPanel` | Until MUS-12: says lyrics are coming, in the same glass as Up Next. |
+| | `LyricsPanel` | MUS-12: the song's lyrics (`LyricsStore`), "from LRCLIB" / "from YouTube Music" in the header. **Timed** (`TimedLyricsView`): the line being sung is lit and kept in the middle; click a line to play from it; scroll to look around (following stops for 4 s). The light moves only when a line changes: a task sleeps until the next line is due, reading `Player.livePosition` (`position` updates only twice a second); a 10-a-second timer cost 14% of a core more (measured 7 Oct). The scroll is smooth while the app is in front and jumps behind other apps (an animated scroll there never finished: macOS draws no frames for a covered window). **Plain** lyrics scroll. "Couldn't find lyrics", "Couldn't reach the server" (Try Again), "Finding lyrics…". |
 | | `NowPlayingView` | Full window, over a blur and fill of its own (Settings › Appearance › Surfaces › Now Playing): large artwork (sized from the height left after the top bar and the controls), progress, controls, volume, and a side panel. Top right: Lyrics, Up Next (press the showing one again to hide it: the song alone, centred, bigger) and Full Screen. Esc or a pinch in closes it. The player bar opens it three ways: 💬 Lyrics, ☰ Up Next, ⤢ the song alone. |
 | | `UpNextView` | The queue panel. Click a song to jump to it. |
 | `Home.swift` | `HomeView` | The first screen: a greeting; "Jump back in" (recently played covers in a shelf that stops on a cover); "Your playlists" (a grid of cards); "Liked Songs" (compact rows three high, scrolling sideways); See All on each. A new library shows one step: Search. Sections fade up one after another (not with Reduce Motion). |
@@ -300,21 +317,35 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | | `SurfaceLayer` | One surface's background: a `WindowBlur` at `blur`, and over it the window's colour at `solid`. At 0 / 0 it draws nothing, so the sidebar and the bar look exactly as before until you move a slider. `Look.readable` keeps some fill when the blur is low (the same 30% floor as the window, fading out as the blur grows). |
 | | `selfTestFrame(_:)` | Debug builds: records where a view is (`SelfTest.frames`), for checks that cannot use pictures. Release builds: nothing. |
 | | `ClearWindow` | Makes the window non-opaque with a clear background, so a thinned blur shows the desktop, not grey. |
-| | `Backdrop` | The cover's nine colours as a `MeshGradient` whose inner points drift (about 30 s per cycle); a new song crossfades in. With **Custom** colours it is nine shades of your Background colour instead. `strength` scales it, `base:` adds a fill under it. **Battery:** at most 30 frames a second, and still (no frames at all) unless music plays, the app is in front, Low Power Mode is off, Reduce Motion is off and the setting is on. Measured 5 Oct: ~1.5% CPU and energy impact ~1.5 during playback, the same with it moving or still. |
+| | `Backdrop` | The cover's nine colours as a `MeshGradient`; a new song crossfades in. With **Custom** colours it is nine shades of your Background colour instead. `strength` scales it, `base:` adds a fill under it. **Still by default** (7 Oct). With Moving background on, its inner points drift (about 30 s per cycle) at 10 frames a second, and only while music plays, the app is in front, Low Power Mode is off and Reduce Motion is off. |
+| | `IsolatedBackdrop` | `Backdrop` in its own `NSHostingView`, so a frame of the moving mesh redraws only the mesh: inside the window's view tree, each frame rebuilt the whole window (Now Playing with Lyrics: 30% of a core, profiled 7 Oct). Clicks pass through it. |
+| | `DriftSchedule` | The mesh's frames from a plain timer, or none while paused or when the system asks for fewer updates. |
 | | `Color(hex:)`, `.hexString` | `#RRGGBB` ⟷ colour (sRGB), for the custom colours. |
 | | `VolumeControl` | Mute button (the speaker's waves follow the level: an SF Symbols variable value) and a slider (`slider: false`: the speaker alone, for a narrow bar). |
 | | `LikeButton` | The heart, with a small bounce. |
 | | `ProgressBar` | The thin bar. Drag to seek. The played part takes the tint (the cover's colour). A haptic tick at each minute while you drag (if Trackpad › Haptic ticks is on). |
-| `SettingsView.swift` | `SettingsView` | Tabs, as in the Mac's own apps: **Appearance** (**Window**: theme, moving background; **Surfaces**: pick a part (Main area, Sidebar, Player bar, Now Playing) and set its blur (Clear ↔ Frosted) and transparency (See-through ↔ Solid), plus colour strength for the main area and Now Playing, and Liquid Glass or Frosted for the bar; the main area's transparency is never below 30%, `Look.minWindowOpacity`: the window stays readable over a video call; **Sizes**: text size and card size with a live sample; **Colours**: seven elements, each System / Song / Custom, Custom with a hex field + swatch; set all; reset all), **Trackpad** (haptic ticks on/off, the gestures), **Discord** (on/off, Application ID, test, what to share, a preview of what friends see), **Server**. Defaults live in `Look`; colours in `ThemeStore`. `HexColorControl` keeps a swatch and its `#RRGGBB` code in step (checked 5 Oct: six colours round-trip exactly, bad codes are rejected). **Collapsible sections (6 Oct):** Appearance has Window, Sizes and Colours; Discord has Share and What friends see. Each remembers whether it is open (`settings.open.…`). Colours opens on its own (it closes Window, Sizes and Surfaces, and they close it): with everything open the page was 1,165 pt tall, taller than a MacBook's 847 pt of usable screen. **Every page is capped at the screen (`SettingsPage`, 6 Oct):** as tall as its content, never taller than the usable screen less 120 pt; past that it scrolls. Discord with everything open was 983 pt on an 847 pt screen, its bottom 34 pt below the screen's edge; now 815 pt (measured). The cap is a small `Layout` (`CappedHeight`) that asks the page for its natural height with no height proposed: measuring the Form's scroll content instead looped (the content is at least as tall as the frame, so each pass grew it) until AppKit stopped the app. |
+| `SettingsView.swift` | `SettingsView` | Tabs, as in the Mac's own apps: **Appearance** (**Window**: theme, moving background; **Surfaces**: pick a part (Main area, Sidebar, Player bar, Now Playing) and set its blur (Clear ↔ Frosted) and transparency (See-through ↔ Solid), plus colour strength for the main area and Now Playing, and Liquid Glass or Frosted for the bar; the main area's transparency is never below 30%, `Look.minWindowOpacity`: the window stays readable over a video call; **Sizes**: text size and card size with a live sample; **Colours**: seven elements, each System / Song / Custom, Custom with a hex field + swatch; set all; reset all), **Trackpad** (haptic ticks on/off, the gestures), **Lyrics** (when to fetch them), **Discord** (on/off, Application ID, test, what to share, a preview of what friends see), **Server** (address, backend folder, reload mode, Restart, the log), **Footprint** (the app's and the server's CPU and memory right now, and every choice that costs more, with its measured cost and its switch). Defaults live in `Look`; colours in `ThemeStore`. `HexColorControl` keeps a swatch and its `#RRGGBB` code in step (checked 5 Oct: six colours round-trip exactly, bad codes are rejected). **Collapsible sections (6 Oct):** Appearance has Window, Sizes and Colours; Discord has Share and What friends see. Each remembers whether it is open (`settings.open.…`). Colours opens on its own (it closes Window, Sizes and Surfaces, and they close it): with everything open the page was 1,165 pt tall, taller than a MacBook's 847 pt of usable screen. **Every page is capped at the screen (`SettingsPage`, 6 Oct):** as tall as its content, never taller than the usable screen less 120 pt; past that it scrolls. Discord with everything open was 983 pt on an 847 pt screen, its bottom 34 pt below the screen's edge; now 815 pt (measured). The cap is a small `Layout` (`CappedHeight`) that asks the page for its natural height with no height proposed: measuring the Form's scroll content instead looped (the content is at least as tall as the frame, so each pass grew it) until AppKit stopped the app. |
 
 ---
 
-## Performance (measured 6 Oct, debug build)
+## Performance (measured 7 Oct, debug build, a song playing, muted)
 
-| State | App CPU, one sample a second |
-|---|---|
-| Idle on Home | 0.0% in 7 of 8 samples (one 1.8% blip) |
-| Playing, muted, Home visible (moving backdrop on) | 0.6–2.8%, about 2.5% |
+**The rule:** the lightest choice is the default; anything that costs more is a setting that says what it costs (Settings › Footprint lists them, with the live readings). Measured with `NN_SELFTEST_PERF` (each screen held 12 s, `top` sampling the app once a second; medians).
+
+| Screen | Still background (default) | Moving background | Before 7 Oct (still / moving) |
+|---|---|---|---|
+| Main window | **2.1%** | 7.5% | 2.6% / 8.8% |
+| Now Playing alone | **2.8%** | 12.2% | 22.9% / 27.4% |
+| Now Playing + Up Next | **2.7%** | 12.0% | 22.8% / 30.1% |
+| Now Playing + Lyrics | **4.0%** | 17.9% | 25.4% / 35.1% |
+
+What changed, from profiles (`sample`):
+- **Covers decoded once** (`ArtworkCache.decoded`): repaints were decoding the JPEG and converting its colours each time.
+- **No rolling digits** on Now Playing's times: the animation ran a third of every second and repainted the cover's layer with it.
+- **The background in its own host** (`IsolatedBackdrop`, an `NSHostingView`): in the window's own view tree, every frame of the moving mesh made SwiftUI rebuild the whole window and lay out the player bar again.
+- **The mesh at 10 frames a second** (`DriftSchedule`, a plain timer): each frame costs ~0.5% of a core; at 10 a second a step moves a colour ~3 pt.
+- **Moving background off by default**, its cost written next to its switch.
+- **Lyrics:** the light moves on line changes only (a timer cost 14% more), no scaling text, no fade mask (~2% more).
 
 ## Motion (6 Oct)
 
@@ -344,7 +375,11 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 - Run them against the test server: `-serverURL http://127.0.0.1:8765`, `DATABASE_URL=postgresql:///music_test`, and `-discordEnabled NO`.
 
 - **Your settings are borrowed, not changed:** a scenario that changes settings saves them to a file first (`borrowDefaults`) and puts them back at the end (`returnDefaults`). If it dies first, the next self-test launch puts them back before anything else (a crash on 6 Oct had left four Settings sections changed).
-- `NN_SELFTEST_SIDEBAR=1`: New Playlist lines up with every other sidebar row, and a click on it asks for the New Playlist sheet.
+- `NN_SELFTEST_SIDEBAR=1`: New Playlist lines up with every other sidebar row, and a click on it asks for the New Playlist sheet (reported as SKIP when another app is in use: macOS refuses to bring the test window forward, and a click on a window that is not key only selects it).
+- `NN_SELFTEST_LYRICS="<timed song>|<instrumental>|<a JioSaavn song>"`: the lyrics checks above; never prints a lyric. Calls line 13's action instead of clicking it when the window cannot become key, and says so.
+- `NN_SELFTEST_PERF="<search>"` (+ `NN_FORCE_MOTION=1`, `NN_SELFTEST_PERF_PHASES="a|b"`): holds each screen for sampling from outside.
+- `NN_SELFTEST_FOOTPRINT=1`: opens Settings › Footprint and reports its readings, to compare with `top`.
+- Reports are written straight through (`FileHandle`), not buffered: with output going to a file, `print` held every line until the app quit.
 - `NN_SELFTEST_SETTINGS_FIT=1`: every Settings tab, with every section open, fits on the screen.
 - `NN_SELFTEST_BAR=<search>`: the player bar's layout at the window's size and at its narrowest (centred controls; the progress line inside, under them; nothing overlapping), then each surface setting, checked by the blur view it must create at its strength.
 - `RootView` listens for `.selfTestOpen` (a playlist's UUID, or a `Destination`): scenarios move the window to the screen they test.
