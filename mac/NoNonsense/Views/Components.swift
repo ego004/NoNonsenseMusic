@@ -504,9 +504,8 @@ struct EqualizerBars: NSViewRepresentable {
                 rise.autoreverses = true
                 rise.repeatCount = .infinity
                 rise.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                // 30 frames a second is plenty for an 11-pt bar; uncapped, macOS redraws it (and the window region
-                // around it) at the screen's full rate: 120 a second on a ProMotion display
-                rise.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
+                // no frame-rate cap: one (30 fps, 7 Oct) was the likely reason scrolling stopped feeling smooth (macOS can
+                // pace the whole window by a running animation's preferred rate). macOS plays it either way: no app cost
                 bar.add(rise, forKey: "rise")
             }
         }

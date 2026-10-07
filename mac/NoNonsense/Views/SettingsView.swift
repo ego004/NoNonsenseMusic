@@ -19,8 +19,8 @@ enum Look {
     static let coverTilt = false
     /// On: a soft highlight under the pointer and a small press on the app's plain buttons (Settings › Appearance)
     static let buttonFeedback = true
-    /// On: three moving bars on the playing song (Settings › Appearance). Core Animation bars, capped at 30 frames a
-    /// second: no measurable cost in the app or WindowServer (7 Oct). Off: a still speaker.
+    /// On: three moving bars on the playing song (Settings › Appearance). Core Animation bars: no measurable cost in the
+    /// app or WindowServer (7 Oct). Off: a still speaker.
     static let animatedSpeaker = true
 
     // Settings › Appearance › Surfaces: each part's blur and fill. The sidebar and the bar start at 0 / 0: exactly

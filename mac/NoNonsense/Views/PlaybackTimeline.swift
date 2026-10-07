@@ -187,9 +187,9 @@ final class TimelineLayersView: NSView {
             grow.timingFunction = CAMediaTimingFunction(name: .linear)
             grow.isRemovedOnCompletion = false
             grow.fillMode = .forwards
-            // the line moves 1–5 pt a second: 10 frames a second is under a pixel a frame. Uncapped, macOS drew it at the
-            // screen's full rate, 120 a second on a ProMotion display, for a change nobody can see (audit, 7 Oct)
-            grow.preferredFrameRateRange = CAFrameRateRange(minimum: 4, maximum: 15, preferred: 10)
+            // no frame-rate cap: one (10 fps, 7 Oct) was the likely reason scrolling stopped feeling smooth. This line is
+            // always running while a song plays, and macOS can pace the whole window by a running animation's preferred
+            // rate. The render server plays it either way: the app's CPU is the same
             played.add(grow, forKey: "progress")
         }
         CATransaction.commit()

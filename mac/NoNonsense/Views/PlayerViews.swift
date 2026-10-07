@@ -717,14 +717,13 @@ final class LyricLinesView: NSView {
         #endif
     }
 
-    /// 60 frames a second at most: smooth, half the render server's work of a 120 Hz screen.
+    /// At the screen's own rate (no cap: see EqualizerBars), eased in and out.
     private static func animation(_ keyPath: String, from: Any, to: Any, duration: Double) -> CABasicAnimation {
         let animation = CABasicAnimation(keyPath: keyPath)
         animation.fromValue = from
         animation.toValue = to
         animation.duration = duration
         animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        animation.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
         return animation
     }
 
