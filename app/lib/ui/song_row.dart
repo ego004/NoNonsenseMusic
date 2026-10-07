@@ -39,21 +39,32 @@ class _SongRowState extends State<SongRow> {
         onSecondaryTapUp: (d) => _menu(context, d.globalPosition, track, play),
         child: Container(
           height: 56,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: hovering ? theme.colorScheme.onSurface.withValues(alpha: 0.06) : Colors.transparent,
+            color: hovering ? theme.colorScheme.onSurface.withValues(alpha: 0.05) : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(children: [
-            GestureDetector(onTap: play, child: Cover(track.image, size: 40)),
-            const SizedBox(width: 12),
+            // the cover plays it; the playing song shows a still speaker over its cover
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: play,
+                child: Stack(alignment: Alignment.center, children: [
+                  Cover(track.image, size: 40),
+                  _PlayingMark(track: track, hovering: hovering),
+                ]),
+              ),
+            ),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
                   Flexible(child: _Title(track: track)),
                   if (track.isExplicit) const Padding(padding: EdgeInsets.only(left: 4), child: ExplicitBadge()),
                 ]),
-                Text(track.artistLine, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: muted)),
+                const SizedBox(height: 2),
+                Text(track.artistLine, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: muted)),
               ]),
             ),
             ListenableBuilder(
@@ -71,7 +82,9 @@ class _SongRowState extends State<SongRow> {
                 );
               },
             ),
-            SizedBox(width: 48, child: Text(formatTime(track.duration.toDouble()), textAlign: TextAlign.right, style: theme.textTheme.bodySmall?.copyWith(color: muted))),
+            const SizedBox(width: 8),
+            SizedBox(width: 44, child: Text(formatTime(track.duration.toDouble()), textAlign: TextAlign.right,
+                style: TextStyle(fontSize: 12.5, color: muted, fontFeatures: const [FontFeature.tabularFigures()]))),
           ]),
         ),
       ),
@@ -142,7 +155,31 @@ class _Title extends StatelessWidget {
       builder: (context, _, _) {
         final playing = player.current?.isSameSong(track) ?? false;
         return Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500, color: playing ? Theme.of(context).colorScheme.primary : null));
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: playing ? Theme.of(context).colorScheme.primary : null));
+      },
+    );
+  }
+}
+
+/// Over the cover: a still speaker on the playing song, a ▶ under the pointer on the others.
+class _PlayingMark extends StatelessWidget {
+  final Track track;
+  final bool hovering;
+  const _PlayingMark({required this.track, required this.hovering});
+  @override
+  Widget build(BuildContext context) {
+    final player = Scope.of(context).player;
+    return ValueListenableBuilder(
+      valueListenable: player.currentId,
+      builder: (context, _, _) {
+        final playing = player.current?.isSameSong(track) ?? false;
+        if (!playing && !hovering) return const SizedBox.shrink();
+        return Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.45), borderRadius: BorderRadius.circular(6)),
+          child: Icon(playing ? FluentIcons.speaker_2_24_filled : FluentIcons.play_24_filled, size: 18, color: Colors.white),
+        );
       },
     );
   }

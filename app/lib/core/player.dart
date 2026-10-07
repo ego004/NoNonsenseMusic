@@ -1,21 +1,25 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:media_kit/media_kit.dart' as mk;
+import 'package:just_audio/just_audio.dart' as ja;
 
 import 'api.dart';
 import 'models.dart';
 import 'play_queue.dart';
 
-/// Playback: the queue (PlayQueue) plus the audio (media_kit, the mpv engine), the events the server records
-/// (play, skip, finish), copies that fail falling back to the song's other copies, and the next songs prefetched.
-/// The same behaviour as the Mac app's Player.swift.
+/// Playback: the queue (PlayQueue) plus the audio, the events the server records (play, skip, finish), copies that
+/// fail falling back to the song's other copies, and the next songs prefetched. The same behaviour as the Mac app's
+/// Player.swift.
+///
+/// The audio is each system's own player (just_audio): Media Foundation on Windows, ExoPlayer on Android, AVPlayer on
+/// the Mac preview. A bundled engine (mpv, through media_kit) cost ~1.05% of a core on its own while playing, the
+/// whole budget, whatever its buffers (measured 8 Oct with the kernel's CPU account); the system's player is what
+/// the Mac app uses at ~0.3% in all.
 ///
 /// Footprint: listeners hear about changes of song, play/pause, buffering, the queue and Now Playing, never about
-/// the position. The position is read once a second by the one widget that shows it (`positionTicks`), and only
-/// while a song plays.
+/// the position, which is read when needed (`readPosition`).
 class Player extends ChangeNotifier {
-  final _audio = mk.Player(configuration: const mk.PlayerConfiguration(title: 'NoNonsense', logLevel: mk.MPVLogLevel.error));
+  final _audio = ja.AudioPlayer();
   final queue = PlayQueue();
   final List<StreamSubscription> _subs = [];
 
@@ -33,34 +37,35 @@ class Player extends ChangeNotifier {
   int _copy = 0; // which of the current song's listings is loaded
   int _failuresInARow = 0;
   bool _reported = false; // the current song's "play" was sent
+  int _loads = 0; // each load's number: news about a replaced copy is ignored
+  bool _loading = false;
 
   Player() {
-    _subs.add(_audio.stream.playing.listen((p) => _set(() => isPlaying = p)));
-    _subs.add(_audio.stream.buffering.listen((b) => _set(() => isBuffering = b)));
-    _subs.add(_audio.stream.completed.listen((done) {
-      if (done) _ended();
-    }));
-    _subs.add(_audio.stream.error.listen((_) => _failed()));
-    _subs.add(_audio.stream.duration.listen((d) {
-      if (d > Duration.zero) {
+    _subs.add(_audio.playerStateStream.listen((st) {
+      final playing = st.playing && st.processingState != ja.ProcessingState.completed;
+      final buffering = st.playing && (st.processingState == ja.ProcessingState.loading || st.processingState == ja.ProcessingState.buffering);
+      if (playing != isPlaying || buffering != isBuffering) _set(() { isPlaying = playing; isBuffering = buffering; });
+      if (st.processingState == ja.ProcessingState.ready && !_reported) {
+        _reported = true;
         _failuresInARow = 0; // this song loads: the run of failures is over
-        if (!_reported) {
-          _reported = true;
-          _report('play', current, 0);
-        }
+        _report('play', current, 0);
       }
+      if (st.processingState == ja.ProcessingState.completed) _ended();
     }));
+    // a copy that dies while playing; a failed load is caught in _load (counted once, not twice)
+    _subs.add(_audio.playbackEventStream.listen((_) {}, onError: (Object _, StackTrace _) { if (!_loading) _failed(); }));
   }
 
+  /// Where the song is now (the player keeps it: no reports per second).
+  Future<double> readPosition() async => position;
+
   Track? get current => queue.current;
-  double get position => _audio.state.position.inMilliseconds / 1000;
+  double get position => _audio.position.inMilliseconds / 1000;
   double get duration {
-    final d = _audio.state.duration.inMilliseconds / 1000;
+    final d = (_audio.duration?.inMilliseconds ?? 0) / 1000;
     return d > 0 ? d : (current?.duration.toDouble() ?? 0);
   }
 
-  /// One tick a second while playing: what the progress line and the times listen to (nothing else redraws).
-  Stream<double> get positionTicks => Stream.periodic(const Duration(seconds: 1), (_) => position);
 
   void _set(VoidCallback change) {
     change();
@@ -69,39 +74,39 @@ class Player extends ChangeNotifier {
 
   // MARK: queue
 
-  void play(List<Track> tracks, {int startAt = 0, List<String>? keys, String? source, bool shuffled = false}) {
-    _skipIfPlaying();
+  Future<void> play(List<Track> tracks, {int startAt = 0, List<String>? keys, String? source, bool shuffled = false}) async {
+    await _skipIfPlaying();
     queue.load(tracks, startAt, keys: keys, source: source, shuffled: shuffled);
     _start();
   }
 
   void playNext(Track t) {
-    if (current == null) return play([t]);
+    if (current == null) { play([t]); return; }
     queue.insertNext(t);
     _announce();
     notifyListeners();
   }
 
   void addToQueue(Track t) {
-    if (current == null) return play([t]);
+    if (current == null) { play([t]); return; }
     queue.append(t);
     _announce();
     notifyListeners();
   }
 
-  void next() {
-    _skipIfPlaying();
+  Future<void> next() async {
+    await _skipIfPlaying();
     _go(queue.indexAfterNext());
   }
 
-  void previous() {
-    if (position > 3) return seek(0);
-    _skipIfPlaying();
+  Future<void> previous() async {
+    if (await readPosition() > 3) return seek(0);
+    await _skipIfPlaying();
     _go(queue.indexAfterPrevious());
   }
 
-  void jump(int i) {
-    _skipIfPlaying();
+  Future<void> jump(int i) async {
+    await _skipIfPlaying();
     _go(i);
   }
 
@@ -135,15 +140,29 @@ class Player extends ChangeNotifier {
 
   void togglePlayPause() {
     if (current == null) return;
-    _audio.playOrPause();
+    _audio.playing ? _audio.pause() : _audio.play();
   }
 
-  void seek(double seconds) => _audio.seek(Duration(milliseconds: (seconds * 1000).round()));
-  void seekBy(double seconds) => seek((position + seconds).clamp(0, duration));
+  void seek(double seconds) {
+    _audio.seek(Duration(milliseconds: (seconds * 1000).round()));
+    notifyListeners(); // the line and the lyrics follow at once
+  }
+
+  Future<void> seekBy(double seconds) async => seek((await readPosition() + seconds).clamp(0, duration));
+
+  double _beforeMute = 1;
+  void toggleMute() {
+    if (volume > 0) {
+      _beforeMute = volume;
+      setVolume(0);
+    } else {
+      setVolume(_beforeMute > 0 ? _beforeMute : 1);
+    }
+  }
 
   void setVolume(double v) {
     volume = v.clamp(0, 1);
-    _audio.setVolume(volume * 100);
+    _audio.setVolume(volume);
     notifyListeners();
   }
 
@@ -174,8 +193,17 @@ class Player extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _load(Listing l, {bool fresh = false}) {
-    _audio.open(mk.Media(Api.playUrl(l, fresh: fresh)));
+  Future<void> _load(Listing l, {bool fresh = false}) async {
+    final mine = ++_loads;
+    _loading = true;
+    try {
+      await _audio.setUrl(Api.playUrl(l, fresh: fresh));
+      if (mine == _loads) _audio.play();
+    } catch (_) {
+      if (mine == _loads) _failed(); // a copy that will not load; an older load's failure says nothing now
+    } finally {
+      if (mine == _loads) _loading = false;
+    }
   }
 
   /// A copy failed: the next copy at once (and the server told, so its cache fetches a fresh link); after the last
@@ -205,10 +233,10 @@ class Player extends ChangeNotifier {
     _go(queue.indexAfterEnd());
   }
 
-  void _skipIfPlaying() {
+  Future<void> _skipIfPlaying() async {
     final t = current;
     if (t == null || !_reported) return;
-    final at = position;
+    final at = await readPosition();
     if (duration - at > 3) _report('skip', t, at.round());
   }
 

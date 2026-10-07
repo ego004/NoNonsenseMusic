@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/models.dart';
 import '../core/player.dart';
+import 'in_front.dart';
 import 'scope.dart';
 
 /// Now Playing's lyrics. Timed: the line being sung is lit and kept in the middle; click a line to play from it.
@@ -17,6 +18,8 @@ class LyricsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = Scope.of(context);
     final theme = Theme.of(context);
+    // listens to the song itself: as a const child it kept the first song's lyrics
+    return ValueListenableBuilder<String?>(valueListenable: s.player.currentId, builder: (context, _, _) {
     final t = s.player.current;
     if (t == null) return const SizedBox.shrink();
     s.lyrics.fetch(t);
@@ -40,6 +43,7 @@ class LyricsPanel extends StatelessWidget {
         ]);
       },
     );
+    });
   }
 }
 
@@ -81,21 +85,24 @@ class _TimedState extends State<_Timed> {
     _player?.removeListener(_follow);
     _player = p;
     p.addListener(_follow); // play, pause, a seek: the wait starts again
+    inFront.removeListener(_follow);
+    inFront.addListener(_follow); // behind other windows: no waking; back in front, the right line at once
     _follow(jump: true);
   }
 
-  void _follow({bool jump = false}) {
+  Future<void> _follow({bool jump = false}) async {
     final p = _player;
     if (!mounted || p == null) return;
     if (p.current?.id != widget.track.id) return;
-    final at = p.position;
+    final at = await p.readPosition();
+    if (!mounted) return;
     final line = widget.lyrics.lineAt(at + 0.1);
     if (line != _lit) {
       setState(() => _lit = line);
       _center(line, jump: jump);
     }
     _next?.cancel();
-    if (!p.isPlaying) return;
+    if (!p.isPlaying || !inFront.value) return;
     // sleep until the next line is due
     final upcoming = widget.lyrics.lines.skip(line + 1).map((l) => l.startMs).whereType<int>().firstOrNull;
     if (upcoming == null) return;
@@ -117,6 +124,7 @@ class _TimedState extends State<_Timed> {
   void dispose() {
     _next?.cancel();
     _player?.removeListener(_follow);
+    inFront.removeListener(_follow);
     _scroll.dispose();
     super.dispose();
   }

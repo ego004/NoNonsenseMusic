@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:media_kit/media_kit.dart' show MediaKit;
 import 'package:nononsense/core/api.dart';
 import 'package:nononsense/core/library.dart';
 import 'package:nononsense/core/lyrics.dart';
@@ -43,8 +42,7 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('Home, search, play, Now Playing (Up Next, lyrics), Add to Queue, a playlist', (tester) async {
-    MediaKit.ensureInitialized();
-    final settings = Settings();
+      final settings = Settings();
     await settings.load();
     expect(Api.base, isNot(contains(':8000')), reason: 'a test runs only against a test server, never your library');
     final player = Player()..setVolume(0);
@@ -73,6 +71,28 @@ void main() {
     expect(player.queue.upNext.length, greaterThan(2));
     await tester.pump(const Duration(seconds: 2));
     await snap(tester, 'playing');
+
+    // the controls show their state (8 Oct: ▶ stayed ▶, shuffle and repeat never lit up)
+    expect(find.byTooltip('Pause'), findsWidgets, reason: 'playing: the disc shows pause');
+    await tester.tap(find.byTooltip('Pause').first);
+    await until(tester, () => !player.isPlaying, seconds: 5);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byTooltip('Play'), findsWidgets, reason: 'paused: the disc shows play');
+    await tester.tap(find.byTooltip('Play').first);
+    await until(tester, () => player.isPlaying, seconds: 8);
+    await tester.tap(find.byTooltip('Shuffle').first);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byTooltip('Shuffle is on'), findsWidgets);
+    await tester.tap(find.byTooltip('Shuffle is on').first);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('Repeat').first);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byTooltip('Repeating the queue'), findsWidgets);
+    await tester.tap(find.byTooltip('Repeating the queue').first);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('Repeating this song').first);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byTooltip('Repeat'), findsWidgets, reason: 'off → all → one → off');
 
     // Add to Queue: the end of Up Next
     final extra = player.queue.upNext[1];
@@ -107,11 +127,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300)); // the sidebar shows it
     await tester.tap(find.text(name));
     await until(tester, () => find.byType(SongRow).evaluate().length == 3);
-    expect(library.details[id]!.tracks.map((t) => t.id), three.map((t) => t.id));
+    // titles: the server keeps a song with its own best copy, which can differ from the search's
+    expect(library.details[id]!.tracks.map((t) => t.title), three.map((t) => t.title));
     await snap(tester, 'playlist');
     await library.moveItem(id, 2, 0);
     await library.loadPlaylist(id);
-    expect(library.details[id]!.tracks.first.id, three[2].id, reason: 'a move reaches the server');
+    expect(library.details[id]!.tracks.first.title, three[2].title, reason: 'a move reaches the server');
     await library.deletePlaylist(id);
     expect(library.playlists.any((p) => p.id == id), isFalse);
     player.togglePlayPause();

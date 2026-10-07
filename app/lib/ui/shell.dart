@@ -11,6 +11,7 @@ import 'playlist_screen.dart';
 import 'scope.dart';
 import 'screens.dart';
 import 'settings_screen.dart';
+import 'sidebar.dart';
 
 enum Section { home, search, liked, recent, playlist, settings }
 
@@ -54,48 +55,38 @@ class _ShellState extends State<Shell> {
         backgroundColor: Platform.isWindows ? Colors.transparent : theme.colorScheme.surface,
         body: Stack(children: [
           Row(children: [
-            // a Material, not a coloured box: list rows draw their highlight on the Material under them
-            Material(
-              color: theme.colorScheme.onSurface.withValues(alpha: Platform.isWindows ? 0.03 : 0.05),
-              child: Container(
-              width: 220,
-              padding: const EdgeInsets.fromLTRB(10, 40, 10, 10),
+            Container(
+              width: 232,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.onSurface.withValues(alpha: Platform.isWindows ? 0.02 : 0.035),
+                border: Border(right: BorderSide(color: theme.colorScheme.onSurface.withValues(alpha: 0.06))),
+              ),
+              padding: const EdgeInsets.fromLTRB(10, 44, 10, 12),
               child: ListenableBuilder(
                 listenable: s.library,
-                builder: (context, _) {
-                  Widget row(IconData icon, String label, bool on, VoidCallback tap) => ListTile(
-                        dense: true,
-                        selected: on,
-                        selectedTileColor: theme.colorScheme.primary.withValues(alpha: 0.12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        leading: Icon(icon, size: 20),
-                        title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        onTap: tap,
-                      );
-                  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    for (final (sec, icon, label) in [
-                      (Section.home, FluentIcons.home_24_regular, 'Home'),
-                      (Section.search, FluentIcons.search_24_regular, 'Search'),
-                      (Section.liked, FluentIcons.heart_24_regular, 'Liked Songs'),
-                      (Section.recent, FluentIcons.history_24_regular, 'Recently Played'),
-                    ])
-                      row(icon, label, section == sec, () => _open(sec)),
-                    Padding(padding: const EdgeInsets.fromLTRB(14, 18, 0, 6), child: Text('Playlists', style: theme.textTheme.labelMedium)),
-                    Expanded(
-                      child: ListView(children: [
-                        for (final p in s.library.playlists)
-                          row(FluentIcons.music_note_2_24_regular, p.name, section == Section.playlist && playlistId == p.id, () => _open(Section.playlist, playlist: p.id)),
-                        row(FluentIcons.add_24_regular, 'New Playlist', false, () async {
-                          final name = await askName(context, title: 'New Playlist');
-                          if (name != null) await s.library.createPlaylist(name);
-                        }),
-                      ]),
-                    ),
-                    row(FluentIcons.settings_24_regular, 'Settings', section == Section.settings, () => _open(Section.settings)),
-                  ]);
-                },
+                builder: (context, _) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  for (final (sec, icon, label) in [
+                    (Section.home, FluentIcons.home_24_regular, 'Home'),
+                    (Section.search, FluentIcons.search_24_regular, 'Search'),
+                    (Section.liked, FluentIcons.heart_24_regular, 'Liked Songs'),
+                    (Section.recent, FluentIcons.history_24_regular, 'Recently Played'),
+                  ])
+                    SideItem(icon: icon, label: label, selected: section == sec, onTap: () => _open(sec)),
+                  const SideHeading('Playlists'),
+                  Expanded(
+                    child: ListView(children: [
+                      for (final p in s.library.playlists)
+                        SideItem(icon: FluentIcons.music_note_2_24_regular, label: p.name, selected: section == Section.playlist && playlistId == p.id,
+                            onTap: () => _open(Section.playlist, playlist: p.id)),
+                      SideItem(icon: FluentIcons.add_24_regular, label: 'New Playlist', selected: false, onTap: () async {
+                        final name = await askName(context, title: 'New Playlist');
+                        if (name != null) await s.library.createPlaylist(name);
+                      }),
+                    ]),
+                  ),
+                  SideItem(icon: FluentIcons.settings_24_regular, label: 'Settings', selected: section == Section.settings, onTap: () => _open(Section.settings)),
+                ]),
               ),
-            ),
             ),
             Expanded(
               child: switch (section) {
@@ -108,10 +99,10 @@ class _ShellState extends State<Shell> {
               },
             ),
           ]),
-          const Positioned(left: 244, right: 24, bottom: 18, child: Center(child: PlayerBar())),
+          const Positioned(left: 256, right: 24, bottom: 18, child: Center(child: PlayerBar())),
           // the player's messages ("Couldn't play …"), just above the bar
           Positioned(
-            left: 244, right: 24, bottom: 100,
+            left: 256, right: 24, bottom: 104,
             child: ListenableBuilder(
               listenable: s.player,
               builder: (context, _) => s.player.message == null

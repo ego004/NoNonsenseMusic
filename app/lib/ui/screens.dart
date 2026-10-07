@@ -55,22 +55,26 @@ class _SearchScreenState extends State<SearchScreen> {
     final theme = Theme.of(context);
     return Column(children: [
       Padding(
-        padding: EdgeInsets.fromLTRB(24, _field.text.isEmpty ? 110 : 20, 24, 12),
+        padding: EdgeInsets.fromLTRB(32, _field.text.isEmpty ? 120 : 28, 32, 16),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 580),
+          constraints: const BoxConstraints(maxWidth: 560),
           child: TextField(
             controller: _field,
             autofocus: true,
             onChanged: _changed,
             onSubmitted: (q) { _wait?.cancel(); if (q.trim().isNotEmpty) _search(q.trim()); },
-            style: theme.textTheme.titleMedium,
+            style: const TextStyle(fontSize: 16),
+            cursorWidth: 1.5,
             decoration: InputDecoration(
               hintText: 'Songs, artists, albums',
-              prefixIcon: const Icon(FluentIcons.search_24_regular),
+              hintStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.45)),
+              prefixIcon: Icon(FluentIcons.search_24_regular, size: 20, color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
               suffixIcon: loading ? const Waiting(tooltip: 'Searching…') : null,
               filled: true,
-              fillColor: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(28), borderSide: BorderSide.none),
+              fillColor: theme.colorScheme.onSurface.withValues(alpha: 0.055),
+              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5)),
             ),
           ),
         ),
@@ -81,7 +85,7 @@ class _SearchScreenState extends State<SearchScreen> {
             : !loading && results.isEmpty && _field.text.trim().isNotEmpty
                 ? const _Empty('No results', 'Try another spelling.', FluentIcons.search_24_regular)
                 : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 110), // clear of the player bar
+                    padding: const EdgeInsets.fromLTRB(22, 0, 22, 120), // clear of the player bar
                     itemCount: results.length,
                     itemExtent: 58,
                     itemBuilder: (_, i) => SongRow(queue: results, index: i),
@@ -114,23 +118,24 @@ class SongListScreen extends StatelessWidget {
         }
         return CustomScrollView(slivers: [
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            padding: const EdgeInsets.fromLTRB(32, 36, 32, 22),
             sliver: SliverToBoxAdapter(
               child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(title, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
-                    Text('${tracks.length} songs', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
+                    Text(title, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700, letterSpacing: -0.6)),
+                    const SizedBox(height: 4),
+                    Text('${tracks.length} songs', style: TextStyle(fontSize: 13.5, color: theme.colorScheme.onSurface.withValues(alpha: 0.55))),
                   ]),
                 ),
-                FilledButton.icon(onPressed: () => s.player.play(tracks), icon: const Icon(FluentIcons.play_24_filled, size: 18), label: const Text('Play')),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(onPressed: () => s.player.play(tracks, startAt: 0, shuffled: true), icon: const Icon(FluentIcons.arrow_shuffle_24_regular, size: 18), label: const Text('Shuffle')),
+                FilledButton.icon(onPressed: () => s.player.play(tracks), icon: const Icon(FluentIcons.play_24_filled, size: 16), label: const Text('Play')),
+                const SizedBox(width: 10),
+                OutlinedButton.icon(onPressed: () => s.player.play(tracks, startAt: 0, shuffled: true), icon: const Icon(FluentIcons.arrow_shuffle_24_regular, size: 16), label: const Text('Shuffle')),
               ]),
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+            padding: const EdgeInsets.fromLTRB(22, 0, 22, 120),
             sliver: SliverFixedExtentList.builder(itemExtent: 58, itemCount: tracks.length, itemBuilder: (_, i) => SongRow(queue: tracks, index: i)),
           ),
         ]);

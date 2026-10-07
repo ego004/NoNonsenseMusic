@@ -42,7 +42,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         final minutes = (d.items.fold<int>(0, (a, i) => a + i.$2.duration) / 60).round();
         return CustomScrollView(slivers: [
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 18),
+            padding: const EdgeInsets.fromLTRB(32, 36, 32, 24),
             sliver: SliverToBoxAdapter(
               child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 PlaylistCover(covers: covers, size: 172, name: d.summary.name),
@@ -83,7 +83,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
             const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(40), child: Center(child: Text('No songs yet. Right-click any song › Add to Playlist.'))))
           else
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+              padding: const EdgeInsets.fromLTRB(16, 0, 22, 120),
               sliver: SliverReorderableList(
                 itemCount: d.items.length,
                 onReorderItem: (from, to) => s.library.moveItem(d.summary.id, from, to),

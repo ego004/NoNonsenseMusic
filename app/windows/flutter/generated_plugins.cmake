@@ -4,10 +4,11 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   flutter_acrylic
-  media_kit_libs_windows_audio
+  just_audio_windows
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  jni
   smtc_windows
 )
 
