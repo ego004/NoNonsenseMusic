@@ -1,0 +1,30 @@
+# The Windows app: built and tested on a real Windows machine on every push that touches app/ (a Windows app can only
+# be built on Windows). The zip under "Artifacts" on the run's page is the app: unzip, run nononsense.exe.
+name: Windows app
+
+on:
+  push:
+    paths: ["app/**", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.6"
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+      - run: flutter build windows --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NoNonsense-windows
+          path: app/build/windows/x64/runner/Release/

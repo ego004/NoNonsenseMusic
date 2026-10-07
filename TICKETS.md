@@ -693,3 +693,17 @@ Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens
 - Offline downloads, Jam, Blend.
 - Give the app to someone: freeze the server with PyInstaller inside the app; bundle PostgreSQL or move to SQLite (the big decision); Apple signing ($99/year) or "Open Anyway"; a way to update yt-dlp.
 - yt-dlp JavaScript runtime (node + `yt-dlp-ejs`): same speed and formats as without, measured 5 Oct 2026. Turn it on if formats go missing. Stop hiding yt-dlp's warnings (`no_warnings: True`) so you see that day coming.
+
+---
+
+## WIN · The Windows app (Claude; Flutter, `app/`), then Android from the same code
+
+Plan: handoff.md §5. The Mac app is the reference: same layout, behaviour and rules; Windows' own materials (Mica), Fluent icons, Segoe UI.
+
+| # | What | Status |
+|---|---|---|
+| 1 | The project (`app/`: Windows, Android, a Mac build to preview here); the queue rules ported (`lib/core/play_queue.dart`) with the Mac's rules as 12 Dart tests (`flutter test`); the server calls; playback (media_kit); likes taking turns per song | ✅ 8 Oct |
+| 2 | First screens: Search, Liked Songs, Recently Played, the floating bar (folds the volume away when narrow), Now Playing with Up Next (drag, double-click, remove), Add to Queue / Play Next, Space and ← → | ✅ 8 Oct: an integration test (`integration_test/app_test.dart`, against the test server, from inside the app) searches, plays, opens Now Playing; Mac preview, Release: idle 0.0% CPU, 85 MB |
+| 3 | A Windows build on every push (`.github/workflows/windows.yml`: analyze, tests, build, the app as a zip) | first run 8 Oct |
+| 4 | Next: Home, playlists, lyrics, settings (server address), the media keys and Windows' volume overlay, downloads; measured CPU while playing on Windows | — |
+| 5 | Then: Android (emulator on the Mac), installers (Inno Setup), the hosted server and accounts (yours) | — |
