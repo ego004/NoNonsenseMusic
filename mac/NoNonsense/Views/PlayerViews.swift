@@ -245,7 +245,7 @@ struct NowPlayingView: View {
                 ZStack {
                     SurfaceLayer(blur: surfaceBlur, solid: Look.readable(solid: surfaceSolid, blur: surfaceBlur), blending: .withinWindow)
                         .selfTestFrame("nowPlaying.surface")
-                    IsolatedBackdrop(track: player.current, strength: colourStrength)
+                    IsolatedBackdrop(track: player.current, strength: colourStrength, inNowPlaying: true)
                 }
                 .ignoresSafeArea()
 
@@ -394,7 +394,11 @@ struct LyricsPanel: View {
                 let state = lyrics.state(for: track)
                 header(state)
                 content(state, track: track)
-                    .task(id: track.id) { lyrics.fetch(track) }       // a no-op when the song start already asked
+                    // a no-op when the song start already asked. Only while Now Playing is open: it is kept, hidden,
+                    // between openings, and Settings › Lyrics › "Only when I open Lyrics" must still mean that
+                    .task(id: [track.id, player.showNowPlaying ? "open" : "closed"]) {
+                        if player.showNowPlaying { lyrics.fetch(track) }
+                    }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

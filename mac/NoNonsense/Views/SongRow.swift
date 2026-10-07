@@ -50,14 +50,17 @@ struct SongRow: View {
             Button { player.play(queue, startAt: index, keys: keys, source: source) } label: {
                 ArtworkView(url: track.image, size: 44, radius: 8)
                     .overlay {
-                        if hovering || isCurrent {
+                        // always there, faded in and out: added and removed on each hover, it laid the row out again
+                        let current = isCurrent
+                        ZStack {
                             RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.black.opacity(0.35))
-                            if isCurrent && player.isBuffering {
+                            if current && player.isBuffering {
                                 ProgressView().controlSize(.small).tint(.white)          // loading this song
                             } else {
-                                PlayingSpeaker(playing: isCurrent && player.isPlaying)
+                                PlayingSpeaker(playing: current && player.isPlaying)
                             }
                         }
+                        .opacity(hovering || current ? 1 : 0)
                     }
             }
             .buttonStyle(.quiet(highlight: false))
@@ -111,8 +114,7 @@ struct SongRow: View {
         }
         .padding(.vertical, 5)
         .padding(.horizontal, 8)
-        .background(hovering ? AnyShapeStyle(.primary.opacity(0.05)) : AnyShapeStyle(.clear),
-                    in: .rect(cornerRadius: 10, style: .continuous))
+        .background(.primary.opacity(hovering ? 0.05 : 0), in: .rect(cornerRadius: 10, style: .continuous))
         .contentShape(.rect)
         .onTapGesture(count: 2) { player.play(queue, startAt: index, keys: keys, source: source) }
         .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times

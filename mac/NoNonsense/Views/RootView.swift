@@ -150,7 +150,8 @@ struct RootView: View {
 /// Why: as a SwiftUI overlay with a SwiftUI transition, every frame of opening or closing rebuilt the whole window's
 /// drawing (the list under it, the sidebar, the bar): about 250 ms of CPU per open or close, 16% of a core when
 /// opened and closed every 2 s (measured 7 Oct). Here the window's own view does not change at all when Now Playing
-/// opens; Now Playing is built once per opening, and taken down when it closes, so it costs nothing while closed.
+/// opens. Now Playing is built the first time it opens and then kept, hidden, while closed: building it again on
+/// every opening was a 23% spike each time (7 Oct). Everything in it waits for events, so hidden it costs nothing.
 private struct NowPlayingLayer: NSViewRepresentable {
     let shown: Bool
     @Environment(Player.self) private var player
@@ -198,24 +199,22 @@ final class NowPlayingContainer: NSView {
         guard shown != self.shown else { return }
         self.shown = shown
         if shown {
-            let host = self.host ?? {
-                let host = NSHostingView(rootView: AnyView(EmptyView()))
-                host.sizingOptions = []                                 // takes the frame it is given; asks for none
-                host.frame = bounds
-                host.autoresizingMask = [.width, .height]
-                host.wantsLayer = true
-                addSubview(host)
-                self.host = host
-                return host
-            }()
-            host.rootView = content()
+            if self.host == nil {
+                let made = NSHostingView(rootView: content())             // built once, on the first opening
+                made.sizingOptions = []                                 // takes the frame it is given; asks for none
+                made.frame = bounds
+                made.autoresizingMask = [.width, .height]
+                made.wantsLayer = true
+                addSubview(made)
+                self.host = made
+            }
+            guard let host else { return }
             host.isHidden = false
             animate(host, in: true, zoom: zoom)
         } else if let host {
             animate(host, in: false, zoom: zoom) { [weak self] in
                 guard self?.shown == false else { return }              // opened again while it was closing
-                host.isHidden = true
-                host.rootView = AnyView(EmptyView())                     // nothing left to keep up to date while closed
+                host.isHidden = true                                    // kept: the next opening is only the fade
             }
         }
     }

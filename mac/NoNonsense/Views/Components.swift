@@ -56,6 +56,8 @@ struct Backdrop: View {
     /// The main window's: while Now Playing covers it, a new song's colours swap at once. Its 1.1 s crossfade, unseen,
     /// was redrawn by the app every frame and made Now Playing's blur re-blur the whole window each time
     var underNowPlaying = false
+    /// Now Playing's own: kept, hidden, while Now Playing is closed, so it moves only while open.
+    var inNowPlaying = false
     @AppStorage("animateBackdrop") private var animate = Look.animateBackdrop
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.controlActiveState) private var windowState      // .inactive when another app is in front
@@ -83,7 +85,9 @@ struct Backdrop: View {
         #if DEBUG
         if ProcessInfo.processInfo.environment["NN_FORCE_MOTION"] != nil { return animate }   // CPU measurements only
         #endif
-        return animate && !reduceMotion && player.isPlaying && windowState != .inactive
+        // and only while it can be seen: Now Playing's while open, the window's while Now Playing does not cover it
+        let seen = inNowPlaying ? player.showNowPlaying : !(underNowPlaying && player.showNowPlaying)
+        return animate && seen && !reduceMotion && player.isPlaying && windowState != .inactive
             && !ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
@@ -199,6 +203,7 @@ struct IsolatedBackdrop: NSViewRepresentable {
     let track: Track?
     var strength: Double
     var underNowPlaying = false                                         // the main window's (see Backdrop)
+    var inNowPlaying = false                                            // Now Playing's (see Backdrop)
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
 
@@ -213,7 +218,8 @@ struct IsolatedBackdrop: NSViewRepresentable {
     func updateNSView(_ host: Host, context: Context) { host.rootView = content }
 
     private var content: AnyView {
-        AnyView(Backdrop(track: track, strength: strength, underNowPlaying: underNowPlaying).environment(player).environment(theme))
+        AnyView(Backdrop(track: track, strength: strength, underNowPlaying: underNowPlaying, inNowPlaying: inNowPlaying)
+            .environment(player).environment(theme))
     }
 }
 

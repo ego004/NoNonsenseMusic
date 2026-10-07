@@ -41,6 +41,8 @@ struct HomeView: View {
             .frame(maxWidth: 1180, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        // no bounce while the page fits the window: a sideways swipe on a shelf moved the whole page with it (7 Oct)
+        .scrollBounceBehavior(.basedOnSize)
         .navigationTitle("Home")
         .task { await library.refresh() }
         .onAppear { appeared = true }
@@ -66,16 +68,16 @@ struct HomeView: View {
     private var recentShelf: some View {
         let tracks = Array(library.recent.prefix(20))
         return ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: 20) {
+            // made once, not lazily: a lazy stack threw away the covers scrolled past and made them again on the way back
+            // (that stuttered). Scrolls freely: stopping on a cover felt like snapping (7 Oct)
+            HStack(alignment: .top, spacing: 20) {
                 ForEach(Array(tracks.enumerated()), id: \.element.id) { i, track in
                     CoverTile(track: track, side: cardSize) { player.play(library.recent, startAt: i) }
                 }
             }
-            .scrollTargetLayout()
             .padding(.vertical, 12)                         // room for the hover lift and its shadow
         }
-        .scrollTargetBehavior(.viewAligned)                 // a swipe stops on a cover, not halfway through one
-        .scrollIndicators(.hidden)
+        .scrollIndicators(.never)                           // .hidden still showed them with a mouse
         .defaultScrollAnchor(.leading)
         .scrollClipDisabled()
     }
@@ -92,16 +94,21 @@ struct HomeView: View {
 
     private var likedRows: some View {
         let tracks = Array(library.liked.prefix(24))
+        let rows = max(1, min(3, tracks.count))
         return ScrollView(.horizontal) {
-            LazyHGrid(rows: Array(repeating: GridItem(.fixed(58), spacing: 4), count: min(3, tracks.count)), spacing: 16) {
-                ForEach(Array(tracks.enumerated()), id: \.element.id) { i, track in
-                    CompactSongTile(track: track, width: 300) { player.play(library.liked, startAt: i) }
+            // three rows, filled down each column. Made once, not lazily (see recentShelf); scrolls freely
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
+                ForEach(0..<rows, id: \.self) { row in
+                    GridRow {
+                        ForEach(Array(stride(from: row, to: tracks.count, by: rows)), id: \.self) { i in
+                            CompactSongTile(track: tracks[i], width: 300) { player.play(library.liked, startAt: i) }
+                                .frame(height: 58)
+                        }
+                    }
                 }
             }
         }
-        // scrolls freely, as the Mac's own lists do: snapping to a column (.viewAligned) made a trackpad scroll feel
-        // laggy (7 Oct). "Jump back in" still snaps to a cover: compare the two
-        .scrollIndicators(.hidden)
+        .scrollIndicators(.never)
         .defaultScrollAnchor(.leading)
     }
 
@@ -194,18 +201,47 @@ struct CompactSongTile: View {
     let play: () -> Void
     @Environment(Player.self) private var player
     @Environment(LibraryStore.self) private var library
-    @State private var hovering = false
-
-    private var isCurrent: Bool { player.current.map { $0.isSameSong(as: track) } ?? false }
 
     var body: some View {
+        CompactSongFace(track: track, width: width)
+            .contentShape(.rect)
+            .onTapGesture(perform: play)
+            .contextMenu {
+                Button("Play", action: play)
+                Button("Play Next") { player.playNext(track) }
+                Divider()
+                Button(library.isLiked(track) ? "Remove from Liked" : "Like") { Task { await library.toggleLike(track) } }
+                AddToPlaylistMenu(track: track)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Play \(track.title)")
+            #if DEBUG
+            .onAppear { SelfTest.appeared["compact song row", default: 0] += 1 }
+            #endif
+    }
+}
+
+/// What a compact tile shows, and the hover, in a view of their own: a hover redraws only this, not the tile and its
+/// menu (built again on every redraw). The overlay is always there and only fades in and out: added and removed on
+/// each hover, it laid the tile out again, and tiles passing under the pointer while a shelf scrolled did that
+/// over and over (8% of a core while hovering, 7 Oct).
+private struct CompactSongFace: View {
+    let track: Track
+    let width: CGFloat
+    @Environment(Player.self) private var player
+    @State private var hovering = false
+
+    var body: some View {
+        let current = player.current.map { $0.isSameSong(as: track) } ?? false
         HStack(spacing: 11) {
             ArtworkView(url: track.image, size: 46, radius: 7)
                 .overlay {
-                    if hovering || isCurrent {
+                    ZStack {
                         RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.black.opacity(0.35))
-                        PlayingSpeaker(playing: isCurrent && player.isPlaying, font: .caption)
+                        PlayingSpeaker(playing: current && player.isPlaying, font: .caption)
                     }
+                    .opacity(hovering || current ? 1 : 0)
                 }
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title).textStyle(.callout, weight: .medium).lineLimit(1)
@@ -215,22 +251,7 @@ struct CompactSongTile: View {
         }
         .padding(6)
         .frame(width: width, alignment: .leading)
-        .background(hovering ? AnyShapeStyle(.primary.opacity(0.06)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 10, style: .continuous))
-        .contentShape(.rect)
-        .onTapGesture(perform: play)
+        .background(.primary.opacity(hovering ? 0.06 : 0), in: .rect(cornerRadius: 10, style: .continuous))
         .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
-        .contextMenu {
-            Button("Play", action: play)
-            Button("Play Next") { player.playNext(track) }
-            Divider()
-            Button(library.isLiked(track) ? "Remove from Liked" : "Like") { Task { await library.toggleLike(track) } }
-            AddToPlaylistMenu(track: track)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Play \(track.title)")
-        #if DEBUG
-        .onAppear { SelfTest.appeared["compact song row", default: 0] += 1 }
-        #endif
     }
 }
