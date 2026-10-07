@@ -51,7 +51,7 @@ class ListingURLCache:
         self.running = {}
         # MUS-1 step 2b, the backoff ("circuit breaker"). Per SOURCE: a bot check blocks our IP, not one song.
         self.blocked_until: dict[str, float] = {}   # source -> Unix time before which we do not ask it
-        self.strikes: dict[str, int] = {}           # source -> bot checks in a row; each one doubles the pause
+        self.strikes: dict[str, int] = {}           # source -> blocking episodes in a row; each one doubles the pause
         # MUS-1 step 3, prefetch: (source, source_id) pairs waiting for a worker; a new list replaces what waits
         self.prefetch_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
 
@@ -152,23 +152,30 @@ class ListingURLCache:
             # SongNotFound / SourceUnavailable pass straight through, so a failure is never stored
             url = await self.sources[source].get_song_url(song_id)
         except SourceBlocked:
-            self._strike(source)        # the source itself said "blocked": pause it, then pass the error on
+            self._strike(source)        # the source said "blocked": a strike (one per episode), then pass the error on
             raise
+        # it answered: the next block starts again from the short pause. But not during a pause: then this lookup
+        # began before the block (no new one can start), so its answer says nothing about the source now (BUG-2)
         if not self._is_paused(source):
-            self.strikes[source] = 0        # it answered: the next block starts again from the short pause
+            self.strikes[source] = 0
         await self.set(source, song_id, url)
         return url
 
     def _refuse_if_paused(self, source: str) -> None:
         """During a source's pause, raise SourceBlocked straight away: no request goes to the source."""
         if self._is_paused(source):
-            raise SourceBlocked(f"{source} is paused after a bot check until {time.strftime('%H:%M:%S', time.localtime(self.blocked_until[source]))}")
+            until = time.strftime('%H:%M:%S', time.localtime(self.blocked_until[source]))
+            raise SourceBlocked(f"{source} is paused after a bot check until {until}")
 
     def _is_paused(self, source: str) -> bool:
+        """Whether the source is in its pause now (a source never blocked: no). The one check, used everywhere."""
         return self.blocked_until.get(source, 0) > time.time()
 
     def _strike(self, source: str) -> None:
-        """One more bot check in a row: pause = START x 2^(strikes - 1), at most MAX."""
+        """A bot check from the source: one more blocking episode in a row, so pause = START x 2^(strikes - 1), at
+        most MAX. A bot check during a pause is the same episode (BUG-2, your decision 7 Oct): lookups already asking
+        when the block began all come back blocked, and each one used to count, so 4 at once paused 16 min, not 2.
+        It adds no strike and does not make the pause longer."""
         if self._is_paused(source):
             return
         self.strikes[source] = self.strikes.get(source, 0) + 1

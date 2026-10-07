@@ -405,8 +405,10 @@ Each source module also has `http`, its `SharedClient` (above); the lifespan clo
 
 ### Backoff (MUS-1 step 2b)
 - `blocked_until[source]`, `strikes[source]`: per source, because a bot check blocks the IP, not one song.
+- `_is_paused(source)`: whether the source is in its pause now. The one check; the three below use it.
 - `_refuse_if_paused(source)`: during a pause, raise `SourceBlocked(until=…)` before asking the source (not a strike).
-- `_strike(source)`: a bot check from the source: pause `backoff_start_minutes × 2^(strikes − 1)`, at most `backoff_max_minutes`; a lookup that works resets the strikes.
+- `_strike(source)`: a bot check from the source: pause `backoff_start_minutes × 2^(strikes − 1)`, at most `backoff_max_minutes`. One strike per **episode** (BUG-2): a bot check during a pause comes from a lookup that was already asking when the block began, so it adds nothing (4 at once: 2 min, not 16).
+- A lookup that works resets the strikes, except during a pause: it began before the block, so it says nothing about the source now.
 
 ### Prefetch (MUS-1 step 3)
 - `prefetch(listings)`: empties `prefetch_queue` and puts the new list in (no waiting).

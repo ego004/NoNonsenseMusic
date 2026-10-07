@@ -306,7 +306,9 @@ Found by reading the code and, where it says *reproduced*, by running it with fa
 **Yours to decide:** read the expiry from the path too, or treat "can't tell" as stale (and what that costs).
 **Docs:** [`re.search`](https://docs.python.org/3/library/re.html#re.search) (what it returns when nothing matches) · [`urllib.parse`](https://docs.python.org/3/library/urllib.parse.html)
 
-### BUG-2 · One bot check can pause YouTube for 16 minutes instead of 2
+### BUG-2 · One bot check can pause YouTube for 16 minutes instead of 2 ✅ (7 Oct)
+**Done (your fix and decision):** one strike per blocking *episode*: a bot check that arrives while a pause is already running is the same episode (no strike, the pause does not grow), and a success that arrives during a pause no longer resets the strikes (it began before the block). One `_is_paused(source)` check, shared by `_refuse_if_paused` and `_strike`. Tests: 2 in `tests/test_cache.py` (`InFlightSource` answers lookups in the order the test picks); each fails on the old code, one per half. 171 passed. Left as is: `time.time`, not `time.monotonic` (the refusal shows the clock time the pause ends; a clock change can only shorten or lengthen one pause). A lookup that began before the block and is blocked after its pause ends counts as a new episode: rare (a lookup takes seconds, a pause minutes).
+
 **What goes wrong:** the back-off adds a strike per failed answer, not per blocking episode. Four prefetch lookups in flight when YouTube starts blocking all fail: four strikes, so the first pause is 2 × 2³ = **16 min**. The other way round: a lookup that began before the block and succeeds after it resets the strikes to 0 in the middle of a pause.
 **Reproduced (7 Oct):** four lookups at once, all blocked → paused 16 min.
 **Done when:** tests: four lookups blocked at once → the first pause (2 min); a success that began before the block leaves the pause alone.

@@ -298,6 +298,76 @@ async def test_a_success_resets_the_pause(pool):
     assert 1.9 < pause_minutes(cache) <= 2.0                 # back to the short pause
 
 
+class InFlightSource:
+    """A source whose lookups wait until the test answers them (`answer`), so several are asking at once and the
+    test picks the order they come back in: as YouTube does when it starts blocking mid-way. Counts calls."""
+
+    def __init__(self):
+        self.waiting: dict[str, asyncio.Future] = {}
+
+    async def get_song_url(self, song_id):
+        self.waiting[song_id] = asyncio.get_running_loop().create_future()
+        return await self.waiting[song_id]
+
+    def is_expired(self, url):
+        return False
+
+    async def asked(self, n):
+        """Wait until n lookups have reached the source (each passed the pause check first)."""
+        async with asyncio.timeout(5):
+            while len(self.waiting) < n:
+                await asyncio.sleep(0.01)
+
+    def answer(self, song_id, outcome):
+        """outcome: a URL, or an exception to raise (the bot check)."""
+        future = self.waiting[song_id]
+        future.set_exception(outcome) if isinstance(outcome, Exception) else future.set_result(outcome)
+
+
+@pytest.mark.anyio
+async def test_lookups_blocked_together_are_one_strike(pool):
+    # BUG-2: four prefetch lookups asking when YouTube starts blocking. Each one counted: 4 strikes, a 16 min pause
+    source = InFlightSource()
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    songs = [new_id() for _ in range(4)]
+    lookups = [asyncio.create_task(cache("ytmusic", song)) for song in songs]
+    await source.asked(4)                                    # all four are past the pause check, asking
+    for song in songs:
+        source.answer(song, SourceBlocked("bot check"))
+    results = await asyncio.gather(*lookups, return_exceptions=True)
+    assert [type(r) for r in results] == [SourceBlocked] * 4
+    assert cache.strikes["ytmusic"] == 1                     # one episode, one strike
+    assert 1.9 < pause_minutes(cache) <= 2.0                 # the first pause (2 min), not 16
+
+
+@pytest.mark.anyio
+async def test_a_success_that_began_before_the_block_leaves_the_strikes(pool):
+    # BUG-2, the other half: a lookup asked before the block and answered during the pause reset the strikes to 0,
+    # so the next block paused 2 min again instead of 4
+    source = InFlightSource()
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    early, blocked = new_id(), new_id()
+    early_lookup = asyncio.create_task(cache("ytmusic", early))
+    blocked_lookup = asyncio.create_task(cache("ytmusic", blocked))
+    await source.asked(2)                                    # both asking (10:00)
+    source.answer(blocked, SourceBlocked("bot check"))
+    with pytest.raises(SourceBlocked):
+        await blocked_lookup                                 # 10:01: strike 1, a 2 min pause
+    source.answer(early, "https://audio.example/early.m4a")
+    assert await early_lookup == "https://audio.example/early.m4a"   # 10:02: it still plays
+    assert cache.strikes["ytmusic"] == 1                     # but it was asked before the block: no reset
+    assert 1.9 < pause_minutes(cache) <= 2.0                 # and the pause runs on
+    cache.blocked_until["ytmusic"] = 0                       # the pause ran out
+    later = new_id()
+    later_lookup = asyncio.create_task(cache("ytmusic", later))
+    await source.asked(3)
+    source.answer(later, SourceBlocked("bot check"))
+    with pytest.raises(SourceBlocked):
+        await later_lookup
+    assert cache.strikes["ytmusic"] == 2
+    assert 3.9 < pause_minutes(cache) <= 4.0                 # blocked again: the second pause, not the first
+
+
 @pytest.mark.anyio
 async def test_cached_songs_still_play_during_a_pause(pool):
     source = BlockableSource()
