@@ -2,10 +2,10 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import get_args
+from typing import get_args, Annotated
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, Query
 from fastapi.responses import RedirectResponse
 from psycopg import errors
 
@@ -160,7 +160,7 @@ async def get_liked(request: Request) -> list[LibrarySong]:
 
 
 @app.get("/recent")
-async def get_recent(request: Request, limit: int = 50) -> list[LibrarySong]:
+async def get_recent(request: Request, limit: Annotated[int, Query(ge=1, le=200)] = 50) -> list[LibrarySong]:
     async with request.app.state.pool.connection() as conn:
         return await library.recent_songs(conn, limit)
 
