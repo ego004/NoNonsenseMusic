@@ -10,6 +10,38 @@ enum Look {
     static let windowBlur = 0.85        // 0 = clear (the desktop sharp), 1 = frosted
     static let cardSize: CGFloat = 148  // covers on Home and in shelves (Settings › Appearance › Card size)
     static let textScale: CGFloat = 1   // the Mac's own text sizes (Settings › Appearance › Text size)
+    /// Off: a still background in the playing cover's colours. Moving costs CPU on every frame (see Settings).
+    static let animateBackdrop = false
+
+    // Settings › Appearance › Surfaces: each part's blur and fill. The sidebar and the bar start at 0 / 0: exactly
+    // the look they had before these settings (the system's glass alone).
+    static let sidebarBlur = 0.0
+    static let sidebarSolid = 0.0
+    static let barBlur = 0.9            // used when the bar is Frosted instead of Liquid Glass
+    static let barSolid = 0.0
+    static let nowPlayingBlur = 1.0     // with 0.75 fill, close to the thick material Now Playing had before
+    static let nowPlayingSolid = 0.75
+    static let nowPlayingColour = 0.98  // it was the window's colour strength × 1.4
+
+    /// With little blur, a surface keeps some of the window's colour, so its text stays readable over whatever is
+    /// under it: the same floor as the window's, fading out as the blur takes over.
+    static func readable(solid: Double, blur: Double) -> Double { max(solid, minWindowOpacity * (1 - blur)) }
+}
+
+/// The player bar: Liquid Glass (the system's, reacts to the pointer), or Frosted (a plain blur you can thin).
+enum BarStyle: String, CaseIterable, Identifiable {
+    case glass, frosted
+    var id: String { rawValue }
+    var label: String { self == .glass ? "Liquid Glass" : "Frosted" }
+}
+
+/// The parts of the window Settings › Appearance › Surfaces can change one by one.
+enum SurfacePart: String, CaseIterable, Identifiable {
+    case main, sidebar, bar, nowPlaying
+    var id: String { rawValue }
+    var label: String {
+        switch self { case .main: "Main area"; case .sidebar: "Sidebar"; case .bar: "Player bar"; case .nowPlaying: "Now Playing" }
+    }
 }
 
 enum Appearance: String, CaseIterable, Identifiable {
@@ -27,8 +59,10 @@ struct SettingsView: View {
         TabView {
             AppearanceSettings().tabItem { Label("Appearance", systemImage: "paintbrush") }
             TrackpadSettings().tabItem { Label("Trackpad", systemImage: "hand.point.up.left") }
+            LyricsSettings().tabItem { Label("Lyrics", systemImage: "quote.bubble") }
             DiscordSettings().tabItem { Label("Discord", systemImage: "person.wave.2") }
             ServerSettings().tabItem { Label("Server", systemImage: "server.rack") }
+            FootprintSettings().tabItem { Label("Footprint", systemImage: "gauge.with.dots.needle.33percent") }
         }
         .frame(width: 620)
     }
@@ -39,13 +73,23 @@ private struct AppearanceSettings: View {
     @AppStorage("windowOpacity") private var windowOpacity = Look.windowOpacity
     @AppStorage("windowBlur") private var windowBlur = Look.windowBlur
     @AppStorage("artStrength") private var artStrength = Look.artStrength
-    @AppStorage("animateBackdrop") private var animateBackdrop = true
+    @AppStorage("animateBackdrop") private var animateBackdrop = Look.animateBackdrop
     @AppStorage("textScale") private var textScale = Look.textScale
     @AppStorage("cardSize") private var cardSize = Double(Look.cardSize)
     // which sections are open, remembered; Colours (seven rows) starts closed
     @AppStorage("settings.open.window") private var openWindow = true
     @AppStorage("settings.open.sizes") private var openSizes = true
     @AppStorage("settings.open.colours") private var openColours = false
+    @AppStorage("settings.open.surfaces") private var openSurfaces = true
+    @AppStorage("settings.surfacePart") private var part = SurfacePart.main
+    @AppStorage("sidebarBlur") private var sidebarBlur = Look.sidebarBlur
+    @AppStorage("sidebarSolid") private var sidebarSolid = Look.sidebarSolid
+    @AppStorage("barStyle") private var barStyle = BarStyle.glass
+    @AppStorage("barBlur") private var barBlur = Look.barBlur
+    @AppStorage("barSolid") private var barSolid = Look.barSolid
+    @AppStorage("nowPlayingBlur") private var nowPlayingBlur = Look.nowPlayingBlur
+    @AppStorage("nowPlayingSolid") private var nowPlayingSolid = Look.nowPlayingSolid
+    @AppStorage("nowPlayingColour") private var nowPlayingColour = Look.nowPlayingColour
     @Environment(ThemeStore.self) private var theme
 
     var body: some View {
@@ -55,14 +99,54 @@ private struct AppearanceSettings: View {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                LabeledContent("Transparency") { RangeSlider(value: $windowOpacity, in: Look.minWindowOpacity...1, low: "See-through", high: "Solid") }
-                LabeledContent("Blur") { RangeSlider(value: $windowBlur, low: "Clear", high: "Frosted") }
-                LabeledContent("Colour strength") { RangeSlider(value: $artStrength, low: "Soft", high: "Vivid") }
-                Toggle("Moving background", isOn: $animateBackdrop)
-                Text("Reduce Motion and Reduce Transparency in System Settings › Accessibility override these.")
+                Toggle(isOn: $animateBackdrop) {
+                    Text("Moving background")
+                    // measured 7 Oct, a debug build on an Apple silicon Mac, a song playing: still vs moving
+                    Text("Uses more battery: about 5% more of one CPU core in the main window, 10–14% more in Now Playing.")
+                        .foregroundStyle(.secondary)
+                }
+                Text("Reduce Motion and Reduce Transparency in System Settings › Accessibility override these and the surfaces below.")
                     .font(.caption).foregroundStyle(.secondary)
             } header: {
                 Text("Window")
+            }
+
+            // each part of the window on its own: pick a part, its blur and fill are under it
+            Section(isExpanded: $openSurfaces) {
+                Picker("Part", selection: $part) {
+                    ForEach(SurfacePart.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                switch part {
+                case .main:
+                    LabeledContent("Blur") { RangeSlider(value: $windowBlur, low: "Clear", high: "Frosted") }
+                    LabeledContent("Transparency") { RangeSlider(value: $windowOpacity, in: Look.minWindowOpacity...1, low: "See-through", high: "Solid") }
+                    LabeledContent("Colour strength") { RangeSlider(value: $artStrength, low: "Soft", high: "Vivid") }
+                    surfaceNote("Behind the lists and Home. The blur is of your desktop; the colour comes from Colours › Background.")
+                case .sidebar:
+                    LabeledContent("Blur") { RangeSlider(value: $sidebarBlur, low: "Glass", high: "Frosted") }
+                    LabeledContent("Transparency") { RangeSlider(value: $sidebarSolid, low: "See-through", high: "Solid") }
+                    surfaceNote("macOS draws the sidebar as glass; these add frost and colour over it. Both at the left: the glass alone.")
+                case .bar:
+                    Picker("Style", selection: $barStyle) {
+                        ForEach(BarStyle.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    if barStyle == .frosted {
+                        LabeledContent("Blur") { RangeSlider(value: $barBlur, low: "Clear", high: "Frosted") }
+                    }
+                    LabeledContent("Transparency") { RangeSlider(value: $barSolid, low: "See-through", high: "Solid") }
+                    surfaceNote(barStyle == .glass ? "Liquid Glass bends the light and reacts to the pointer. Its tint is in Colours › Player bar."
+                                                   : "A plain blur of what scrolls under the bar. Its tint is in Colours › Player bar.")
+                case .nowPlaying:
+                    LabeledContent("Blur") { RangeSlider(value: $nowPlayingBlur, low: "Clear", high: "Frosted") }
+                    LabeledContent("Transparency") { RangeSlider(value: $nowPlayingSolid, low: "See-through", high: "Solid") }
+                    LabeledContent("Colour strength") { RangeSlider(value: $nowPlayingColour, low: "Soft", high: "Vivid") }
+                    surfaceNote("The full-window view (⇧⌘F). With little blur, some colour always stays, so the words stay readable.")
+                }
+            } header: {
+                Text("Surfaces")
             }
 
             Section(isExpanded: $openSizes) {
@@ -111,7 +195,15 @@ private struct AppearanceSettings: View {
                         windowOpacity = Look.windowOpacity
                         windowBlur = Look.windowBlur
                         artStrength = Look.artStrength
-                        animateBackdrop = true
+                        sidebarBlur = Look.sidebarBlur
+                        sidebarSolid = Look.sidebarSolid
+                        barStyle = .glass
+                        barBlur = Look.barBlur
+                        barSolid = Look.barSolid
+                        nowPlayingBlur = Look.nowPlayingBlur
+                        nowPlayingSolid = Look.nowPlayingSolid
+                        nowPlayingColour = Look.nowPlayingColour
+                        animateBackdrop = Look.animateBackdrop
                         textScale = Look.textScale
                         cardSize = Double(Look.cardSize)
                         theme.reset()
@@ -119,14 +211,19 @@ private struct AppearanceSettings: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .fixedSize(horizontal: false, vertical: true)
-        .animation(.snappy(duration: 0.25), value: [openWindow, openSizes, openColours])
-        // Colours opens on its own: with everything open the page was 1,165 pt tall (measured 6 Oct), taller than a
-        // MacBook's screen, so its bottom rows were off screen. One way or the other it now stays under ~800 pt.
-        .onChange(of: openColours) { _, open in if open { openWindow = false; openSizes = false } }
+        .settingsPage()
+        .animation(.snappy(duration: 0.25), value: [openWindow, openSizes, openColours, openSurfaces])
+        .animation(.snappy(duration: 0.25), value: part)
+        // Colours opens on its own: with everything open the page was 1,165 pt tall (measured 6 Oct). The page now
+        // scrolls past the screen's height anyway (SettingsPage), but one long scroll is worse than a short page.
+        .onChange(of: openColours) { _, open in if open { openWindow = false; openSizes = false; openSurfaces = false } }
         .onChange(of: openWindow) { _, open in if open { openColours = false } }
         .onChange(of: openSizes) { _, open in if open { openColours = false } }
+        .onChange(of: openSurfaces) { _, open in if open { openColours = false } }
+    }
+
+    private func surfaceNote(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.secondary)
     }
 }
 
@@ -178,8 +275,33 @@ private struct TrackpadSettings: View {
                 LabeledContent("Pinch in on Now Playing") { Text("Close it").foregroundStyle(.secondary) }
             }
         }
-        .formStyle(.grouped)
-        .fixedSize(horizontal: false, vertical: true)
+        .settingsPage()
+    }
+}
+
+/// When the app asks the server for lyrics (Settings › Lyrics).
+enum LyricsFetch: String, CaseIterable, Identifiable {
+    case songStart, onOpen
+    var id: String { rawValue }
+    var label: String { self == .songStart ? "When a song starts, and the next song's too" : "Only when I open Lyrics" }
+}
+
+private struct LyricsSettings: View {
+    @AppStorage("lyricsFetch") private var fetch = LyricsFetch.songStart
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Fetch lyrics", selection: $fetch) {
+                    ForEach(LyricsFetch.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.radioGroup)
+            } footer: {
+                Text("The first time a song's lyrics are asked for, the server looks them up (about 1–2 seconds); after that it answers from its own store at once. Fetching when a song starts means Lyrics opens with them ready. Downloaded songs keep their lyrics, so they show offline.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .settingsPage()
     }
 }
 
@@ -251,8 +373,7 @@ private struct DiscordSettings: View {
                 Text("What friends see")
             }
         }
-        .formStyle(.grouped)
-        .fixedSize(horizontal: false, vertical: true)
+        .settingsPage()
     }
 }
 
@@ -314,6 +435,7 @@ private struct DiscordPreview: View {
 private struct ServerSettings: View {
     @AppStorage("serverURL") private var serverURL = API.defaultServer
     @AppStorage("backendFolder") private var backendFolder = ServerLauncher.defaultBackendFolder
+    @AppStorage("serverReload") private var reloads = false
     @Environment(ServerLauncher.self) private var server
     @State private var serverOK: Bool?
 
@@ -330,21 +452,126 @@ private struct ServerSettings: View {
                 }
                 TextField("Backend folder", text: $backendFolder)
                 LabeledContent("Auto-start") { Text(server.summary).foregroundStyle(.secondary) }
+                Toggle(isOn: $reloads) {
+                    Text("Reload when the backend's code changes")
+                    Text("For writing the backend: the server restarts on every save. Uses about 140 MB more memory and three more processes (uv kept running, a file watcher and its helper; measured 7 Oct: 236 MB in 4 processes, against 97 MB in 1).")
+                        .foregroundStyle(.secondary)
+                }
                 HStack {
                     Button("Start now") { Task { await server.ensureRunning(); serverOK = await API.health() } }
                         .disabled(serverOK == true)
+                    Button("Restart") { Task { await server.restart(); serverOK = await API.health() } }
+                        .disabled(server.state != .started)
+                        .help("Stops the server the app started and starts it again, in the mode chosen above")
                     Button("Open server log") { NSWorkspace.shared.open(ServerLauncher.logURL) }
                 }
             } footer: {
-                Text("When nothing answers at a local address, the app starts the backend in this folder (uv run fastapi dev) and stops it when the app quits. A server you started yourself in a terminal is left alone.")
+                Text("When nothing answers at a local address, the app starts the backend in this folder (one process, listening on this Mac only) and stops it when the app quits. A server you started yourself in a terminal is left alone.")
                     .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
-        .fixedSize(horizontal: false, vertical: true)
+        .settingsPage()
         .task(id: serverURL) {
             serverOK = nil
             serverOK = await API.health()
+        }
+    }
+}
+
+/// A settings page: as tall as its content, but never taller than the screen; past that, it scrolls.
+/// Pages used to take their full height (`fixedSize`): Discord with every section open was 983 pt on an 847 pt
+/// screen, and its bottom rows were below the screen's edge (measured 6 Oct).
+private struct SettingsPage: ViewModifier {
+    /// The usable screen, less the Settings window's title bar and tabs (about 80 pt) and a margin.
+    private var maxHeight: CGFloat { max(360, (NSScreen.main?.visibleFrame.height ?? 800) - 120) }
+
+    func body(content: Content) -> some View {
+        CappedHeight(maxHeight: maxHeight) { content.formStyle(.grouped) }
+    }
+}
+
+/// Gives its child the child's natural height, up to `maxHeight`; a taller child gets `maxHeight` and scrolls.
+/// The natural height is asked with no height proposed (what `fixedSize` does), so it never depends on the frame
+/// it produces. Measuring the Form's scroll content instead looped: the content is at least as tall as the frame,
+/// so each pass grew it, until AppKit stopped the app (6 Oct).
+private struct CappedHeight: Layout {
+    var maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let natural = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: proposal.width ?? natural.width, height: min(natural.height, maxHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+
+extension View {
+    fileprivate func settingsPage() -> some View { modifier(SettingsPage()) }
+}
+
+/// Settings › Footprint: what the app and its server use right now, and every choice that costs more, with what it
+/// costs (measured) and its switch. The lightest setting is always the default.
+private struct FootprintSettings: View {
+    @Environment(ServerLauncher.self) private var server
+    @State private var meter = FootprintMeter()
+    @AppStorage("animateBackdrop") private var animateBackdrop = Look.animateBackdrop
+    @AppStorage("serverReload") private var reloads = false
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("This app") { reading(meter.app) }
+                LabeledContent("Server") {
+                    if let s = meter.server { reading(s) }
+                    else { Text(server.state == .alreadyRunning ? "Started outside the app: not measured" : "Not running").foregroundStyle(.secondary) }
+                }
+            } header: {
+                Text("Right now")
+            } footer: {
+                Text("CPU is a share of one core, as Activity Monitor shows it; memory is what Activity Monitor counts. Read once a second while this page is open. Postgres runs on its own and is not counted.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle(isOn: $animateBackdrop) {
+                    Text("Moving background")
+                    Text("About 5% more of one core in the main window, 10–14% more in Now Playing, while music plays.")
+                        .foregroundStyle(.secondary)
+                }
+                Toggle(isOn: $reloads) {
+                    Text("Reload the server when its code changes")
+                    Text("About 140 MB more memory and three more processes. Applies when the server next starts (Server › Restart).")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Costs more: off unless you turn it on")
+            } footer: {
+                Text("Measured 7 Oct on an Apple silicon Mac with a song playing. Everything else is already at its lightest: a still background costs ~2% of one core, Now Playing ~3%, with Lyrics ~4%.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .settingsPage()
+        .task {
+            while !Task.isCancelled {
+                meter.update(serverPIDs: server.serverPIDs)
+                #if DEBUG
+                SelfTest.footprint = (meter.app, meter.server)
+                #endif
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    private func reading(_ r: FootprintMeter.Reading?) -> some View {
+        Group {
+            if let r {
+                Text(String(format: "%.1f%% CPU · %@", r.cpu, formatBytes(Int(r.memory))) + (r.processes > 1 ? " in \(r.processes) processes" : ""))
+                    .monospacedDigit()
+            } else {
+                Text("Measuring…").foregroundStyle(.secondary)
+            }
         }
     }
 }

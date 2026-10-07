@@ -5,16 +5,27 @@ struct NoNonsenseApp: App {
     @State private var library: LibraryStore
     @State private var presence: Presence
     @State private var player: Player
+    @State private var downloads: DownloadStore
+    @State private var lyrics: LyricsStore
     @State private var server = ServerLauncher.shared
     @State private var theme = ThemeStore()
     @AppStorage("appearance") private var appearance = Appearance.system
 
     init() {
+        #if DEBUG
+        if SelfTest.isRunning { SelfTest.returnDefaults() }    // a self-test that died last time: put your settings back first
+        #endif
         let library = LibraryStore()
         let presence = Presence()
+        let downloads = DownloadStore()
+        downloads.notify = { [weak library] text, symbol in library?.notify(text, symbol: symbol) }
+        let lyrics = LyricsStore(downloads: downloads)
+        downloads.downloaded = { [weak lyrics] track in Task { await lyrics?.keep(for: track) } }   // offline lyrics
+        _lyrics = State(initialValue: lyrics)
         _library = State(initialValue: library)
         _presence = State(initialValue: presence)
-        _player = State(initialValue: Player(library: library, presence: presence))
+        _downloads = State(initialValue: downloads)
+        _player = State(initialValue: Player(library: library, presence: presence, downloads: downloads))
     }
 
     var body: some Scene {
@@ -25,6 +36,8 @@ struct NoNonsenseApp: App {
                 .environment(player)
                 .environment(library)
                 .environment(presence)
+                .environment(downloads)
+                .environment(lyrics)
                 .preferredColorScheme(appearance.colorScheme)
                 .frame(minWidth: 900, minHeight: 580)
                 .onAppear {
@@ -43,6 +56,15 @@ struct NoNonsenseApp: App {
                     SelfTest.runNowPlayingCheckIfAsked(library: library, player: player, theme: theme)
                     SelfTest.runSizesCheckIfAsked()
                     SelfTest.runIdleIfAsked(player: player)
+                    SelfTest.runPrefetchCheckIfAsked(player: player)
+                    SelfTest.runUpNextCheckIfAsked(player: player)
+                    SelfTest.runDownloadsCheckIfAsked(player: player, downloads: downloads)
+                    SelfTest.runSidebarCheckIfAsked(library: library)
+                    SelfTest.runSettingsFitCheckIfAsked()
+                    SelfTest.runBarCheckIfAsked(player: player)
+                    SelfTest.runLyricsCheckIfAsked(player: player, lyrics: lyrics, downloads: downloads)
+                    SelfTest.runPerfIfAsked(player: player)
+                    SelfTest.runFootprintCheckIfAsked()
                     #endif
                 }
         }

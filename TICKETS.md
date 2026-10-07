@@ -17,7 +17,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 | Ticket | What you can show at the end | Who | Size |
 |---|---|---|---|
-| MUS-1 | A YouTube song starts instantly the second time, and the next song is ready before you get there | **You** (backend) · Claude (app, tests after) | M |
+| MUS-1 ✅ | A YouTube song starts instantly the second time, and the next song is ready before you get there | **You** (backend) · Claude (app, tests after) | M |
 | MUS-2 ✅ | Playlists: make, fill, reorder (done 6 Oct; covers moved to MUS-14) | **You** (backend) · Claude (app) | L |
 | MUS-3 | When the queue ends, music keeps going, shaped by your skips | **You** (ranking, endpoint) · Claude (radio parser, app) | M |
 | MUS-4 | Choose JioSaavn or YouTube Music as the default copy | **You** | S |
@@ -34,7 +34,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 ---
 
-## MUS-1 · Fast playback: cache and prefetch
+## MUS-1 · Fast playback: cache and prefetch ✅ (6 Oct 2026)
 
 **Problem:** a YouTube song takes 2.8 s to start, every time. Most of what you play is YouTube-only (6 of your 9 plays, 5 Oct). Do the 2.8 s **once** per listing (cache), and **before** the click (prefetch).
 
@@ -62,11 +62,11 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 | Step | Build | Done when |
 |---|---|---|
 | 1 ✅ | The cache in memory: the rule, the margin, `serve_fresh` | Done 5 Oct: YouTube 1,786 ms → **3.7 ms**, JioSaavn 497.6 ms → **0.9 ms** on the second play; expired URLs refetched (tests) |
-| 2 | Single-flight | Two requests at once for one listing make one source call |
-| 2b | **Back off from a blocked source.** After YouTube's bot check (5 Oct: it came back the same evening), stop asking YouTube for a while and answer 502 at once. Today every blocked song costs 2 more YouTube requests (play + `serve_fresh`), which can lengthen the block, and step 3 will add prefetches | During the pause, a YouTube `/play` answers 502 without calling the source (fake source, fake clock); after it, the source is tried again |
-| 3 | The prefetch endpoint: take the window, answer at once, fetch in the background with the rules above | Search, wait 10 s, click the top result: a cache hit |
+| 2 ✅ | Single-flight | Done 6 Oct: two requests at once make 1 lookup (was 2); a cancelled request leaves the lookup running for others |
+| 2b ✅ | **Back off from a blocked source.** | Done 6 Oct: a bot check pauses YouTube (2 min, doubling to 60, reset by a success); during the pause /play answers 502 without asking it (3 requests → 1 call) |
+| 3 ✅ | The prefetch endpoint: take the window, answer at once, fetch in the background with the rules above | Done 6 Oct: 202 in 1 ms; 4 cached in 0.5 s; a prefetched play 3.8 ms vs 1,904 ms not prefetched (YouTube) |
 | 4 ✅ | The cache survives a restart (a table) | Done 5 Oct: after a restart, 5 songs from the table, 0 source calls, 0.37 ms per table hit; both levels LRU (`hit_at`); a hit costs 0.83 ms with 6,000 rows |
-| App | Claude: send the window; the failure handling above; show "Couldn't play …" (today it is silent); delete `warm` | Claude starts after your step 1 (failures) and step 3 (window) |
+| App ✅ | Claude: send the window; the failure handling above; show "Couldn't play …"; delete `warm` | Done 6 Oct: the next 5 + the top 5 of a search; from the app, queue songs 2.5–5.8 ms (a YouTube one 2.6 ms) and the search's top result 5.2 ms |
 
 **Decisions that are yours**
 - The margin: anything from 10 minutes to 5 hours (a long song plus seeks; 30 minutes suggested).
@@ -78,9 +78,9 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 **Done when**
 - [x] Measured: first `/play` of a YouTube song 1,786 ms; second 3.7 ms (5 Oct, *Blinding Lights*).
-- [ ] Search, wait 10 s, click the top result: the log shows no yt-dlp call.
+- [x] Search, wait, click the top result: a cache hit (6 Oct: 5.2 ms from the app; 3.8 ms vs 1,904 ms through the API).
 - [x] Every `serve_fresh` is logged: that log is your failure count.
-- [ ] Tests: Claude writes them after you are done (`tests/test_cache.py` already covers step 1).
+- [x] Tests: `tests/test_cache.py` (steps 1, 2, 2b) and `tests/test_prefetch.py` (step 3): 107 pass.
 
 **Docs**
 - Step 1: [`urllib.parse.urlparse`](https://docs.python.org/3/library/urllib.parse.html#urllib.parse.urlparse) and [`parse_qs`](https://docs.python.org/3/library/urllib.parse.html#urllib.parse.parse_qs) (read `expire=`) · [`time.time`](https://docs.python.org/3/library/time.html#time.time) · FastAPI [Query Parameters](https://fastapi.tiangolo.com/tutorial/query-params/) (see "Query parameter type conversion" for a `bool`)
@@ -256,6 +256,8 @@ Claude writes the pytest tests (against `music_test`). The app work (sidebar, pl
 | 4 | Now Playing focus: a button that makes it the centre of the window, laid out with room for lyrics (MUS-12) | ✅ 6 Oct: 💬 ☰ ⤢ on the bar; Lyrics / Up Next panel or the song alone; full screen (`NN_SELFTEST_NOWPLAYING`) |
 | 5 | Your sizes: text size and card size in Settings › Appearance | ✅ 6 Oct: 0.85…1.4 × the Mac's text (1.0 = exactly as before, measured), cards 116…210 pt |
 | 6 | Motion: messages, dragging, lists changing; all of it off with Reduce Motion | ✅ 6 Oct: see Motion in docs/mac-app.md. Not checked by a test: how the shakes look |
+| 7 | Up Next by hand: drag to reorder, remove, clear | ✅ 6 Oct: 27 queue rules pass; the real list shows one row per queued song |
+| 8 | Offline: Download / Remove Download, Download Playlist, a Downloads screen; downloads play with the server off | ✅ 6 Oct (`NN_SELFTEST_DOWNLOADS`). Limit: YouTube downloads are throttled (159 s for one song) |
 | — | Extra: recent searches on the idle Search screen (only searches that led to a song you played; the duplicate Recently Played shelf left Search, Home has it). CPU checked: 0% idle, ~2.5% playing | ✅ 6 Oct |
 | — | From the MUS-2 list: the playlist's name in the Discord status (Settings › Discord › Share, off by default) and "From “Gym”" in Now Playing; Settings in collapsible sections (Colours on its own, so the page fits a MacBook screen) | ✅ 6 Oct |
 | — | Fixed 6 Oct: a test server could outlive its app and keep the port (now: one launcher, one start at a time, the whole process family stopped); the server log overwrote itself (now append mode) | ✅ |
@@ -404,39 +406,73 @@ Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens
 
 ---
 
-## MUS-12 · Lyrics, synced when possible
+## MUS-12 · Lyrics, lit line by line
 
-**Problem:** Now Playing shows no words. You want the lyrics, and when timings exist, the current line lit up as it is sung.
+**Status (6 Oct):** steps 1 and 2 done (`POST /lyrics`, `lyrics.py`: a `LYRICS_SOURCES` loop, your design: timed from any source wins, else the first plain, else empty). 34 tests, offline, plus 11 for the cache on music_test. Measured: *Les* from LRCLIB, timed, 115 lines, 0.6 s; LRCLIB missing, YouTube timed, 2.0 s. *Corrlinks and JPay* turned out to be on LRCLIB after all (the earlier "not found" was most likely a 503), so it no longer tests step 2. Step 3 done too: `LyricsCache` and the `lyrics` table (timed kept for good; plain or empty asked again after 7 days; nothing kept when a source failed). Measured: 704 ms not stored, 3–4 ms stored. **App done too (7 Oct):** the Lyrics panel (lit line kept in the middle, click to seek, "Couldn't find lyrics"), Settings › Lyrics (when a song starts, and the next song's; or only when Lyrics opens), downloads keep their lyrics for offline. 15 self-test checks pass. With a still background, Now Playing with Lyrics takes ~4% of one core.
 
-**Facts already checked (5 Oct 2026)**
-- **LRCLIB** (`lrclib.net`), an open lyrics database used by music players: no key, no sign-up. `GET /api/get?track_name=…&artist_name=…&duration=…` answered in 198–529 ms. *Blinding Lights*: 40 synced lines; *Tum Hi Ho*: 46 synced lines; *Fake_0pps* (KANKAN): found, plain text only. Its durations matched yours within 1 s.
-- Synced lyrics are **LRC**: one line per lyric, each starting with its time, `[mm:ss.xx] text`. Plain lyrics are just text.
-- *Tum Hi Ho* is found under **Arijit Singh**; your library stores **Mithoon** first. Asking with the first artist only would miss it.
-- **JioSaavn** has lyrics for some songs: `more_info.has_lyrics` in song details, then `__call=lyrics.getLyrics&lyrics_id=<the song id>` (its own `lyrics_id` field was empty). Plain text with `<br>` line breaks, no timings, plus a `lyrics_copyright` field.
-- Musixmatch (synced only on paid plans; the free API returns about 30% of a song's lyrics) and Genius (its API gives metadata and a page link, not the text): second-hand, from their published plans. Not used.
-- The repo is public: never save real lyrics into `samples/` or tests (they are copyrighted). Tests use short made-up LRC.
+**Problem:** Now Playing shows no words. You want the lyrics, and when they are timed, the line being sung lit up.
 
-**Deliverables**
-1. An endpoint the app calls for a song's lyrics: synced lines (each with its time), or plain text, or "none".
-2. The order: LRCLIB synced → LRCLIB plain → JioSaavn plain → none.
-3. Matching that survives your data: try each of the song's artists, use the duration, fall back to LRCLIB's `/api/search`.
-4. Lyrics do not change: cache them, so a song's lyrics are fetched once.
-5. The app (Claude): Now Playing shows the lyrics, the current line bright and larger, the rest dimmed, scrolling smoothly with the song; click a line to jump there. Plain lyrics just scroll.
+**Decided (6 Oct 2026)**
+- **LRCLIB first, then YouTube Music.** Measured on your 12 liked songs: LRCLIB timed 8, YouTube Music timed 8, both together **10 of the 11 that have words** (the 12th is instrumental, and LRCLIB says so).
+- **The server answers parsed lines**, the same shape whichever source found them; the app only highlights. An app never parses LRC.
+- **Lyrics are copyrighted:** fine to show in your player, **never committed** (not in tests, not in fixtures, not in docs).
+
+**The reply** (your decisions, 6 Oct: no `instrumental`, always 200, its own endpoint, fetched on demand; not part of `/play`, not prefetched by the server). The field names are yours; the app needs these four things:
+```json
+{"source": "lrclib", "synced": true,
+ "lines": [{"start_ms": 19120, "text": "…"}, {"start_ms": 20760, "text": "…"}]}
+```
+- Which source found them (`"lrclib"`, `"ytmusic"`), or nothing when none did.
+- `synced: false`: plain lyrics, every `start_ms` is `null`.
+- Nothing found, or an instrumental: `lines` is `[]`, still a 200 (the app says "Couldn't find lyrics").
+- No `end_ms`: a line ends where the next begins.
+
+**The request** (method and names yours; you have `POST /lyrics` with a JSON body now). Whatever its shape, it must carry:
+- the title, **the artist** (LRCLIB answers 400 without one) and the duration in seconds;
+- a **YouTube video id** whenever the song has a `ytmusic` listing, even when the copy playing is JioSaavn's (YouTube Music lyrics need it).
+- If it becomes a GET: a GET carries no body, so the fields come in the URL (`Annotated[Model, Query()]`, checked on a toy endpoint: 200; the same model as a body: 422).
+
+**HTTP:** use a `SharedClient` for LRCLIB (`http_client.py`; headers go in its options), like the sources. The lifespan closes the sources' clients at shutdown; yours needs closing there too.
+
+**Source 1: LRCLIB** (`https://lrclib.net`, open source, MIT, no key)
+- `GET /api/get?track_name=…&artist_name=…&duration=…` (seconds). Send a `User-Agent` naming the app.
+- Reply fields (6 Oct): `id`, `trackName`, `artistName`, `albumName`, `duration` (float), `instrumental`, `hasWordSync`, `plainLyrics` (text), `syncedLyrics` (LRC text), `lyricsfile` (YAML, already split into lines with `start_ms`/`end_ms`; newer and not in the docs: prefer `syncedLyrics`).
+- Duration: the docs say ±2 s. Measured: asked 317, stored 319.0, and 318–322 all matched.
+- **Trap:** a miss comes back as **404** `{"name": "TrackNotFound"}` one time and **503** `{"name": "ServerOverloaded"}` the next, for the same kind of request (measured twice, 6 Oct). Treat both as "LRCLIB has nothing", try YouTube, and never remember a 503 as "no lyrics".
+- `artist_name` is required: without it, **400 in plain text** (not JSON). `duration` is optional; 19 s off already misses.
+- An instrumental: 200, `instrumental: true`, `plainLyrics` and `syncedLyrics` both `None`.
+- Answers in about 0.6–0.8 s.
+
+**Source 2: YouTube Music** (package `ytmusicapi`, not installed yet: `uv add ytmusicapi`)
+- `YTMusic().get_watch_playlist(videoId=…)["lyrics"]` → a browseId (`"MPLY…"`, 19 characters), or `None`: no lyrics. 1.3 s.
+- `get_lyrics(browseId, timestamps=True)` → `{"hasTimestamps": bool, "lyrics": …, "source": "Source: LyricFind"}`. Timed: `lyrics` is a list of `LyricLine`, a dataclass (`.text`, `.start_time` and `.end_time` in **ms**, `.id`). Not timed: one string. 0.25 s. (ytmusicapi 1.12.3, measured 6 Oct.)
+- **Both are blocking** (`requests`, not async): call them through `asyncio.to_thread`, or the whole server stops for ~1.6 s.
+- **Trap:** line 0 can be an intro marker: one character, no letters, from 0 ms to the first sung line (seen on *Les*). LRCLIB has no such line.
+- **Trap:** some songs raise `KeyError: 'cueRange'` on gap lines (ytmusicapi issue #1002): catch it and fall back to `timestamps=False`.
+- Needs a YouTube listing's video id: a JioSaavn-only song can only use LRCLIB.
+
+**LRC, the timed format** (`syncedLyrics`)
+- A line: `[mm:ss.xx] text`. Stamps: `re.findall(r"\[(\d+):(\d+(?:\.\d+)?)\]", line)`; text: the line with the stamps removed.
+- `start_ms = round((minutes * 60 + seconds) * 1000)`: `[01:02.345]` → 62345.
+- Traps: one line can carry **two stamps** (a chorus sung twice: two lines); tag lines like `[ar: …]` have no stamp (skip); a stamp with no text is a gap (keep it, as `""`, so the previous line stops lighting up); sort by `start_ms` at the end.
+
+**Steps**
+
+| Step | Build | Done when |
+|---|---|---|
+| 1 | LRCLIB: look up, parse `syncedLyrics` into lines (or plain), the endpoint answers | *Les*: `synced: true`, 115 lines, in order; an instrumental (*Clair de Lune*): `lines: []`, 200; LRCLIB down or overloaded: still a 200 |
+| 2 | YouTube Music when LRCLIB has nothing timed | *Corrlinks and JPay* (LRCLIB: not found) answers timed lines from YouTube; a JioSaavn-only song skips YouTube; the server keeps answering other requests while YouTube is asked (`to_thread`) |
+| 3 | Cache: lyrics do not change, so a second request costs nothing | The second request for a song makes no outside call; a 503 from LRCLIB is not cached as "no lyrics" |
+| Tests | Claude, after each step | Offline: fake LRCLIB and YouTube answers, no real lyrics in any file |
+| App | Claude, after step 1: the Lyrics panel lights the line being sung, keeps it in the middle, click a line to seek, "Couldn't find lyrics"; a setting for when to fetch (when a song starts, plus the next song's; or only when Lyrics is open); downloads keep their lyrics | After step 1 |
 
 **Decisions that are yours**
-- Where LRC becomes lines (server or app), and the reply's shape.
-- How close a duration must be to count as the same song.
-- Where the cache lives (memory, a table, both), and whether "no lyrics" is cached too.
-- Whether lyrics join the prefetch window (MUS-1 step 3).
+- The endpoint's method and names (see The request).
+- Cleaning titles before LRCLIB: *Tum Hi Ho (From "Aashiqui 2")*, "feat. …". `normalise` in `matching.py` already does some of this.
+- What "found" means when LRCLIB has only plain lyrics: stop there, or still ask YouTube Music for timed ones (YouTube timed beats LRCLIB plain).
+- The cache: where, and keyed by what.
 
-**Done when**
-- [ ] *Blinding Lights*: synced lines, lit in time.
-- [ ] *Tum Hi Ho*: found, although Mithoon is the first artist.
-- [ ] *Fake_0pps*: plain lyrics shown.
-- [ ] The second request for a song's lyrics never leaves the server.
-- [ ] pytest: LRC parsing (times, blank lines, a line with two timestamps), the source order, matching (fake HTTP; no network, no real lyrics).
-
-**Docs:** LRCLIB's API (the two endpoints above, checked live) · [LRC format](https://en.wikipedia.org/wiki/LRC_(file_format)) · your own `jiosaavn.py` for the request pattern · [`re` for the `[mm:ss.xx]` tag](https://docs.python.org/3/library/re.html) (mechanics, not judgement)
+**Docs:** [LRCLIB API](https://lrclib.net/docs) · [ytmusicapi get_lyrics](https://ytmusicapi.readthedocs.io/en/latest/reference/browsing.html) · [ytmusicapi issue #1002](https://github.com/sigma67/ytmusicapi/issues/1002) · [LRC format](https://en.wikipedia.org/wiki/LRC_(file_format)) · Python [`re.findall`](https://docs.python.org/3/library/re.html#re.findall)
 
 ---
 

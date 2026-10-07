@@ -55,8 +55,37 @@ enum API {
 
     /// Ask the server to resolve a listing's audio URL in advance, without downloading any audio:
     /// the redirect is not followed. Pays off once the server caches URLs; MUS-1 replaces it with a prefetch request.
-    static func warm(_ listing: Listing) async {
-        _ = try? await noRedirect.data(from: playURL(listing))
+    private struct PrefetchItem: Encodable {
+        let source: String
+        let sourceID: String
+        enum CodingKeys: String, CodingKey { case source; case sourceID = "source_id" }
+    }
+    private struct PrefetchBody: Encodable { let listings: [PrefetchItem] }
+
+    /// `POST /prefetch`: these listings come next. The server answers 202 at once and looks them up in the background.
+    static func prefetch(_ listings: [Listing]) async throws {
+        let items = listings.prefix(50).map { PrefetchItem(source: $0.source, sourceID: $0.id) }   // the server's maximum
+        try await sendNoContent("POST", path: "prefetch", body: PrefetchBody(listings: Array(items)))
+    }
+
+    private struct LyricsBody: Encodable {
+        let songName: String
+        let artistName: String
+        let songDuration: Int
+        let youtubeID: String?               // nil is left out: the server's default (no YouTube copy)
+        enum CodingKeys: String, CodingKey {
+            case songName = "song_name", artistName = "artist_name", songDuration = "song_duration", youtubeID = "youtube_id"
+        }
+    }
+
+    /// The song's lyrics (MUS-12). Always an answer when the server is reached: no lyrics is an empty `lines`.
+    /// Throws only when the server cannot be asked.
+    static func lyrics(for track: Track) async throws -> Lyrics {
+        // every artist, joined: LRCLIB then matches the fuller record (measured 6 Oct: 50 lines vs 5 with the first
+        // artist alone). YouTube Music needs a YouTube copy's id, even when another copy is the one playing.
+        let youtube = track.listings.first { $0.source == "ytmusic" }?.id
+        return try await send("POST", path: "lyrics", body: LyricsBody(songName: track.title, artistName: track.artistLine,
+                                                                       songDuration: track.duration, youtubeID: youtube))
     }
 
     private static let noRedirect = URLSession(configuration: .default, delegate: StopRedirects(), delegateQueue: nil)
@@ -190,7 +219,7 @@ private extension UUID {
     var path: String { uuidString.lowercased() }
 }
 
-/// Makes a URLSession stop at a redirect instead of following it (used by `API.warm`).
+/// Makes a URLSession stop at a redirect instead of following it (used by `API.refresh`).
 /// Top-level and callback-style: a nested class with an `async` version of this method crashed the Swift 6.4 compiler.
 nonisolated final class StopRedirects: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,

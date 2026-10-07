@@ -9,11 +9,13 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from psycopg import errors
 
-from music_backend import db, library, cache
+from music_backend import db, library, cache, lyrics
 from music_backend.matching import rank_songs
 from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
-                                  PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest)
+                                  PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
+                                  LyricsRequest, LyricsResponse)
+from music_backend.settings import settings
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
 
@@ -24,17 +26,41 @@ async def lifespan(app: FastAPI):
     await pool.open()
     await db.apply_schema(pool)
     app.state.pool = pool
-
     app.state.url_cache = cache.ListingURLCache(SOURCES, pool)   # one cache for every request; it borrows connections from the pool
+    app.state.lyrics_cache = cache.LyricsCache(pool)
+    # the prefetch workers: N separate tasks, running by themselves; the list keeps them alive
+    # (a list comprehension: `[create_task(...)] * N` would be ONE task listed N times)
+    app.state.prefetch_workers = [asyncio.create_task(app.state.url_cache.prefetch_worker())
+                                  for _ in range(settings.num_prefetch_workers)]
 
     yield
 
+    # shutdown, in this order: the workers, then lookups still running, then the pool they write to
+    stopping = (app.state.prefetch_workers + list(app.state.url_cache.running.values())
+                + list(app.state.lyrics_cache.running.values()))
+    for task in stopping:
+        task.cancel()
+    await asyncio.gather(*stopping, return_exceptions=True)       # wait until they have really stopped
+    await asyncio.gather(*(source.http.close() for source in SOURCES.values()))   # the sources' kept connections
+    await lyrics.http.close()                                                     # and LRCLIB's
     await pool.close()
 
 
 app = FastAPI(title="music", lifespan=lifespan)
-# INFO for everything (keeps httpx's own DEBUG chatter out of the terminal), DEBUG for our own logger
+# INFO for everything, DEBUG for our own logger. httpx logs every request it sends at INFO ("HTTP Request: …"):
+# WARNING for it, so the log keeps what matters (it was 80 of 2,178 lines, 7 Oct)
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+class _NoHealthChecks(logging.Filter):
+    """Leaves /health out of the access log: the app asks it while waiting for the server to start, and the lines
+    say nothing (/health was 1,141 of 2,178 log lines, 7 Oct)."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "/health" not in record.getMessage()
+
+
+logging.getLogger("uvicorn.access").addFilter(_NoHealthChecks())
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -100,6 +126,16 @@ async def play(request: Request, source: SourceName, source_id: str, serve_fresh
     # redirect, not proxy: the browser fetches the audio straight from the CDN, so it never passes
     # through this server. Fine while browser and server share an IP (YouTube URLs are tied to it).
     return RedirectResponse(song_url)
+
+# ---------- prefetch ----------
+
+@app.post("/prefetch", status_code = 202)
+async def prefetch_urls(body: PrefetchRequest, request: Request) -> Response:
+    """The listings coming next, in order: looked up in the background so they start at once when played.
+    Answers 202 straight away; a newer list replaces what is still waiting. async def: it runs on the event loop,
+    where the queue lives (asyncio.Queue is not thread-safe, and a plain def would run on another thread)."""
+    request.app.state.url_cache.prefetch(body.listings)
+    return Response(status_code = 202)
 
 
 # ---------- library ----------
@@ -230,3 +266,10 @@ async def move_playlist(playlist_id: UUID, body: MoveRequest, request: Request) 
         except library.BadMove as e:
             raise HTTPException(status_code = 422, detail = str(e))
     return Response(status_code = 204)
+
+# ---- lyrics -----
+
+@app.post("/lyrics")
+async def get_lyrics(body: LyricsRequest, request: Request) -> LyricsResponse:
+    """Always 200: no lyrics is an empty `lines`, not an error. From the lyrics table when it has them."""
+    return await request.app.state.lyrics_cache(body)

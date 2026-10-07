@@ -39,6 +39,9 @@ final class LibraryStore {
     /// The message's symbol: a warning for problems, a tick for "Added to …".
     private(set) var messageSymbol = "exclamationmark.triangle.fill"
 
+    /// A message from elsewhere (downloads), on the same line above the player bar.
+    func notify(_ text: String, symbol: String) { show(text, symbol: symbol) }
+
     private func show(_ text: String, symbol: String = "exclamationmark.triangle.fill") {
         message = text
         messageSymbol = symbol

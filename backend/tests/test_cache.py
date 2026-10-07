@@ -8,6 +8,7 @@ YouTube URLs carry their expiry in `expire=` (a Unix time). JioSaavn URLs have n
 
 Every test uses listing ids that are new on every run, so nothing cached (in memory or in a table) leaks between tests.
 """
+import asyncio
 import time
 from uuid import uuid4
 
@@ -15,7 +16,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from music_backend import db
-from music_backend.sources import SourceUnavailable, jiosaavn, ytmusic
+from music_backend.cache import ListingURLCache
+from music_backend.sources import SourceBlocked, SourceUnavailable, jiosaavn, ytmusic
 
 TEST_URL = "postgresql:///music_test"
 HOUR = 3600
@@ -150,3 +152,242 @@ def test_failed_fresh_fetch_returns_the_error_not_the_old_url(client, youtube):
     play(client, f"/play/ytmusic/{song}")
     source.fail = True
     assert client.get(f"/play/ytmusic/{song}?serve_fresh=true", follow_redirects=False).status_code == 502
+
+
+# ---------- MUS-1 step 2: single-flight (one lookup per listing at a time) ----------
+
+class SlowSource:
+    """A source whose lookup takes 0.2 s, so requests really overlap. Counts calls; fails on demand."""
+
+    def __init__(self, fail=False):
+        self.calls = 0
+        self.fail = fail
+
+    async def get_song_url(self, song_id):
+        self.calls += 1
+        await asyncio.sleep(0.2)
+        if self.fail:
+            raise SourceUnavailable("fake outage")
+        return f"https://audio.example/{song_id}_{self.calls}.m4a"
+
+    def is_expired(self, url):
+        return False
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+@pytest.fixture
+async def pool():
+    pool = db.make_pool(TEST_URL)
+    await pool.open()
+    await db.apply_schema(pool)
+    yield pool
+    await pool.close()
+
+
+@pytest.mark.anyio
+async def test_two_requests_at_once_make_one_lookup(pool):
+    source = SlowSource()
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    song = new_id()
+    first, second = await asyncio.gather(cache("ytmusic", song), cache("ytmusic", song))
+    assert source.calls == 1
+    assert first == second
+    assert cache.running == {}                                  # nothing left behind
+
+
+@pytest.mark.anyio
+async def test_a_failed_lookup_reaches_every_waiter_and_is_not_kept(pool):
+    source = SlowSource(fail=True)
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    song = new_id()
+    results = await asyncio.gather(cache("ytmusic", song), cache("ytmusic", song), return_exceptions=True)
+    assert [type(r) for r in results] == [SourceUnavailable, SourceUnavailable]
+    assert source.calls == 1
+    assert cache.running == {}
+    source.fail = False
+    assert (await cache("ytmusic", song)).startswith("https://")   # the next request tries again
+    assert source.calls == 2
+
+
+@pytest.mark.anyio
+async def test_a_skipped_song_does_not_cancel_the_lookup_for_others(pool):
+    source = SlowSource()
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    song = new_id()
+    first = asyncio.create_task(cache("ytmusic", song))
+    second = asyncio.create_task(cache("ytmusic", song))
+    await asyncio.sleep(0.05)
+    first.cancel()                                              # the first request's song was skipped
+    assert (await second).startswith("https://")               # the other request still gets its URL
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert await cache("ytmusic", song) == await second        # and the lookup filled the cache
+    assert source.calls == 1
+
+
+# ---------- MUS-1 step 2b: back off from a blocked source ----------
+
+class BlockableSource:
+    """A source that answers, or raises the bot check (`blocked`), or a network blip (`blip`). Counts calls."""
+
+    def __init__(self):
+        self.calls, self.blocked, self.blip = 0, False, False
+
+    async def get_song_url(self, song_id):
+        self.calls += 1
+        if self.blocked:
+            raise SourceBlocked("bot check")
+        if self.blip:
+            raise SourceUnavailable("network blip")
+        return f"https://audio.example/{song_id}_{self.calls}.m4a"
+
+    def is_expired(self, url):
+        return False
+
+
+def pause_minutes(cache, source="ytmusic"):
+    return (cache.blocked_until.get(source, 0) - time.time()) / 60
+
+
+@pytest.mark.anyio
+async def test_a_bot_check_pauses_the_whole_source(pool):
+    source = BlockableSource()
+    source.blocked = True
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    with pytest.raises(SourceBlocked):
+        await cache("ytmusic", new_id())
+    with pytest.raises(SourceBlocked) as during:            # ANOTHER song: answered at once, the source not asked
+        await cache("ytmusic", new_id())
+    assert source.calls == 1
+    assert "paused after a bot check" in str(during.value)
+    assert 1.9 < pause_minutes(cache) <= 2.0                 # the first pause: START (2 min)
+
+
+@pytest.mark.anyio
+async def test_refusals_during_a_pause_are_not_new_strikes(pool):
+    source = BlockableSource()
+    source.blocked = True
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    for _ in range(5):
+        with pytest.raises(SourceBlocked):
+            await cache("ytmusic", new_id())
+    assert cache.strikes["ytmusic"] == 1                     # only the one real bot check counts
+    assert 1.9 < pause_minutes(cache) <= 2.0                 # and the pause did not grow
+
+
+@pytest.mark.anyio
+async def test_each_bot_check_in_a_row_doubles_the_pause_up_to_the_max(pool):
+    source = BlockableSource()
+    source.blocked = True
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    pauses = []
+    for _ in range(7):
+        cache.blocked_until["ytmusic"] = 0                   # the pause ran out: the next request asks again
+        with pytest.raises(SourceBlocked):
+            await cache("ytmusic", new_id())
+        pauses.append(round(pause_minutes(cache)))
+    assert pauses == [2, 4, 8, 16, 32, 60, 60]               # START x 2^(strikes - 1), at most MAX
+
+
+@pytest.mark.anyio
+async def test_a_success_resets_the_pause(pool):
+    source = BlockableSource()
+    source.blocked = True
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    for _ in range(3):
+        cache.blocked_until["ytmusic"] = 0
+        with pytest.raises(SourceBlocked):
+            await cache("ytmusic", new_id())
+    cache.blocked_until["ytmusic"] = 0
+    source.blocked = False
+    assert (await cache("ytmusic", new_id())).startswith("https://")
+    assert cache.strikes["ytmusic"] == 0
+    source.blocked = True
+    with pytest.raises(SourceBlocked):
+        await cache("ytmusic", new_id())
+    assert 1.9 < pause_minutes(cache) <= 2.0                 # back to the short pause
+
+
+@pytest.mark.anyio
+async def test_cached_songs_still_play_during_a_pause(pool):
+    source = BlockableSource()
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    song = new_id()
+    url = await cache("ytmusic", song)                       # played once: cached
+    source.blocked = True
+    with pytest.raises(SourceBlocked):
+        await cache("ytmusic", new_id())                     # another song meets the bot check: paused
+    assert await cache("ytmusic", song) == url               # the cached song needs no source: it still plays
+    assert source.calls == 2
+
+
+@pytest.mark.anyio
+async def test_a_network_blip_does_not_pause(pool):
+    source = BlockableSource()
+    source.blip = True
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    with pytest.raises(SourceUnavailable):
+        await cache("ytmusic", new_id())
+    assert "ytmusic" not in cache.blocked_until
+    source.blip = False
+    assert (await cache("ytmusic", new_id())).startswith("https://")   # asked again straight away
+    assert source.calls == 2
+
+
+def test_a_paused_source_answers_502_without_asking_it(client, monkeypatch):
+    calls = []
+    async def bot_check(song_id):
+        calls.append(song_id)
+        raise SourceBlocked("bot check")
+    monkeypatch.setattr(ytmusic, "get_song_url", bot_check)
+    assert client.get(f"/play/ytmusic/{new_id()}", follow_redirects=False).status_code == 502
+    assert client.get(f"/play/ytmusic/{new_id()}", follow_redirects=False).status_code == 502
+    assert client.get(f"/play/ytmusic/{new_id()}?serve_fresh=true", follow_redirects=False).status_code == 502
+    assert len(calls) == 1                                   # the app's serve_fresh retries no longer reach YouTube
+
+
+
+# ---------- hits read, they do not write (7 Oct: every hit wrote the table twice) ----------
+
+@pytest.mark.anyio
+async def test_a_memory_hit_only_marks_its_row_used(pool):
+    cache = ListingURLCache({"ytmusic": SlowSource()}, pool)
+    song = new_id()
+    url = await cache("ytmusic", song)
+    async with pool.connection() as conn:                    # pretend it was last used a day ago
+        await conn.execute("UPDATE listing_urls SET hit_at = now() - interval '1 day' WHERE source_id = %s", [song])
+
+    async def no_store_or_read(*args):
+        raise AssertionError("a memory hit stored or read the table")
+    cache._get_db = cache._set_db = no_store_or_read            # the upsert and the trim live in _set_db
+    assert await cache("ytmusic", song) == url
+    async with pool.connection() as conn:
+        row = await (await conn.execute("SELECT hit_at > now() - interval '1 minute' AS recent FROM listing_urls WHERE source_id = %s", [song])).fetchone()
+    assert row["recent"]                                     # marked used: the trim keeps it
+
+
+@pytest.mark.anyio
+async def test_a_table_hit_fills_memory_and_marks_the_row_used_without_storing_it_again(pool):
+    source, song = SlowSource(), new_id()
+    url = await ListingURLCache({"ytmusic": source}, pool)("ytmusic", song)
+    async with pool.connection() as conn:                    # pretend it was last used a day ago
+        await conn.execute("UPDATE listing_urls SET hit_at = now() - interval '1 day' WHERE source_id = %s", [song])
+
+    fresh = ListingURLCache({"ytmusic": source}, pool)       # a restarted server: memory is empty
+    stored = []
+    real_set_db = fresh._set_db
+
+    async def counting_set_db(*args):
+        stored.append(args)
+        await real_set_db(*args)
+    fresh._set_db = counting_set_db
+    assert await fresh("ytmusic", song) == url
+    assert source.calls == 1 and stored == []                # from the table: no fetch, no second store
+    assert ("ytmusic", song) in fresh.cache                  # and now in memory
+    async with pool.connection() as conn:
+        row = await (await conn.execute("SELECT hit_at > now() - interval '1 minute' AS recent FROM listing_urls WHERE source_id = %s", [song])).fetchone()
+    assert row["recent"]                                     # marked used, so the trim keeps it

@@ -4,6 +4,7 @@ import html
 import httpx
 import pyDes
 
+from music_backend.http_client import SharedClient
 from music_backend.models import Listing
 from music_backend.sources import SongNotFound, SourceUnavailable
 
@@ -14,19 +15,19 @@ REQUEST_TIMEOUT = 2
 URL_DECRYPTION_SECRET = b"38346591"
 
 des_cipher = pyDes.des(URL_DECRYPTION_SECRET, pyDes.ECB, padmode=pyDes.PAD_PKCS5)
+http = SharedClient(timeout = REQUEST_TIMEOUT)   # one connection to JioSaavn, reused by searches and song lookups
 
 async def search(query: str) -> list[Listing]:
     """Search JioSaavn and return a list of listings.
 
     Each listing has: source, id, title, artists, album, duration (seconds), popularity.
     """
-    async with httpx.AsyncClient(timeout = REQUEST_TIMEOUT) as client:
-        r = await client.get(SEARCH_URL, params = SEARCH_PARAMS | PREAMBLE_PARAMS | {"q": query})
-        r = r.json()
-        listings = []
-        for result in r.get("results", []):
-            listings.append(to_listing(result))
-        return listings
+    r = await http.client.get(SEARCH_URL, params = SEARCH_PARAMS | PREAMBLE_PARAMS | {"q": query})
+    r = r.json()
+    listings = []
+    for result in r.get("results", []):
+        listings.append(to_listing(result))
+    return listings
 
 
 def to_listing(result: dict) -> Listing:
@@ -50,9 +51,8 @@ def to_listing(result: dict) -> Listing:
 async def get_song_url(song_id: str, kbps : str = "320") -> str:
     """Direct audio URL for a JioSaavn song id (320 kbps AAC by default)."""
     try:
-        async with httpx.AsyncClient(timeout = REQUEST_TIMEOUT) as client:
-            r = await client.get(SEARCH_URL, params = {"__call" : "song.getDetails", "pids" : song_id} | PREAMBLE_PARAMS)
-            r = r.json()
+        r = await http.client.get(SEARCH_URL, params = {"__call" : "song.getDetails", "pids" : song_id} | PREAMBLE_PARAMS)
+        r = r.json()
     except httpx.HTTPError as e:
         raise SourceUnavailable(f"JioSaavn: {e!r}") from e
     # a real id gives {"songs": [...]}; a made-up one gives {"status": ..., "msg": ...} with no "songs"

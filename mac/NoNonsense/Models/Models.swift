@@ -77,6 +77,40 @@ nonisolated struct SongRef: Codable, Sendable {
     enum CodingKeys: String, CodingKey { case songID = "song_id" }
 }
 
+// ---- lyrics (MUS-12): what POST /lyrics answers ----
+
+nonisolated struct LyricLine: Codable, Hashable, Sendable {
+    let startMs: Int?            // nil: plain lyrics, no times. A line lasts until the next one starts
+    let text: String             // "" is a gap (an instrumental break): nothing is being sung
+
+    enum CodingKeys: String, CodingKey { case startMs = "start_ms", text }
+}
+
+nonisolated struct Lyrics: Codable, Hashable, Sendable {
+    let lyricsSource: String?    // "lrclib" | "ytmusic"; nil: nobody had lyrics (lines is empty)
+    let synced: Bool
+    let lines: [LyricLine]
+
+    enum CodingKeys: String, CodingKey { case lyricsSource = "lyrics_source", synced, lines }
+
+    /// The line being sung at `seconds`: the last one that has started. nil before the first line, or when
+    /// the lyrics are not timed. Lines come sorted by time from the server.
+    func line(at seconds: Double) -> Int? {
+        guard synced else { return nil }
+        let ms = Int(seconds * 1000)
+        var low = 0, high = lines.count                  // binary search: the first line that starts after `ms`
+        while low < high {
+            let mid = (low + high) / 2
+            if (lines[mid].startMs ?? 0) <= ms { low = mid + 1 } else { high = mid }
+        }
+        return low == 0 ? nil : low - 1
+    }
+
+    var sourceName: String? {
+        switch lyricsSource { case "lrclib": "LRCLIB"; case "ytmusic": "YouTube Music"; default: nil }
+    }
+}
+
 // ---- playlists (MUS-2). Server names in brackets: these decode exactly what the backend sends ----
 
 /// One playlist without its songs: the sidebar, the list, the header [PlaylistMetadata].

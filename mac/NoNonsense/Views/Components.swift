@@ -46,7 +46,7 @@ struct Backdrop: View {
     let track: Track?
     var strength: Double = 1
     var base: AnyShapeStyle? = nil
-    @AppStorage("animateBackdrop") private var animate = true
+    @AppStorage("animateBackdrop") private var animate = Look.animateBackdrop
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.controlActiveState) private var windowState      // .inactive when another app is in front
     @Environment(\.colorScheme) private var scheme
@@ -78,7 +78,8 @@ struct Backdrop: View {
             if let base { Rectangle().fill(base) }
             if let mesh {
                 // 30 frames a second is plenty for a drift that takes ~30 s per cycle (the screen may run at 120)
-                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { context in
+                // 10 a second: a step moves a colour ~3 pt; each frame costs ~0.5% of a core (measured 7 Oct)
+                TimelineView(DriftSchedule(interval: 1.0 / 10, paused: !moving)) { context in
                     MeshGradient(width: 3, height: 3,
                                  points: Self.points(at: moving ? context.date.timeIntervalSinceReferenceDate : 0),
                                  colors: mesh.colors.map { $0.mix(with: scheme == .dark ? .black : .white, by: 0.3 * (1 - strength)) })
@@ -122,6 +123,48 @@ struct Backdrop: View {
             SIMD2(1, 0.5 + wave(0.15, 3.7, 0.14)),
             SIMD2(0, 1), SIMD2(0.5 + wave(0.18, 4.4, 0.14), 1), SIMD2(1, 1),
         ]
+    }
+}
+
+/// The backdrop in its own small SwiftUI host. Inside the window's own view tree, every frame of the moving mesh
+/// made SwiftUI rebuild the whole window (every list row, every lyric line) and lay out the player bar again:
+/// Now Playing with Lyrics took 30% of a core (profiled 7 Oct). In its own host, a frame redraws only the mesh.
+struct IsolatedBackdrop: NSViewRepresentable {
+    let track: Track?
+    var strength: Double
+    @Environment(Player.self) private var player
+    @Environment(ThemeStore.self) private var theme
+
+    final class Host: NSHostingView<AnyView> {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }     // a background: clicks go to what is on top
+    }
+
+    func makeNSView(context: Context) -> Host {
+        let host = Host(rootView: content)
+        host.sizingOptions = []                                         // takes the frame it is given; asks for none
+        return host
+    }
+
+    func updateNSView(_ host: Host, context: Context) { host.rootView = content }
+
+    private var content: AnyView {
+        AnyView(Backdrop(track: track, strength: strength).environment(player).environment(theme))
+    }
+}
+
+/// A frame every `interval` seconds from a plain timer, or none while paused. `.animation(minimumInterval:)` kept
+/// a display link running at the screen's full rate even when it drew 10 frames a second (testing 7 Oct).
+struct DriftSchedule: TimelineSchedule {
+    let interval: TimeInterval
+    let paused: Bool
+
+    func entries(from start: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
+        var next: Date? = start
+        let paused = paused || mode == .lowFrequency            // also still when the system asks for fewer updates
+        return AnyIterator {
+            defer { next = paused ? nil : next?.addingTimeInterval(interval) }
+            return next
+        }
     }
 }
 
@@ -185,14 +228,16 @@ struct ProgressBar: View {
 
 /// The see-through window background: the desktop behind the window shows through, blurred. AppKit's
 /// behind-window blur, the mechanism Finder's sidebar uses. macOS makes it opaque when Reduce Transparency is on.
+/// `.withinWindow` blurs the app's own content under the view instead (the player bar over a list).
 struct WindowBlur: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .underWindowBackground
     var amount: Double = 1                     // 0 = no blur (the desktop shows sharp), 1 = fully frosted
+    var blending: NSVisualEffectView.BlendingMode = .behindWindow   // sample what is behind the window, not what is inside it
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
-        view.blendingMode = .behindWindow      // sample what is behind the window, not what is inside it
+        view.blendingMode = blending
         view.state = .active                   // stay see-through when the window is not in front
         view.alphaValue = amount
         return view
@@ -200,7 +245,36 @@ struct WindowBlur: NSViewRepresentable {
 
     func updateNSView(_ view: NSVisualEffectView, context: Context) {
         view.material = material
+        view.blendingMode = blending
         view.alphaValue = amount
+    }
+}
+
+/// One surface's background (Settings › Appearance › Surfaces): a blur, and over it the window's own colour.
+/// Both at 0 draw nothing at all, so a surface left at 0 / 0 looks exactly as it did before the setting existed.
+struct SurfaceLayer: View {
+    var blur: Double                           // 0 = clear, 1 = fully frosted
+    var solid: Double                          // 0 = see-through, 1 = the window's colour, opaque
+    var blending: NSVisualEffectView.BlendingMode = .withinWindow
+
+    var body: some View {
+        ZStack {
+            if blur > 0.001 { WindowBlur(amount: blur, blending: blending) }
+            if solid > 0.001 { Color(nsColor: .windowBackgroundColor).opacity(solid) }
+        }
+    }
+}
+
+extension View {
+    /// Debug builds: records where this view is, in window points, under `name` (SelfTest.frames). Self-tests
+    /// measure layout with it: pictures cannot draw lists or glass, and SwiftUI shows an in-app accessibility
+    /// walk nothing (6 Oct). Release builds: nothing.
+    func selfTestFrame(_ name: String) -> some View {
+        #if DEBUG
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { SelfTest.frames[name] = $0 }
+        #else
+        self
+        #endif
     }
 }
 
@@ -221,6 +295,7 @@ struct ClearWindow: NSViewRepresentable {
 /// Mute button and slider. The speaker's waves follow the level (an SF Symbols "variable value").
 struct VolumeControl: View {
     var width: CGFloat = 84
+    var slider = true                          // false: the speaker alone (a narrow player bar)
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
     @AppStorage("haptics") private var haptics = true
@@ -238,6 +313,7 @@ struct VolumeControl: View {
             .help(player.isMuted ? "Unmute" : "Mute")
             .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
 
+            if slider {
             Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }), in: 0...1)
                 .controlSize(.small)
                 .tint(theme.color(.volume))                    // Settings › Colours › Volume
@@ -245,6 +321,7 @@ struct VolumeControl: View {
                 .sensoryFeedback(.levelChange, trigger: Int((player.volume * 10).rounded())) { _, _ in haptics }   // a tick every 10%
                 .help("Volume (⌘↑ / ⌘↓)")
                 .accessibilityLabel("Volume")
+            }
         }
     }
 }

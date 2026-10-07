@@ -92,3 +92,26 @@ class PlaylistItems(PlaylistMetadata):
 class PlaylistItemRef(BaseModel):
     item_id : UUID
     song_id : UUID
+
+class PrefetchListing(BaseModel):
+    source: SourceName
+    source_id : str
+
+class PrefetchRequest(BaseModel):
+    # the app sends 5 to 10; the maximum stops one request from queueing thousands of lookups
+    listings : list[PrefetchListing] = Field(min_length = 1, max_length = 50)
+
+class LyricsRequest(BaseModel):
+    song_name : str
+    artist_name : str                       # LRCLIB answers 400 without one
+    song_duration : int                     # seconds
+    youtube_id : str | None = None          # the song's ytmusic listing, if any (even when JioSaavn's copy plays)
+
+class LyricLine(BaseModel):
+    start_ms : int | None                   # None: plain lyrics, no times. A line ends where the next one starts
+    text : str
+
+class LyricsResponse(BaseModel):
+    lyrics_source : Literal["lrclib", "ytmusic"] | None   # None: nobody had lyrics (lines is [])
+    synced : bool
+    lines : list[LyricLine]

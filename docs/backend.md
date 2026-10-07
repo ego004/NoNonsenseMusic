@@ -33,10 +33,13 @@ Files, in the order a request touches them:
 | `SOURCES` | `{"jiosaavn": jiosaavn, "ytmusic": ytmusic}` | Every source module, by its ID. |
 | (assert) | `set(SOURCES) == SourceName` | The server refuses to start if this table and `SourceName` disagree. |
 
+### Logging
+- INFO for libraries, DEBUG for our own logger. **httpx at WARNING**: it logged a line for every request it sent. **`/health` left out of the access log** (`_NoHealthChecks`): the app asks it while waiting for the server to start; it was 1,141 of 2,178 log lines (7 Oct, mostly self-tests, which now log to their own file).
+
 ### `lifespan(app)`
 - **Does:** startup and shutdown work.
 - **Returns:** nothing. It is a context manager: code before `yield` runs at startup; code after `yield` runs at shutdown.
-- **How:** makes the pool (`db.make_pool`), opens it, creates missing tables (`db.apply_schema`), stores the pool in `app.state.pool`. At shutdown: closes the pool.
+- **How:** makes the pool (`db.make_pool`), opens it, creates missing tables (`db.apply_schema`), stores the pool in `app.state.pool`, makes the URL cache and starts the prefetch workers. At shutdown, in this order: cancels the workers and the lookups still running, closes the sources' kept connections (`source.http.close()`) and LRCLIB's (`lyrics.http`), closes the pool.
 - **Called by:** FastAPI, once.
 
 ### `root()` — `GET /`
@@ -91,6 +94,16 @@ Files, in the order a request touches them:
 
 ---
 
+### `prefetch_urls(body, request)` — `POST /prefetch`
+- **Body:** `{"listings": [{"source": "ytmusic", "source_id": "J7p4bzqLvCw"}, …]}`, 1 to 50 (`PrefetchRequest`).
+- **Returns:** 202 at once. The listings are looked up in the background by the prefetch workers; a newer list replaces whatever still waits (lookups already running finish).
+- **Called by:** the app's `Prefetcher`: the next 5 of the playing queue, then the top 5 of the search on screen.
+
+### `get_lyrics(body)` — `POST /lyrics`
+- **Body:** `{"song_name": "Les", "artist_name": "Childish Gambino", "song_duration": 317, "youtube_id": "…"}` (`LyricsRequest`). `youtube_id`: the song's `ytmusic` listing, if it has one, even when JioSaavn's copy plays; may be left out.
+- **Returns:** always 200, `LyricsResponse`: `{"lyrics_source": "lrclib" | "ytmusic" | null, "synced": bool, "lines": [{"start_ms": 19120 | null, "text": "…"}]}`. Nothing found, or an instrumental: `lines: []`. A line ends where the next begins.
+- **How:** `app.state.lyrics_cache` (`LyricsCache`, in cache.py), which asks `lyrics.find_lyrics` only when the `lyrics` table has no good answer. Measured 6 Oct: not stored yet, 0.7 s (LRCLIB) to 2.0 s (YouTube); stored, 3–4 ms.
+
 ### Playlists (MUS-2) — `/playlists`
 
 Every id is a UUID: a malformed one is 422 (FastAPI), an unknown one is 404 (ours).
@@ -129,6 +142,31 @@ Every id is a UUID: a malformed one is 422 (FastAPI), an unknown one is 404 (our
 
 ---
 
+## lyrics.py (MUS-12)
+
+`LYRICS_SOURCES = {"lrclib": …, "ytmusic": …}`: the lyrics sources, in the order they are asked. Each takes the whole `LyricsRequest`, returns a `LyricsResponse`, and raises `LyricsNotFound` when it has nothing. A new source is one more entry.
+
+### `find_lyrics(song)` → `(reply, every_source_answered)`
+- **Does:** asks each source in turn. Timed lyrics end the search at once. Plain lyrics are kept (the first), in case a later source has timed ones. An answer with no lines (LRCLIB's "instrumental") does not stop the search: another source may have words (an instrumental now takes ~1.8 s instead of ~0.7 s, measured 6 Oct). A source that raises is skipped (logged); nobody having lyrics is an empty reply. Never raises for a source's sake; a cancelled request still stops (`except Exception` does not catch `CancelledError`). `every_source_answered` is False when a source raised something other than `LyricsNotFound`: it might have had better, so the cache keeps a reply that is not timed only when this is True.
+
+### `get_lyrics_lrclib(song)`
+- `GET https://lrclib.net/api/get` through its own `SharedClient` (`http`, 3 s, a User-Agent naming the app; the lifespan closes it). 404 and 503 both mean "not here": the same kind of miss answered 503 one time and 404 the next (measured 6 Oct). Any other non-200 raises (`raise_for_status`). `syncedLyrics` → timed lines (`parse_lrc`); else `plainLyrics` → plain lines; both `None` → an instrumental.
+
+### `get_lyrics_ytmusic(song)` and `youtube_lyrics(video_id)`
+- Needs `youtube_id`. ytmusicapi blocks (it uses `requests`), so `youtube_lyrics` runs in a thread (`asyncio.to_thread`): `get_watch_playlist(videoId)["lyrics"]` (a browseId, or `None`: no lyrics), then `get_lyrics(browseId, timestamps=True)`; on `KeyError: 'cueRange'` (ytmusicapi issue #1002) it asks again untimed. Timed: `LyricLine` objects (ms); untimed: one string, split into lines.
+- `yt = YTMusic()` at import makes no web request (measured). Its own request timeout is 30 s.
+
+### `parse_lrc(text)` and `plain_lines(text)`
+- LRC to timed lines in time order: a line with two stamps becomes two lines, tag lines (`[ar: …]`) are skipped, a stamp with no words is kept as `""` (a gap). Plain text to lines with `start_ms: None`; blank lines stay (verse gaps).
+
+## http_client.py
+
+### `SharedClient(**options)`
+- **Does:** one `httpx.AsyncClient` per outside service, kept for the server's life. `options` go to the client as they are (`timeout`, `headers`, …).
+- **Use:** `http = SharedClient(timeout=2)` once at module level, then `await http.client.get(url)`. `await http.close()` at shutdown.
+- **Why:** a new client per request opens a new connection each time (a TCP handshake, then a TLS handshake) and throws it away. A kept client reuses its open connection. Measured 6 Oct, medians of 5 searches: YouTube Music 599 ms → 463 ms, JioSaavn 283 ms → 193 ms. Tested offline: 5 requests through one `SharedClient` open 1 connection; 5 through new clients open 5.
+- **How:** the client is made on first use, not at import (an `AsyncClient` belongs to the event loop it first runs in, and there is none at import); a closed one is replaced, so tests can start and stop the server many times.
+
 ## sources/__init__.py
 
 Every source module offers the same two functions, and reports failures with the same two errors:
@@ -139,6 +177,8 @@ Every source module offers the same two functions, and reports failures with the
 | `get_song_url(song_id) -> str` | The audio URL for one listing. | — |
 | `SongNotFound` | No playable song with this ID. | HTTP 404 |
 | `SourceUnavailable` | The source could not be reached or was too slow. | HTTP 502 |
+
+Each source module also has `http`, its `SharedClient` (above); the lifespan closes it at shutdown.
 
 ---
 
@@ -255,7 +295,7 @@ Every source module offers the same two functions, and reports failures with the
 ## library.py
 
 ### `resolve_song(conn, listings)`
-- **Does:** finds the stored song these listings are copies of, or creates it.
+- **Does:** finds the stored song these listings are copies of, or creates it. The listings that are the same recording are stored in one round trip (`executemany`, 7 Oct), not one per listing.
 - **Returns:** the song's ID (UUID).
 - **How** (all inside one transaction):
   1. Is any of these listings already in `listings`? Then that song. (Exact identity. Safe to check all of them.)
@@ -285,7 +325,7 @@ Every source module offers the same two functions, and reports failures with the
 ### Playlists (MUS-2)
 - **Positions:** `fractional-indexing` keys in `position text COLLATE "C"` (`a0`, `a1`, `a0V` between them, `Zz` before `a0`). A new playlist or song goes after the largest key so far. A move computes one key between the new neighbours, so one row changes.
 - `create_playlist(conn, name)` → the new id. A taken name raises `UniqueViolation`.
-- `get_playlists(conn)` → every `PlaylistMetadata`, in your order: one query for the list, then `_totals` per playlist (1 + N queries).
+- `get_playlists(conn)` → every `PlaylistMetadata`, in your order, with counts and durations: **one query** (`LEFT JOIN` + `GROUP BY`; an empty playlist gets 0 and 0). It was one query plus `_totals` per playlist (1 + N), 7 Oct.
 - `_totals(conn, playlist_id)` → `{"song_count", "duration"}`. `COALESCE`: an empty playlist's `SUM` is `NULL`.
 - `get_playlist_metadata(conn, playlist_id)` → one `PlaylistMetadata`, or `None` (the 404).
 - `get_playlist_items(conn, playlist_id)` → the `PlaylistItem`s in order: one row per item (a song added twice is two items), `ORDER BY position, id` (the UUIDv7 id breaks ties), songs built by `_with_listings`.
@@ -302,7 +342,7 @@ Every source module offers the same two functions, and reports failures with the
 
 ### `make_pool(url)`
 - **Returns:** a connection pool (not opened yet).
-- **How:** every connection it opens returns rows as dicts (`row_factory = dict_row`), so code reads `row["title"]`, not `row[0]`.
+- **How:** every connection it opens returns rows as dicts (`row_factory = dict_row`), so code reads `row["title"]`, not `row[0]`. Sizes (7 Oct): 1 connection kept open, up to 8 under load (4 prefetch workers and requests), extras closed after 60 s idle. psycopg's default kept 4 open all the time: 4 Postgres processes, 7–11 MB each.
 
 ### `apply_schema(pool)`
 - **How:** borrows one connection and runs `schema.sql`. Every statement is `IF NOT EXISTS`, so this is safe on every start.
@@ -321,7 +361,7 @@ Every source module offers the same two functions, and reports failures with the
 | `jiosaavn_cache_expiry_threshold` | `int \| None` | `None` | `None`: JioSaavn URLs carry no expiry |
 | `cache_max_size_in_memory` | `int` | `3000` | Entries in the audio-URL cache before the least recently used is dropped |
 | `cache_max_size_in_db` | `int` | `6000` | Rows in `listing_urls`. After each write, the oldest-fetched rows beyond this are deleted (~1 ms, measured 5 Oct 2026) |
-| `jiosaavn_des_key` | `str \| None` | `None` | Not used yet: `jiosaavn.py` still has its own copy |
+| `lyrics_recheck_days` | `float` | `7` | **Days.** Plain or empty lyrics are asked for again after this long; timed lyrics are kept for good |
 
 **Rules (each checked 5 Oct 2026):**
 - A variable set in the real environment **wins** over `.env` (`DATABASE_URL=… uv run …`).
@@ -341,11 +381,40 @@ Every source module offers the same two functions, and reports failures with the
 | Method | Does |
 |---|---|
 | `__call__` | The rule: unless `serve_fresh`, `get`. Nothing good? Fetch from the source, then `set`. Returns the URL. A source error passes through, so failures are never stored |
-| `get` | Memory, then the table. Returns `None` if missing or expired (`is_expired` of that source). A good URL goes through `set` (memory hit or table hit alike), which marks it used in both levels and keeps both limits |
-| `set` | Memory (store, `move_to_end`, trim), then `_set_db`. Used after a fetch and on every hit |
+| `get` | Memory, then the table. Returns `None` if missing or expired (`is_expired` of that source). Any hit marks its row used (`_db_hit`: one `UPDATE` of `hit_at`), so the trim drops the least recently used; a table hit also copies the URL into memory (`_remember`). No trim on a hit: a hit adds no row |
+| `set` | After a real fetch: `_remember`, then `_set_db` (the upsert and the trim: the table grows only here) |
+| `_remember` | Memory: store as the most recently used, drop the least recently used past the limit |
+| `_db_hit` | Table: `hit_at = now()` for one row |
 | `_cache_hit` | Memory: `move_to_end`, and drop the oldest if over the limit |
 | `_get_db` | Table: the URL for `(source, source_id)`, or `None` |
 | `_set_db` | Table: one upsert (`fetched_at` changes only if the URL changed; `hit_at = now()`), then a trim to the newest `cache_max_size_in_db` by `hit_at`. One block, one commit |
 
-**Checked 5 Oct 2026:** a memory hit keeps `fetched_at` and moves `hit_at`; a fresh fetch with a new URL moves `fetched_at`, with the same URL (JioSaavn) it does not; with a limit of 3, storing P Q R, replaying P, then adding S leaves R P S (Q, the least recently used, goes). With every hit going through `set`: memory stays at its limit after a restart (5 table hits, limit 3 → 3), and a memory hit costs 0.83 ms with 6,000 rows in the table (the upsert + trim). `DELETE` + `INSERT` instead of the upsert crashed with `UniqueViolation` when two requests wrote one listing at once.
+**Changed 7 Oct:** every hit, even from memory, went through `set`, so each wrote the table twice (an upsert and the trim's `DELETE … ORDER BY hit_at OFFSET`): 300 hits sent 600 statements (median 0.345 ms each), on every `/play` and every prefetch check of a cached listing. Now a hit sends one statement, the `hit_at` update (300 hits: 300 statements, median 0.124 ms), and the trim runs only when a new URL is stored, the only time the table can grow. Your rule is kept: `hit_at` is the last use, memory hits included. As before, a memory hit waits for Postgres (for that one update). Two tests guard it: a memory hit only marks its row; a table hit fills memory and marks its row without storing it again.
 
+**Checked 5 Oct 2026 (before that change):** a memory hit keeps `fetched_at` and moves `hit_at`; a fresh fetch with a new URL moves `fetched_at`, with the same URL (JioSaavn) it does not; with a limit of 3, storing P Q R, replaying P, then adding S leaves R P S (Q, the least recently used, goes). With every hit going through `set`: memory stays at its limit after a restart (5 table hits, limit 3 → 3), and a memory hit costs 0.83 ms with 6,000 rows in the table (the upsert + trim). `DELETE` + `INSERT` instead of the upsert crashed with `UniqueViolation` when two requests wrote one listing at once.
+
+### Single-flight (MUS-1 step 2)
+- `_start_lookup(source, id)`: the lookup already running for a listing (in `running`), or a new one started as a task and registered at once. `__call__` and the prefetch workers both use it, so one listing is never looked up twice at the same moment. Requests wait behind `asyncio.shield`: a cancelled request (a skipped song) ends only its own wait.
+- `_lookup(source, id)`: the lookup itself; its `finally` removes it from `running`, worked or failed, so failures are never kept.
+
+### Backoff (MUS-1 step 2b)
+- `blocked_until[source]`, `strikes[source]`: per source, because a bot check blocks the IP, not one song.
+- `_refuse_if_paused(source)`: during a pause, raise `SourceBlocked(until=…)` before asking the source (not a strike).
+- `_strike(source)`: a bot check from the source: pause `backoff_start_minutes × 2^(strikes − 1)`, at most `backoff_max_minutes`; a lookup that works resets the strikes.
+
+### Prefetch (MUS-1 step 3)
+- `prefetch(listings)`: empties `prefetch_queue` and puts the new list in (no waiting).
+- `prefetch_worker()`: `num_prefetch_workers` of them, started in `lifespan` and cancelled at shutdown (before the pool closes, with any lookups still running). Forever: take a listing; skip it if running or cached; else look it up. Expected failures (a gone song, a blip, a pause) log one line; anything else logs a traceback; the worker always carries on.
+
+### `LyricsCache(pool)`
+- **Does:** keeps lyrics replies in the `lyrics` table, one row per song as the app asks for it: `(song_name, artist_name, song_duration, youtube_id or '')`. With and without a YouTube copy are two rows (the answers can differ).
+- **Use:** `reply = await lyrics_cache(song)`. The lifespan builds one: `app.state.lyrics_cache`; its running lookups are cancelled at shutdown with the URL cache's.
+- **Called by:** `POST /lyrics`.
+- **Why not `ListingURLCache` renamed:** lyrics are per song, not per listing; timed lyrics never go stale; one table read is 3–4 ms, so no memory level; no backoff, no workers. Only single-flight is shared.
+
+| Rule | Why |
+|---|---|
+| Timed: kept for good | lyrics do not change |
+| Plain or empty: kept for `lyrics_recheck_days` (7), then asked again | a source may add them, or add timings |
+| A source failed and the reply is not timed: not kept | that source might have had timed lyrics; the next request asks again |
+| Two requests for one song at once: one lookup (`running`, `shield`) | the app may fetch when a song starts and when Lyrics opens; a request that gives up does not cancel the other's |

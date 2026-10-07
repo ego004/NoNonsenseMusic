@@ -2,13 +2,13 @@ import asyncio
 import logging
 import re
 
-import httpx
 import time
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
 from music_backend.settings import settings
 from music_backend.models import Listing
-from music_backend.sources import SongNotFound, SourceUnavailable
+from music_backend.http_client import SharedClient
+from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable
 
 SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"
 WATCH_URL = "https://music.youtube.com/watch?v="
@@ -23,23 +23,23 @@ PLAYS_MULTIPLIER = {"K" : 1_000, "M" : 1_000_000, "B" : 1_000_000_000}
 REQUEST_TIMEOUT = 2
 
 logger = logging.getLogger(__name__)
+http = SharedClient(timeout = REQUEST_TIMEOUT)   # one connection to YouTube Music, reused by every search
 
 async def search(query: str) -> list[Listing]:
     """Search YouTube Music (songs only) and return a list of listings."""
     body = {"context" : {"client" : CLIENT}, "query" : query, "params" : SONGS_ONLY}
-    async with httpx.AsyncClient(timeout = REQUEST_TIMEOUT) as client:
-        # added the timeout, but i wanna see 2 things... 1. when it times out what gets passed up? i suppose an error class which is converted to json..
-        # 2. if it is jsoon, can it be caught by try except?
-        r = await client.post(SEARCH_URL, params = {"prettyPrint" : "false"}, json = body)
-        r = r.json()
-        listings = []
-        for item in song_rows(r):
-            # one odd row (seen once: no playlistItemData) must not throw away the other 19
-            try:
-                listings.append(to_listing(item))
-            except (KeyError, IndexError, ValueError) as e:
-                logger.warning("skipped a YouTube Music row for %r: %r", query, e)
-        return listings
+    # added the timeout, but i wanna see 2 things... 1. when it times out what gets passed up? i suppose an error class which is converted to json..
+    # 2. if it is jsoon, can it be caught by try except?
+    r = await http.client.post(SEARCH_URL, params = {"prettyPrint" : "false"}, json = body)
+    r = r.json()
+    listings = []
+    for item in song_rows(r):
+        # one odd row (seen once: no playlistItemData) must not throw away the other 19
+        try:
+            listings.append(to_listing(item))
+        except (KeyError, IndexError, ValueError) as e:
+            logger.warning("skipped a YouTube Music row for %r: %r", query, e)
+    return listings
 
 
 def song_rows(response: dict) -> list[dict]:
@@ -166,7 +166,7 @@ def extract_audio_url(song_id: str) -> str:
         # is fine: the source is what's unavailable. yt-dlp has no separate error type for it, so the message
         # is the only signal. Checked first, so it never becomes a 404 (seen 5 Oct 2026).
         if "not a bot" in str(e):
-            raise SourceUnavailable("YouTube Music: bot check on this IP") from e
+            raise SourceBlocked("YouTube Music: bot check on this IP") from e
         if isinstance(inner, ExtractorError) and inner.expected:
             raise SongNotFound(song_id) from e
         raise SourceUnavailable(f"YouTube Music: {e}") from e

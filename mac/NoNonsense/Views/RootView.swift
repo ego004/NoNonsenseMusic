@@ -6,6 +6,8 @@ struct RootView: View {
     @Environment(Player.self) private var player
     @Environment(LibraryStore.self) private var library
     @Environment(ServerLauncher.self) private var server
+    @Environment(LyricsStore.self) private var lyrics
+    @AppStorage("lyricsFetch") private var lyricsFetch = LyricsFetch.songStart     // Settings › Lyrics
     @State private var selection: Destination? = .section(.home)
     @AppStorage("windowOpacity") private var windowOpacity = Look.windowOpacity   // 0 = see-through, 1 = solid
     @AppStorage("artStrength") private var artStrength = Look.artStrength         // how strongly the cover colours the window
@@ -28,10 +30,11 @@ struct RootView: View {
                     case .section(.search): SearchView()
                     case .section(.liked): SongListView(item: .liked)
                     case .section(.recent): SongListView(item: .recent)
+                    case .section(.downloads): SongListView(item: .downloads)
                     case .playlist(let id): PlaylistView(id: id).id(id)
                     }
                 }
-                .safeAreaPadding(.bottom, player.current == nil ? 0 : 88)   // lists scroll clear of the bar
+                .safeAreaPadding(.bottom, player.current == nil ? 0 : 100)  // lists scroll clear of the bar (72 pt + its 18 pt margin)
 
                 // One glass container: shapes closer than `spacing` blend like liquid, so the message
                 // grows out of the player bar and sinks back into it.
@@ -76,7 +79,7 @@ struct RootView: View {
                     // never how see-through the window is (stacked layers made it nearly opaque before, 5 Oct).
                     ZStack {
                         Color(nsColor: .windowBackgroundColor)
-                        Backdrop(track: player.current, strength: artStrength)
+                        IsolatedBackdrop(track: player.current, strength: artStrength)
                     }
                     .opacity(max(windowOpacity, Look.minWindowOpacity))   // a value saved before the floor existed may be lower
                 }
@@ -125,6 +128,13 @@ struct RootView: View {
         .task {
             await server.ensureRunning()     // starts the backend if nothing answers (Services/ServerLauncher.swift)
             await library.refresh()
+        }
+        // Settings › Lyrics › when a song starts: this song's lyrics, and the next one's, so Lyrics opens ready.
+        // Each song is asked for once (LyricsStore); the id also changes when Up Next is reordered
+        .task(id: [player.current?.id, player.upNext.first?.id, lyricsFetch.rawValue]) {
+            guard lyricsFetch == .songStart, let current = player.current else { return }
+            lyrics.fetch(current)
+            if let next = player.upNext.first { lyrics.fetch(next) }
         }
     }
 }
