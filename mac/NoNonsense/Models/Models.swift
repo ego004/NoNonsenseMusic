@@ -215,8 +215,13 @@ struct Track: Identifiable, Hashable {
     /// version here turned a click on the clean copy into the explicit one (audit, 7 Oct).
     func playing(_ listing: Listing) -> Track { Track(best: listing, listings: listings, choosingVersion: false) }
 
-    /// Same song, whichever copy plays: the same set of listings.
-    func isSameSong(as other: Track) -> Bool { Set(listings.map(\.key)) == Set(other.listings.map(\.key)) }
+    /// Same song, whichever copy plays: the same set of listings. Every visible row asks this on every change of the
+    /// queue, so the usual answers come first: the same copy (one listing belongs to one song), or a different count.
+    func isSameSong(as other: Track) -> Bool {
+        if id == other.id { return true }
+        guard listings.count == other.listings.count else { return false }
+        return Set(listings.map(\.key)) == Set(other.listings.map(\.key))
+    }
 
     static func == (a: Track, b: Track) -> Bool { a.id == b.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }

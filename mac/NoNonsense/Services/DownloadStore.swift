@@ -48,8 +48,9 @@ final class DownloadStore {
 
     /// The downloaded item for this song, if any of its copies is downloaded.
     func item(for track: Track) -> Item? {
-        let keys = Set(track.listings.map(\.key)).union([track.best.key])
-        return items.first { keys.contains($0.key) }
+        // every row asks (twice), so no set is built: `listings` holds `best` too, and there are few downloads
+        guard !items.isEmpty else { return nil }
+        return items.first { item in track.listings.contains { $0.key == item.key } }
     }
 
     func isDownloaded(_ track: Track) -> Bool { item(for: track) != nil }

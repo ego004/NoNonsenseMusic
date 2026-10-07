@@ -5,16 +5,12 @@ struct ArtworkView: View {
     let url: URL?
     var size: CGFloat
     var radius: CGFloat = 8
-    /// Asked when a new cover is ready: false swaps it at once (the bar's cover while Now Playing covers it: a fade
-    /// nobody sees still made Now Playing's blur re-blur the whole window on every frame of it)
-    var fades: () -> Bool = { true }
     @State private var image: NSImage?
 
-    init(url: URL?, size: CGFloat, radius: CGFloat = 8, fades: @escaping () -> Bool = { true }) {
+    init(url: URL?, size: CGFloat, radius: CGFloat = 8) {
         self.url = url
         self.size = size
         self.radius = radius
-        self.fades = fades
         // a cover already in the cache shows at once: no empty square fading in every time a screen reappears
         _image = State(initialValue: url.flatMap { ArtworkCache.shared.cached($0, size: size) })
     }
@@ -40,7 +36,10 @@ struct ArtworkView: View {
             if next == nil { next = await ArtworkCache.shared.image(for: url, size: size) }
             // cancelled: the url changed while this one loaded (⏭ twice quickly); the newer task shows its own
             guard let ready = next, !Task.isCancelled else { return }
-            withAnimation(fades() ? .easeInOut(duration: 0.28) : nil) { image = ready }
+            // already showing it (it was in the cache when this view was made): setting it again redrew the cover with
+            // an animation, for every row and tile scrolled into view
+            guard ready !== image else { return }
+            withAnimation(.easeInOut(duration: 0.28)) { image = ready }
         }
     }
 }
@@ -48,6 +47,8 @@ struct ArtworkView: View {
 /// The playing song's colour: its cover shrunk to 3×3 pixels, drawn as a mesh gradient whose inner points drift
 /// slowly, like Apple Music's animated backgrounds. A new song's mesh crossfades over the old one.
 /// `strength` scales it; `base` adds a material underneath (Now Playing). Still when Reduce Motion is on.
+/// Still (Moving background off, the default), the mesh is drawn once per song into a small picture and Core Animation
+/// crossfades the pictures: as a SwiftUI crossfade the app redrew the whole mesh on every frame for 1.1 s per song.
 struct Backdrop: View {
     let track: Track?
     var strength: Double = 1
@@ -62,6 +63,10 @@ struct Backdrop: View {
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
     @State private var mesh: (key: String, colors: [Color])?
+    @State private var picture: (image: CGImage?, fade: Double) = (nil, 0)   // the still mesh, and its change's fade
+    @State private var pictureFade = 0.0                                      // the next new mesh's fade (0: at once)
+    @State private var pictureKey: String?                                     // the mesh the picture shows
+    @State private var pictureFailed = false                                   // drawn empty: the mesh as before
 
     /// What the mesh is made from (Settings › Colours › Background): nothing, the playing cover, or your colour.
     private var source: String {
@@ -85,7 +90,9 @@ struct Backdrop: View {
     var body: some View {
         ZStack {
             if let base { Rectangle().fill(base) }
-            if let mesh {
+            if !animate && !pictureFailed {
+                StillPicture(image: picture.image, fade: picture.fade)
+            } else if let mesh {
                 // 10 frames a second is plenty for a drift that takes ~30 s per cycle (the screen may run at 120):
                 // a step moves a colour ~3 pt; each frame costs ~0.5% of a core (measured 7 Oct)
                 TimelineView(DriftSchedule(interval: 1.0 / 10, paused: !moving)) { context in
@@ -104,15 +111,55 @@ struct Backdrop: View {
             let key = source
             // read here, not in the body: opening Now Playing must not redraw this
             let seen = !(underNowPlaying && player.showNowPlaying)
-            if theme.mode(.background) == .system { withAnimation(seen ? .easeInOut(duration: 0.8) : nil) { mesh = nil }; return }
+            // still: the picture fades by Core Animation (below); moving: SwiftUI crossfades the mesh, as before
+            let still = !animate && !pictureFailed
+            func show(_ next: (key: String, colors: [Color])?, fading seconds: Double) {
+                pictureFade = seen ? seconds : 0
+                if still { mesh = next } else { withAnimation(seen ? .easeInOut(duration: seconds) : nil) { mesh = next } }
+            }
+            if theme.mode(.background) == .system { show(nil, fading: 0.8); return }
             if theme.mode(.background) == .custom, let base = Color(hex: theme.hex(.background)) {
-                withAnimation(seen ? .easeInOut(duration: 0.8) : nil) { mesh = (key, Self.shades(of: base)) }
+                show((key, Self.shades(of: base)), fading: 0.8)
                 return
             }
-            guard let url = track?.image else { withAnimation(seen ? .easeInOut(duration: 0.8) : nil) { mesh = nil }; return }
+            guard let url = track?.image else { show(nil, fading: 0.8); return }
             guard let colors = await ArtworkCache.shared.colorGrid(for: url), !Task.isCancelled else { return }   // a newer song's mesh wins
-            withAnimation(seen ? .easeInOut(duration: 1.1) : nil) { mesh = (key, colors) }
+            show((key, colors), fading: 1.1)
         }
+        // the still picture: drawn again for new colours, light or dark, or another strength (those change at once)
+        .task(id: [mesh?.key ?? "", scheme == .dark ? "dark" : "light", String(strength), animate ? "moving" : "still"]) {
+            guard !animate else { return }
+            let fade = mesh?.key != pictureKey ? pictureFade : 0
+            pictureKey = mesh?.key
+            guard let mesh else { picture = (nil, fade); return }
+            if let drawn = Self.drawPicture(of: mesh.colors, dark: scheme == .dark, strength: strength) {
+                picture = (drawn, fade)
+            } else {
+                pictureFailed = true                         // never seen: then the SwiftUI mesh draws it, as before
+            }
+        }
+    }
+
+    /// The still mesh as a picture: exactly what the SwiftUI mesh draws (the same points, mix, saturation and strength),
+    /// drawn once. A mesh is smooth, so 240 × 150 pixels stretched to the window look the same. nil if it came out empty.
+    static func drawPicture(of colors: [Color], dark: Bool, strength: Double) -> CGImage? {
+        let mesh = MeshGradient(width: 3, height: 3, points: points(at: 0),
+                                colors: colors.map { $0.mix(with: dark ? .black : .white, by: 0.3 * (1 - strength)) })
+            .saturation(1 + 0.35 * strength)
+            .opacity(strength)
+            .frame(width: 240, height: 150)
+        let renderer = ImageRenderer(content: mesh)
+        renderer.scale = 1
+        guard let image = renderer.cgImage else { return nil }
+        // one pixel from the middle: fully clear means the renderer could not draw the mesh
+        var pixel = [UInt8](repeating: 0, count: 4)
+        pixel.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return }
+            context.draw(image, in: CGRect(x: -120, y: -75, width: 240, height: 150))
+        }
+        return pixel[3] == 0 ? nil : image
     }
 
     /// Nine shades of one colour, darker at the edges and lighter near the middle, so a single colour still has depth.
@@ -159,6 +206,199 @@ struct IsolatedBackdrop: NSViewRepresentable {
 
     private var content: AnyView {
         AnyView(Backdrop(track: track, strength: strength, underNowPlaying: underNowPlaying).environment(player).environment(theme))
+    }
+}
+
+/// A picture that fills its frame (stretched) and crossfades to the next one with Core Animation: the render server
+/// plays the fade, the app draws nothing per frame. The still background's mesh.
+private struct StillPicture: NSViewRepresentable {
+    let image: CGImage?
+    let fade: Double                                                    // seconds; 0: at once
+
+    func makeNSView(context: Context) -> StillPictureView { StillPictureView() }
+    func updateNSView(_ view: StillPictureView, context: Context) { view.show(image, fade: fade) }
+}
+
+final class StillPictureView: NSView {
+    private let picture = CALayer()
+    private var shown: CGImage?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        picture.contentsGravity = .resize
+        layer?.addSublayer(picture)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }          // a background: clicks go through
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        picture.frame = bounds
+        CATransaction.commit()
+    }
+
+    func show(_ image: CGImage?, fade: Double) {
+        guard image !== shown else { return }
+        shown = image
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if fade > 0 {
+            let crossfade = CATransition()
+            crossfade.type = .fade
+            crossfade.duration = fade
+            crossfade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            picture.add(crossfade, forKey: "crossfade")
+        }
+        picture.contents = image
+        CATransaction.commit()
+    }
+}
+
+/// The cover that changes with each song: the player bar's and Now Playing's. A new cover crossfades in and, with
+/// `pop`, grows into place with a soft spring; both are Core Animation, set up once per song. As SwiftUI transitions
+/// the app redrew them on every frame of the change (a new song in Now Playing: ~13% of a core for a moment, 7 Oct).
+/// Lists keep `ArtworkView`: their covers do not change while you look at them.
+struct LiveArtwork: NSViewRepresentable {
+    let url: URL?
+    let size: CGFloat
+    var radius: CGFloat = 8
+    /// Changes with each song (its id): a new song pops even when its cover is the same (the same album).
+    var song = ""
+    /// Now Playing: a new song's cover grows from 94% with a soft spring (SwiftUI's transition did this before).
+    var pop = false
+    /// Asked when a new cover is ready: false swaps it at once (the bar's, while Now Playing covers it: an unseen fade
+    /// still made Now Playing's blur re-blur the whole window on every frame of it).
+    var fades: () -> Bool = { true }
+
+    func makeNSView(context: Context) -> LiveArtworkView { LiveArtworkView() }
+
+    func updateNSView(_ view: LiveArtworkView, context: Context) {
+        view.radius = radius
+        view.show(url, size: size, song: song, pop: pop, fades: fades)
+    }
+}
+
+final class LiveArtworkView: NSView {
+    private let base = CALayer()                       // scaled by the pop
+    private let cover = CALayer()                      // the picture: rounded, clipped, a hairline edge
+    private let note = CALayer()                       // the music note, before a cover loads or for a song without one
+    private var url: URL?
+    private var song: String?
+    private var shown: CGImage?
+    private var loading: Task<Void, Never>?
+    private var noteSide: CGFloat = 0
+    var radius: CGFloat = 8 { didSet { if radius != oldValue { needsLayout = true } } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        cover.masksToBounds = true
+        cover.cornerCurve = .continuous
+        cover.contentsGravity = .resizeAspectFill
+        cover.borderWidth = 0.5
+        note.contentsGravity = .center
+        base.addSublayer(cover)
+        cover.addSublayer(note)
+        layer?.addSublayer(base)
+        colours()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    isolated deinit { loading?.cancel() }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }          // inside buttons: the button takes the click
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        base.bounds = bounds
+        base.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        cover.frame = base.bounds
+        cover.cornerRadius = radius
+        note.frame = base.bounds
+        CATransaction.commit()
+        if !note.isHidden, abs(bounds.width - noteSide) > 1 { drawNote() }   // the note's size follows the cover's
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        colours()
+        drawNote()
+    }
+
+    func show(_ url: URL?, size: CGFloat, song: String, pop: Bool, fades: @escaping () -> Bool) {
+        guard url != self.url || song != self.song else { return }
+        let changed = self.song != nil                                  // not the first cover this view shows
+        self.url = url
+        self.song = song
+        loading?.cancel()
+        guard let url else { set(nil, fade: false, pop: false); return }
+        // a new song pops at once, even before its cover is here; the cover fades in when it is
+        if pop && changed { grow() }
+        if let ready = ArtworkCache.shared.cached(url, size: size) {
+            set(ready, fade: changed && fades(), pop: false)
+            return
+        }
+        loading = Task { [weak self] in
+            let image = await ArtworkCache.shared.image(for: url, size: size)
+            guard let self, !Task.isCancelled, let image else { return }
+            self.set(image, fade: self.shown != nil && fades(), pop: false)
+        }
+    }
+
+    private func set(_ image: NSImage?, fade: Bool, pop: Bool) {
+        let picture = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        guard picture !== shown else { return }
+        shown = picture
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if fade {
+            let crossfade = CATransition()
+            crossfade.type = .fade
+            crossfade.duration = 0.28
+            crossfade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            cover.add(crossfade, forKey: "crossfade")
+        }
+        cover.contents = picture
+        note.isHidden = picture != nil
+        CATransaction.commit()
+        if picture == nil, abs(bounds.width - noteSide) > 1 { drawNote() }
+        if pop { grow() }
+    }
+
+    /// From 94% to full size with a soft spring: SwiftUI's spring(response: 0.5, dampingFraction: 0.85), as before.
+    private func grow() {
+        let spring = CASpringAnimation(perceptualDuration: 0.5, bounce: 0.15)
+        spring.keyPath = "transform.scale"
+        spring.fromValue = 0.94
+        spring.toValue = 1.0
+        spring.duration = spring.settlingDuration
+        base.add(spring, forKey: "pop")
+    }
+
+    private func colours() {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        cover.backgroundColor = resolved(NSColor.labelColor.withAlphaComponent(0.07)).cgColor   // before a cover loads
+        cover.borderColor = resolved(NSColor.labelColor.withAlphaComponent(0.08)).cgColor
+        CATransaction.commit()
+    }
+
+    private func drawNote() {
+        noteSide = bounds.width
+        guard noteSide > 0 else { return }
+        let config = NSImage.SymbolConfiguration(pointSize: noteSide * 0.32, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [resolved(.tertiaryLabelColor)]))
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        note.contents = NSImage(systemSymbolName: "music.note", accessibilityDescription: nil)?.withSymbolConfiguration(config)
+        note.contentsScale = window?.backingScaleFactor ?? 2
+        CATransaction.commit()
+    }
+
+    /// A dynamic colour (it differs in light and dark) as it looks in this view now.
+    private func resolved(_ colour: NSColor) -> NSColor {
+        var out = colour
+        effectiveAppearance.performAsCurrentDrawingAppearance { out = NSColor(cgColor: colour.cgColor) ?? colour }
+        return out
     }
 }
 

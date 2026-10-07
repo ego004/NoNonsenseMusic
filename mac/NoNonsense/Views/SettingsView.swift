@@ -616,8 +616,6 @@ extension View {
 /// Settings › Footprint: what the app and its server use right now, and every choice that costs more, with what it
 /// costs (measured) and its switch. The lightest setting is always the default.
 private struct FootprintSettings: View {
-    @Environment(ServerLauncher.self) private var server
-    @State private var meter = FootprintMeter()
     @AppStorage("animateBackdrop") private var animateBackdrop = Look.animateBackdrop
     @AppStorage("serverReload") private var reloads = false
     @AppStorage("searchPrefetch") private var searchPrefetch = Prefetcher.searchDefault
@@ -625,11 +623,7 @@ private struct FootprintSettings: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("This app") { reading(meter.app) }
-                LabeledContent("Server") {
-                    if let s = meter.server { reading(s) }
-                    else { Text(server.state == .alreadyRunning ? "Started outside the app: not measured" : "Not running").foregroundStyle(.secondary) }
-                }
+                FootprintReadings()
             } header: {
                 Text("Right now")
             } footer: {
@@ -659,11 +653,29 @@ private struct FootprintSettings: View {
             } header: {
                 Text("Costs more: off unless you turn it on")
             } footer: {
-                Text("Measured 7 Oct on an Apple silicon Mac with a song playing. Everything else is already at its lightest: a still background costs ~2% of one core, Now Playing ~3%, with Lyrics ~4%.")
+                Text("Measured 7 Oct on an Apple silicon Mac (Release build) with a song playing. Everything else is already at its lightest: the main window and Now Playing each use about 1% of one core.")
                     .foregroundStyle(.secondary)
             }
         }
         .settingsPage()
+    }
+}
+
+/// The two live rows, in a view of their own with their own meter: once a second only these redraw. When the meter
+/// lived in the page, every reading redrew the whole page, and the page's redrawing was most of what it measured
+/// (Footprint said ~1.8% while `top` said 0.9% for the same app, 7 Oct).
+private struct FootprintReadings: View {
+    @Environment(ServerLauncher.self) private var server
+    @State private var meter = FootprintMeter()
+
+    var body: some View {
+        Group {
+            LabeledContent("This app") { reading(meter.app) }
+            LabeledContent("Server") {
+                if let s = meter.server { reading(s) }
+                else { Text(server.state == .alreadyRunning ? "Started outside the app: not measured" : "Not running").foregroundStyle(.secondary) }
+            }
+        }
         .task {
             while !Task.isCancelled {
                 meter.update(serverPIDs: server.serverPIDs)

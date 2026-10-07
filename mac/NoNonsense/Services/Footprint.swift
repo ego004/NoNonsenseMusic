@@ -17,10 +17,17 @@ final class FootprintMeter {
     private(set) var server: Reading?
     @ObservationIgnored private var previous: [pid_t: (cpu: Double, at: Double)] = [:]
 
-    /// Reads both. Call it about once a second: CPU is the time used since the last call.
+    /// Reads both. Call it about once a second: CPU is the time used since the last call. Rounded as shown (0.1% and
+    /// 0.1 MB), and assigned only when that changed: every assignment redraws what shows it.
     func update(serverPIDs: [pid_t]) {
-        app = read([getpid()])
-        server = serverPIDs.isEmpty ? nil : read(serverPIDs)
+        let newApp = read([getpid()]).map(Self.rounded)
+        let newServer = serverPIDs.isEmpty ? nil : read(serverPIDs).map(Self.rounded)
+        if newApp != app { app = newApp }
+        if newServer != server { server = newServer }
+    }
+
+    private static func rounded(_ r: Reading) -> Reading {
+        Reading(cpu: (r.cpu * 10).rounded() / 10, memory: r.memory / 100_000 * 100_000, processes: r.processes)
     }
 
     private func read(_ pids: [pid_t]) -> Reading? {

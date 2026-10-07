@@ -88,6 +88,9 @@ struct RootView: View {
             }
             // see-through title bar: the backdrop shows under it, and lists fade softly as they scroll beneath it
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+            // Now Playing covers the window: the toolbar (the sidebar button, the title) went on showing over it, and
+            // its buttons answered clicks that did nothing there. The traffic lights stay
+            .toolbarVisibility(player.showNowPlaying && player.current != nil ? .hidden : .visible, for: .windowToolbar)
             .scrollEdgeEffectStyle(.soft, for: .top)
             .animation(.spring(response: 0.45, dampingFraction: 0.86), value: player.current == nil)
         }

@@ -41,7 +41,8 @@ struct PlayerBar: View {
                 // the song
                 HStack(spacing: 12) {
                     Button { player.showNowPlaying = true } label: {
-                        ArtworkView(url: track.image, size: 48, radius: 10, fades: { [player] in !player.showNowPlaying })
+                        LiveArtwork(url: track.image, size: 48, radius: 10, fades: { [player] in !player.showNowPlaying })
+                            .frame(width: 48, height: 48)
                     }
                     .buttonStyle(.quiet(highlight: false))
                     .help("Open Now Playing (⇧⌘F)")
@@ -265,7 +266,8 @@ struct NowPlayingView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .animation(.spring(response: 0.5, dampingFraction: 0.85), value: track.id)
+                    // no SwiftUI animation keyed on the song: it redrew the column on every frame of the change. The
+                    // cover's crossfade and spring are Core Animation (LiveArtwork); the titles change at once
                 }
 
                 topBar
@@ -279,11 +281,15 @@ struct NowPlayingView: View {
 
     private func songColumn(_ track: Track, side: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 22) {
-            ArtworkView(url: track.image, size: side, radius: 18)
-                // the cover lights the space under it in its own colour
-                .shadow(color: (glow ?? .black).opacity(glow == nil ? 0.28 : 0.55), radius: 50, y: 24)
-                .id(track.id)
-                .transition(.scale(scale: 0.94).combined(with: .opacity))
+            LiveArtwork(url: track.image, size: side, radius: 18, song: track.id, pop: true)
+                .frame(width: side, height: side)
+                // the cover lights the space under it in its own colour: cast by a still shape behind it, so the
+                // cover's own changes never make the shadow draw again
+                .background {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color(nsColor: .windowBackgroundColor))      // what shows under a cover still loading
+                        .shadow(color: (glow ?? .black).opacity(glow == nil ? 0.28 : 0.55), radius: 50, y: 24)
+                }
             VStack(alignment: .leading, spacing: 6) {
                 if let from = player.playingFrom {
                     Label("From “\(from)”", systemImage: "music.note.list")

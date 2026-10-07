@@ -490,9 +490,21 @@ struct TiltCard<Art: View>: View {
             .rotation3DEffect(.degrees(tilt.map { ($0.x - 0.5) * 9 } ?? 0), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
             .shadow(color: .black.opacity(tilt != nil ? 0.32 : 0.14), radius: tilt != nil ? 18 : 8, y: tilt != nil ? 12 : 4)
             .scaleEffect(tilt != nil ? 1.035 : 1)
-            .onHover { h in if !tiltOn { plainHover = h } }
-            .onContinuousHover { phase in
-                guard tiltOn else { return }
+            .modifier(TiltPointer(tiltOn: tiltOn, side: side, pointer: $pointer, plainHover: $plainHover))
+    }
+}
+
+/// How a TiltCard follows the pointer. Tilt off (the default): only whether it is over the card. Following every
+/// pointer move (also while a shelf scrolls under a still pointer) only to ignore it cost work on every frame.
+private struct TiltPointer: ViewModifier {
+    let tiltOn: Bool
+    let side: CGFloat
+    @Binding var pointer: CGPoint?
+    @Binding var plainHover: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if tiltOn {
+            content.onContinuousHover { phase in
                 switch phase {
                 case .active(let at):
                     withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.8)) {
@@ -502,5 +514,8 @@ struct TiltCard<Art: View>: View {
                     withAnimation(.spring(response: 0.45, dampingFraction: 0.7)) { pointer = nil }
                 }
             }
+        } else {
+            content.onHover { plainHover = $0 }
+        }
     }
 }
