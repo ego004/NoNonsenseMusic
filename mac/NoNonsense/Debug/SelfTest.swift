@@ -414,6 +414,16 @@ enum SelfTest {
         q.sync(source: "playlist:3", items: [(key: "i1", track: abcde[0]), (key: "i3", track: abcde[1]), (key: "i4", track: twice)])
         check("a song in twice: removing one copy keeps the other", names(q) == "abt", names(q))
 
+        // Play Next songs are not the playlist's: a sync (each time it is opened, too) keeps them, still next
+        q = PlayQueue(); q.load(abcde, startAt: 0, keys: keys, source: "playlist:4", shuffled: false)
+        q.insertNext(song("X"))
+        q.sync(source: "playlist:4", items: keys.map(item))                  // opened again, unchanged
+        check("play next: survives the playlist being opened again", names(q) == "aXbcde" && q.upNext.first?.title == "X", names(q))
+        q.sync(source: "playlist:4", items: ["k-a", "k-c", "k-b", "k-d", "k-e"].map(item))
+        check("play next: still next after the playlist is reordered", names(q) == "aXcbde", names(q))
+        q.setShuffle(true); q.setShuffle(false)
+        check("play next: still next once shuffle is off again", names(q) == "aXcbde", names(q))
+
         // Up Next by hand
         q = PlayQueue(); q.load(abcde, startAt: 0, keys: keys, source: "playlist:9", shuffled: false)
         q.moveUpcoming(fromOffsets: IndexSet([3]), toOffset: 0)          // e (4th after a) to the front of Up Next
@@ -423,6 +433,7 @@ enum SelfTest {
         q.moveUpcoming(fromOffsets: IndexSet([2]), toOffset: 0)          // d to next
         q.sync(source: "playlist:9", items: ["k-a", "k-b", "k-c", "k-d", "k-e"].map(item))
         check("after a drag the queue is yours: a playlist sync no longer reorders it", names(q) == "adbce", names(q))
+        check("after a drag the queue still says where it came from (“From Gym”)", q.origin == "playlist:9", q.origin ?? "nil")
         q.setShuffle(true); q.setShuffle(false)
         check("after a drag, shuffle on and off comes back to the dragged order", names(q) == "adbce" && q.current?.title == "a", names(q))
         q.removeUpcoming(at: 1)                                         // b

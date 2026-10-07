@@ -83,6 +83,8 @@ struct SidebarView: View {
 }
 
 struct SearchView: View {
+    /// ⌘F, from anywhere in the window (RootView counts the presses): each one focuses the search bar
+    var focusRequests = 0
     @Environment(Player.self) private var player
     /// Searches that led to a song you played, newest first (RecentSearches): the idle screen offers them again.
     @AppStorage("recentSearches") private var recentRaw = ""
@@ -160,8 +162,9 @@ struct SearchView: View {
         .onAppear { fieldFocused = true }
         // a search still on its way would land after this and hand its results to the Prefetcher again
         .onDisappear { task?.cancel(); Prefetcher.shared.searchChanged([]) }
-        // ⌘F from anywhere in the window focuses the bar (an invisible button that only holds the shortcut)
-        .background { Button("") { fieldFocused = true }.keyboardShortcut("f", modifiers: .command).hidden() }
+        // ⌘F while Search is already open: RootView holds the shortcut, so it works from every screen (it lived
+        // here, so it worked only on Search: audit, 7 Oct)
+        .onChange(of: focusRequests) { fieldFocused = true }
     }
 
     /// Debounce: wait until typing pauses, and cancel the previous search if a new one starts.

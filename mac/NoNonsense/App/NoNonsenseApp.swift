@@ -102,9 +102,14 @@ struct PlaybackCommands: Commands {
                 .keyboardShortcut("n", modifiers: .command)
         }
         CommandMenu("Controls") {
+            // greyed out with nothing playing: they did nothing and said nothing (audit, 7 Oct)
             Button(player.isPlaying ? "Pause" : "Play") { player.togglePlayPause() }   // Space: see Player.installKeyMonitor
+                .disabled(player.current == nil)
+            // ⌘← and ⌘→ while typing move the cursor instead: Player.installKeyMonitor hands them to the text field
             Button("Next") { player.next() }.keyboardShortcut(.rightArrow, modifiers: .command)
+                .disabled(player.current == nil)
             Button("Previous") { player.previous() }.keyboardShortcut(.leftArrow, modifiers: .command)
+                .disabled(player.current == nil)
             Divider()
             Toggle("Shuffle", isOn: Binding(get: { player.isShuffled }, set: { _ in player.toggleShuffle() }))
                 .keyboardShortcut("s", modifiers: .command)
@@ -121,8 +126,12 @@ struct PlaybackCommands: Commands {
                 if let track = player.current { Task { await library.toggleLike(track) } }
             }
             .keyboardShortcut("l", modifiers: .command)
+            .disabled(player.current == nil)
+            // with nothing playing it set Now Playing on with nothing to show: the menu said "Close Now Playing", and
+            // the next song opened it over the window (audit, 7 Oct)
             Button(player.showNowPlaying ? "Close Now Playing" : "Now Playing") { player.showNowPlaying.toggle() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(player.current == nil && !player.showNowPlaying)
         }
     }
 }

@@ -26,6 +26,8 @@ struct PlayQueue {
         var n: Double
         /// Names this entry for edits that come later: a playlist item id, so a song added twice is two entries.
         let key: String
+        /// Added by Play Next: not one of the list's songs, so a playlist sync keeps it instead of removing it.
+        var queued = false
         var id: String { key }
     }
 
@@ -35,6 +37,9 @@ struct PlayQueue {
     var repeatMode: Repeat = .off
     /// Where the queue came from, e.g. "playlist:<id>": edits to that playlist reach the queue only then.
     private(set) var source: String?
+    /// Where it came from, for "From “Gym”" in Now Playing and Discord. Unlike `source`, a change by hand keeps it:
+    /// a reordered queue still came from Gym (the label used to vanish at the first drag: audit, 7 Oct).
+    private(set) var origin: String?
 
     var tracks: [Track] { entries.map(\.track) }
     var current: Track? { entries.indices.contains(index) ? entries[index].track : nil }
@@ -50,6 +55,7 @@ struct PlayQueue {
         }
         index = tracks.indices.contains(i) ? i : 0
         self.source = source
+        origin = source
         isShuffled = false
         if shuffled {
             // a new queue with shuffle on: the song you picked first, then EVERY other song shuffled
@@ -114,7 +120,7 @@ struct PlayQueue {
         }
         let following = entries.map(\.n).filter { $0 > current.n }.min()
         let n = following.map { (current.n + $0) / 2 } ?? current.n + 1
-        entries.insert(Entry(track: track, n: n, key: UUID().uuidString), at: index + 1)
+        entries.insert(Entry(track: track, n: n, key: UUID().uuidString, queued: true), at: index + 1)
     }
 
     /// Up Next rearranged by hand (a drag in Now Playing). `offsets` and `destination` count from the first song
@@ -153,13 +159,16 @@ struct PlayQueue {
         }
     }
 
-    /// The playlist this queue came from now has these items, in this order (after a move, an add or a remove).
-    /// Your order follows it; removed items leave the queue, except the playing one, which plays on; new items
-    /// join at the end. Shuffled, the play order stays shuffled and only "your order" changes underneath.
+    /// The playlist this queue came from now has these items, in this order (after a move, an add or a remove, and
+    /// each time it is opened). Your order follows it; removed items leave the queue, except the playing one, which
+    /// plays on; new items join at the end. Shuffled, the play order stays shuffled and only "your order" changes
+    /// underneath. Songs you queued with Play Next stay next, in their order: they are not the playlist's, and were
+    /// removed here, so opening the playlist silently took them out of Up Next (audit, 7 Oct).
     mutating func sync(source: String, items: [(key: String, track: Track)]) {
         guard self.source == source, let playing = currentKey else { return }
+        let queued = upcoming.filter(\.queued)                  // put back after the playing song, below
         let order = Dictionary(items.enumerated().map { ($1.key, Double($0)) }, uniquingKeysWith: { first, _ in first })
-        entries.removeAll { order[$0.key] == nil && $0.key != playing }
+        entries.removeAll { ($0.queued || order[$0.key] == nil) && $0.key != playing }
         for i in entries.indices {
             if let n = order[entries[i].key] { entries[i].n = n }
         }
@@ -169,5 +178,15 @@ struct PlayQueue {
         }
         if !isShuffled { entries.sort { $0.n < $1.n } }
         index = entries.firstIndex { $0.key == playing } ?? 0
+        // back in right after the playing song, each with a place between it and the next song in your order, so
+        // turning shuffle off keeps them there too
+        guard !queued.isEmpty, entries.indices.contains(index) else { return }
+        let here = entries[index].n
+        let following = entries.map(\.n).filter { $0 > here }.min() ?? here + 1
+        for (i, entry) in queued.enumerated() {
+            var back = entry
+            back.n = here + (following - here) * Double(i + 1) / Double(queued.count + 1)
+            entries.insert(back, at: index + 1 + i)
+        }
     }
 }
