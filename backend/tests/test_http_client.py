@@ -13,11 +13,6 @@ from music_backend.sources import jiosaavn, ytmusic
 TEST_URL = "postgresql:///music_test"
 
 
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
 class CountingServer:
     """Answers every request with 200 "ok", and counts the connections clients open to it."""
 

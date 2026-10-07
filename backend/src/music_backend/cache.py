@@ -13,6 +13,27 @@ from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable
 
 logger = logging.getLogger(__name__)
 
+
+def single_flight(running: dict, key, work) -> asyncio.Task:
+    """One lookup per key at a time ("single-flight"): the lookup already running for `key`, or a new one, started
+    and registered at once (nothing else runs before the next await), so a second caller finds it and waits for it
+    instead of starting another. `work` makes the lookup: a function returning a coroutine. When the lookup ends,
+    worked or failed, the key leaves `running`, so the next caller after it starts afresh. Shared by both caches:
+    it was written out twice."""
+    task = running.get(key)
+    if task is None:
+        task = asyncio.create_task(_run_once(running, key, work))
+        running[key] = task
+    return task
+
+
+async def _run_once(running: dict, key, work):
+    try:
+        return await work()
+    finally:
+        del running[key]
+
+
 class ListingURLCache:
     """Audio URLs per listing (source, song_id), in two levels: memory, and the listing_urls table.
     Both drop the least recently used entry when full.
@@ -45,13 +66,20 @@ class ListingURLCache:
         self.cache.move_to_end((source, song_id))
 
     async def _get_db(self, source: str, song_id: str) -> str | None:
+        """The stored URL, only read (the prefetch worker's check: a prefetch is not a use)."""
         async with self.pool.connection() as conn:
-            # CHANGED: the column is source_id
-            cur = await conn.execute("SELECT url FROM listing_urls WHERE source = %s AND source_id = %s", [source, song_id])
-            row = await cur.fetchone()
-            if row is None:
-                return None
-            return row["url"]
+            row = await (await conn.execute("SELECT url FROM listing_urls WHERE source = %s AND source_id = %s",
+                                            [source, song_id])).fetchone()
+        return None if row is None else row["url"]
+
+    async def _take_db(self, source: str, song_id: str) -> str | None:
+        """The stored URL, marked used in the same statement (it was a SELECT, then an UPDATE: two round trips).
+        An expired row is marked too; the fresh fetch that follows overwrites it anyway."""
+        async with self.pool.connection() as conn:
+            row = await (await conn.execute(
+                "UPDATE listing_urls SET hit_at = now() WHERE source = %s AND source_id = %s RETURNING url",
+                [source, song_id])).fetchone()
+        return None if row is None else row["url"]
 
     async def _set_db(self, source: str, song_id: str, url: str) -> None:
         # CHANGED: one upsert instead of DELETE + INSERT (two requests at once crashed with UniqueViolation),
@@ -72,10 +100,11 @@ class ListingURLCache:
             )
 
     async def get(self, source: str, song_id: str) -> str | None:
-        """One URL or None: memory first, then the table. Any hit marks the row used (one UPDATE of hit_at), so the
-        trim drops the least recently used; a table hit also copies the URL into memory. Every hit used to write the
-        table twice (an upsert and the trim's DELETE): 600 statements for 300 hits, measured 7 Oct. Now one per hit,
-        and no trim: a hit adds no row, so it cannot grow the table."""
+        """One URL or None: memory first, then the table. Any hit marks the row used (hit_at), so the trim drops the
+        least recently used; a table hit also copies the URL into memory. Every hit used to write the table twice (an
+        upsert and the trim's DELETE): 600 statements for 300 hits, measured 7 Oct. Now one statement per hit (a table
+        hit reads and marks in one UPDATE … RETURNING), and no trim: a hit adds no row, so it cannot grow the table.
+        A play's way in: the prefetch worker checks with `_has_fresh`, which marks nothing."""
         url = self.cache.get((source, song_id))
         if url is not None:
             if self.sources[source].is_expired(url):
@@ -83,11 +112,10 @@ class ListingURLCache:
             self._cache_hit(source, song_id)
             await self._db_hit(source, song_id)
             return url
-        url = await self._get_db(source, song_id)
+        url = await self._take_db(source, song_id)              # marked used: the trim keeps the most recently used
         if url is None or self.sources[source].is_expired(url):
             return None
         self._remember(source, song_id, url)
-        await self._db_hit(source, song_id)                  # the trim keeps the most recently used rows
         return url
 
     async def set(self, source: str, song_id: str, url: str) -> None:
@@ -113,31 +141,22 @@ class ListingURLCache:
         return url
 
     def _start_lookup(self, source: str, song_id: str) -> asyncio.Task:
-        """Single-flight: the lookup already running for this listing, or a new one, started and registered at once
-        (nothing else runs before the next await), so a second request finds it and waits instead of fetching."""
-        task = self.running.get((source, song_id))
-        if task is None:
-            task = asyncio.create_task(self._lookup(source, song_id))
-            self.running[(source, song_id)] = task
-        return task
+        """Single-flight per listing: a second request for a listing being fetched waits for that fetch."""
+        return single_flight(self.running, (source, song_id), lambda: self._lookup(source, song_id))
 
     async def _lookup(self, source: str, song_id: str) -> str:
         """The real lookup, run as a task, once per listing at a time: fetch, store, return the URL."""
+        # paused? then answer at once, without asking the source (this raise is NOT a new strike: we never asked)
+        self._refuse_if_paused(source)
         try:
-            # paused? then answer at once, without asking the source (this raise is NOT a new strike: we never asked)
-            self._refuse_if_paused(source)
-            try:
-                # SongNotFound / SourceUnavailable pass straight through, so a failure is never stored
-                url = await self.sources[source].get_song_url(song_id)
-            except SourceBlocked:
-                self._strike(source)        # the source itself said "blocked": pause it, then pass the error on
-                raise
-            self.strikes[source] = 0        # it answered: the next block starts again from the short pause
-            await self.set(source, song_id, url)
-            return url
-        finally:
-            # worked or failed: out of `running`, so the next request after this starts a fresh lookup
-            del self.running[(source, song_id)]
+            # SongNotFound / SourceUnavailable pass straight through, so a failure is never stored
+            url = await self.sources[source].get_song_url(song_id)
+        except SourceBlocked:
+            self._strike(source)        # the source itself said "blocked": pause it, then pass the error on
+            raise
+        self.strikes[source] = 0        # it answered: the next block starts again from the short pause
+        await self.set(source, song_id, url)
+        return url
 
     def _refuse_if_paused(self, source: str) -> None:
         """During a source's pause, raise SourceBlocked straight away: no request goes to the source."""
@@ -151,6 +170,14 @@ class ListingURLCache:
         minutes = min(settings.backoff_max_minutes, settings.backoff_start_minutes * 2 ** (self.strikes[source] - 1))
         self.blocked_until[source] = time.time() + minutes * 60
         logger.warning("%s: bot check #%d in a row, asking it nothing for %.0f min", source, self.strikes[source], minutes)
+
+    async def _has_fresh(self, source: str, song_id: str) -> bool:
+        """Whether a good URL is cached, marking nothing: the prefetch worker's check. It used `get`, which marks the
+        row used, so "least recently used" meant "least recently prefetched" (up to 10 UPDATEs per song change)."""
+        url = self.cache.get((source, song_id))                # a plain dict read: the order is left as it is
+        if url is None:
+            url = await self._get_db(source, song_id)
+        return url is not None and not self.sources[source].is_expired(url)
 
     def prefetch(self, listings) -> None:
         """The newest list of listings coming next: replaces whatever still waits (lookups already running finish)."""
@@ -166,7 +193,7 @@ class ListingURLCache:
         while True:
             source, song_id = await self.prefetch_queue.get()           # free: asleep here until a list arrives
             try:
-                if (source, song_id) in self.running or await self.get(source, song_id) is not None:
+                if (source, song_id) in self.running or await self._has_fresh(source, song_id):
                     continue                                             # running (it fills the cache anyway) or cached
                 await asyncio.shield(self._start_lookup(source, song_id))
             except (SongNotFound, SourceUnavailable) as e:
@@ -179,7 +206,8 @@ class ListingURLCache:
 
 class LyricsCache:
     """Lyrics replies per song, in the lyrics table. Not ListingURLCache renamed: lyrics are kept per song, not per
-    listing, never go stale when timed, and need no memory level, backoff or workers. Only single-flight is shared.
+    listing, never go stale when timed, and need no memory level, backoff or workers. Only single-flight is shared
+    (`single_flight`, above).
 
     Call it to get lyrics:   reply = await lyrics_cache(song)
     Timed lyrics are kept for good. Plain or empty ones are kept for settings.lyrics_recheck_days, and only when
@@ -198,20 +226,13 @@ class LyricsCache:
         return reply
 
     def _start_lookup(self, song: LyricsRequest) -> asyncio.Task:
-        task = self.running.get(key(song))
-        if task is None:
-            task = asyncio.create_task(self._lookup(song))
-            self.running[key(song)] = task
-        return task
+        return single_flight(self.running, key(song), lambda: self._lookup(song))
 
     async def _lookup(self, song: LyricsRequest) -> LyricsResponse:
-        try:
-            reply, every_source_answered = await lyrics.find_lyrics(song)
-            if reply.synced or every_source_answered:
-                await self.set(song, reply)
-            return reply
-        finally:
-            del self.running[key(song)]
+        reply, every_source_answered = await lyrics.find_lyrics(song)
+        if reply.synced or every_source_answered:
+            await self.set(song, reply)
+        return reply
 
     async def get(self, song: LyricsRequest) -> LyricsResponse | None:
         async with self.pool.connection() as conn:

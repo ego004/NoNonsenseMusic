@@ -174,20 +174,6 @@ class SlowSource:
         return False
 
 
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
-@pytest.fixture
-async def pool():
-    pool = db.make_pool(TEST_URL)
-    await pool.open()
-    await db.apply_schema(pool)
-    yield pool
-    await pool.close()
-
-
 @pytest.mark.anyio
 async def test_two_requests_at_once_make_one_lookup(pool):
     source = SlowSource()

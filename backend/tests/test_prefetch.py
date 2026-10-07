@@ -105,20 +105,6 @@ def test_shutdown_stops_the_workers(monkeypatch):
 
 # ---------- the cache and its workers, directly ----------
 
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
-@pytest.fixture
-async def pool():
-    pool = db.make_pool(TEST_URL)
-    await pool.open()
-    await db.apply_schema(pool)
-    yield pool
-    await pool.close()
-
-
 async def with_workers(cache, n, body):
     workers = [asyncio.create_task(cache.prefetch_worker()) for _ in range(n)]
     try:
@@ -161,6 +147,29 @@ async def test_cached_and_running_listings_are_skipped(pool):
     await with_workers(cache, 1, body)
     await playing
     assert sorted(source.calls) == sorted([cached, running, new])   # each asked exactly once
+
+
+@pytest.mark.anyio
+async def test_prefetching_a_cached_listing_does_not_mark_it_used(pool):
+    # STRIP: the worker checked "cached?" with get(), which marks the row used, so the table's "least recently used"
+    # meant "least recently prefetched". A prefetch is not a play: the row keeps its old hit_at
+    source = SlowSource()
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    song = new_id()
+    await cache("ytmusic", song)                              # played: cached in memory and in the table
+    async with pool.connection() as conn:                     # pretend it was last played a day ago
+        await conn.execute("UPDATE listing_urls SET hit_at = now() - interval '1 day' WHERE source_id = %s", [song])
+
+    async def body():
+        cache.prefetch([Listing(song)])
+        await asyncio.sleep(0.2)
+
+    await with_workers(cache, 1, body)
+    async with pool.connection() as conn:
+        row = await (await conn.execute("SELECT hit_at < now() - interval '1 hour' AS old FROM listing_urls WHERE source_id = %s",
+                                        [song])).fetchone()
+    assert source.calls == [song]                             # the prefetch asked nobody: it was cached
+    assert row["old"]                                         # and it did not count as a use
 
 
 @pytest.mark.anyio
