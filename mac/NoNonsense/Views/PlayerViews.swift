@@ -880,7 +880,6 @@ private extension View {
 
 struct UpNextView: View {
     @Environment(Player.self) private var player
-    @State private var selection: String?            // the row clicked: a list's own selection, as in Apple Music
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -900,57 +899,34 @@ struct UpNextView: View {
                     .textStyle(.callout).foregroundStyle(.secondary)
                     .padding(.horizontal, 16).padding(.bottom, 16)
             } else {
-                // a List, for drag to reorder; each row is an entry (a song queued twice is two rows). Double-click and
-                // the right-click menu are the list's own (`primaryAction`), not gestures on the rows: a tap gesture on
-                // a row, even a double-click one, took the mouse-down the list needs to start a drag, so Up Next could
-                // not be reordered (7 Oct). Apple's way for a Mac list; a click selects the row, as in Apple Music
-                List(selection: $selection) {
-                    ForEach(Array(player.upNextEntries.enumerated()), id: \.element.id) { offset, entry in
+                // drag a row to move it: it follows the pointer and the others make room (ReorderableStack; List's own
+                // drag and drop never delivered the drop in here, 7 Oct). Each row is an entry: a song queued twice is two
+                ScrollView {
+                    ReorderableStack(items: player.upNextEntries, rowHeight: 46) { from, to in
+                        // moveUpNext counts as List's onMove does: the destination before the row is taken out
+                        player.moveUpNext(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+                    } row: { entry, offset in
                         UpNextRow(track: entry.track) {
+                            player.jump(to: player.index + 1 + offset)
+                        } remove: {
                             withAnimation(.snappy) { player.removeFromUpNext(at: offset) }
                         }
-                        .tag(entry.id)                       // what selection, the menu and double-click name
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+                        .padding(.horizontal, 6)
                     }
-                    .onMove { player.moveUpNext(fromOffsets: $0, toOffset: $1) }
+                    .animation(.snappy(duration: 0.3), value: player.upNextEntries.map(\.id))
+                    .padding(.bottom, 8)
                 }
-                .contextMenu(forSelectionType: String.self) { ids in
-                    if let offset = offset(of: ids) {
-                        Button("Play Now") { playNow(offset) }
-                        Button("Remove from Up Next", role: .destructive) {
-                            withAnimation(.snappy) { player.removeFromUpNext(at: offset) }
-                        }
-                    }
-                } primaryAction: { ids in
-                    if let offset = offset(of: ids) { playNow(offset) }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .animation(.snappy(duration: 0.3), value: player.upNextEntries.map(\.id))
-                .padding(.bottom, 8)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // the glass is Now Playing's, shared with Lyrics
     }
-
-    /// Where the row the menu or double-click is about sits in Up Next.
-    private func offset(of ids: Set<String>) -> Int? {
-        guard let id = ids.first else { return nil }
-        return player.upNextEntries.firstIndex { $0.id == id }
-    }
-
-    private func playNow(_ offset: Int) {
-        selection = nil
-        player.jump(to: player.index + 1 + offset)
-    }
 }
 
-/// One song in Up Next: double-click plays it now; drag to move it; ✕ (on hover) or right-click removes it. The
-/// double-click and the menu are the list's (UpNextView): a gesture here would stop the drag.
+/// One song in Up Next: double-click plays it now; drag to move it (ReorderableStack); ✕ (on hover) or right-click
+/// removes it.
 private struct UpNextRow: View {
     let track: Track
+    let play: () -> Void
     let remove: () -> Void
     @State private var hovering = false
 
@@ -977,7 +953,12 @@ private struct UpNextRow: View {
         .padding(.horizontal, 6).padding(.vertical, 4)
         .background(hovering ? AnyShapeStyle(.primary.opacity(0.06)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 8, style: .continuous))
         .contentShape(.rect)
+        .onTapGesture(count: 2, perform: play)             // no List under it now: a gesture here stops no drag
         .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
+        .contextMenu {
+            Button("Play Now", action: play)
+            Button("Remove from Up Next", role: .destructive, action: remove)
+        }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("\(track.title). Double-click to play now; drag to move")
