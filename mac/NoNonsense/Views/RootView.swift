@@ -9,6 +9,7 @@ struct RootView: View {
     @Environment(LyricsStore.self) private var lyrics
     @AppStorage("lyricsFetch") private var lyricsFetch = LyricsFetch.songStart     // Settings › Lyrics
     @State private var selection: Destination? = .section(.home)
+    @State private var searchRequests = 0                 // ⌘F presses: Search focuses its bar on each
     @AppStorage("windowOpacity") private var windowOpacity = Look.windowOpacity   // 0 = see-through, 1 = solid
     @AppStorage("artStrength") private var artStrength = Look.artStrength         // how strongly the cover colours the window
     @Environment(\.colorScheme) private var scheme
@@ -27,7 +28,7 @@ struct RootView: View {
                 Group {
                     switch selection ?? .section(.home) {
                     case .section(.home): HomeView { selection = $0 }
-                    case .section(.search): SearchView()
+                    case .section(.search): SearchView(focusRequests: searchRequests)
                     case .section(.liked): SongListView(item: .liked)
                     case .section(.recent): SongListView(item: .recent)
                     case .section(.downloads): SongListView(item: .downloads)
@@ -94,10 +95,26 @@ struct RootView: View {
             .scrollEdgeEffectStyle(.soft, for: .top)
             .animation(.spring(response: 0.45, dampingFraction: 0.86), value: player.current == nil)
         }
-        // no internet, or no server: said once, at the top, for as long as it lasts (not a message per failed song)
-        .overlay(alignment: .top) { ConnectionBanner().padding(.top, 10) }
         // Now Playing in its own host, faded in and out by Core Animation: see NowPlayingLayer
         .overlay { NowPlayingLayer(shown: player.showNowPlaying && player.current != nil).ignoresSafeArea() }
+        // no internet, or no server: said once, at the top, for as long as it lasts (not a message per failed song).
+        // Above Now Playing: under it, as the player bar's message line is, playback could stop with no reason in
+        // sight (audit, 7 Oct). So while Now Playing is open, that message shows up here too
+        .overlay(alignment: .top) {
+            VStack(spacing: 8) {
+                ConnectionBanner()
+                if player.showNowPlaying && player.current != nil, let message = player.errorMessage ?? library.message {
+                    Label(message, systemImage: player.errorMessage != nil ? "exclamationmark.triangle.fill" : library.messageSymbol)
+                        .textStyle(.callout)
+                        .symbolEffect(.bounce, value: message)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .glassEffect(.regular, in: .capsule)
+                        .transition(.opacity)
+                }
+            }
+            .padding(.top, 10)
+            .animation(.snappy(duration: 0.3), value: player.showNowPlaying ? player.errorMessage ?? library.message : nil)
+        }
         #if DEBUG
         // a self-test window opens on your screen too: this says it is not your app, and not your library (6 Oct)
         .overlay(alignment: .top) {
@@ -122,6 +139,16 @@ struct RootView: View {
             if theme.songColor != next { theme.songColor = next }
         }
         .modifier(PlaylistSheets(selection: $selection))
+        // ⌘F from any screen: Search, with the bar focused (an invisible button that only holds the shortcut)
+        .background {
+            Button("") {
+                player.showNowPlaying = false
+                selection = .section(.search)
+                searchRequests += 1                      // already on Search: SearchView focuses the bar on this
+            }
+            .keyboardShortcut("f", modifiers: .command)
+            .hidden()
+        }
         .environment(\.textScale, textScale)              // every textStyle in the window, Now Playing included
         #if DEBUG
         .onReceive(NotificationCenter.default.publisher(for: .selfTestOpen)) { note in

@@ -327,17 +327,22 @@ struct NowPlayingView: View {
 
     /// Up Next and Lyrics, both built once and kept, behind one glass: switching fades one out and the other in.
     /// Built at the switch, the new panel (a whole list, or every lyric line) was made during the animation, and two
-    /// glass panels crossfaded over each other: the switch dropped frames (7 Oct). The hidden one takes no clicks.
+    /// glass panels crossfaded over each other: the switch dropped frames (7 Oct). The hidden one takes no clicks, and
+    /// the one showing is on top: Lyrics, hidden above Up Next, kept its lines' AppKit view in the way of every drag and
+    /// scroll (allowsHitTesting is SwiftUI's and does not reach for sure into an AppKit view), so Up Next could not be
+    /// reordered once Lyrics had been opened (audit, 7 Oct).
     private var sidePanel: some View {
         ZStack {
             UpNextView()
                 .opacity(panel == .upNext ? 1 : 0)
                 .allowsHitTesting(panel == .upNext)
                 .accessibilityHidden(panel != .upNext)
+                .zIndex(panel == .upNext ? 1 : 0)
             LyricsPanel(shown: panel == .lyrics)
                 .opacity(panel == .lyrics ? 1 : 0)
                 .allowsHitTesting(panel == .lyrics)
                 .accessibilityHidden(panel != .lyrics)
+                .zIndex(panel == .lyrics ? 1 : 0)
         }
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
     }
@@ -437,7 +442,7 @@ struct LyricsPanel: View {
             // the playing line, known before the panel is drawn: it opens there instead of scrolling to it.
             // One view per song: with the next song's lyrics already fetched, the view was kept across the change, and
             // its running task went on lighting lines by the previous song's times (audit, 7 Oct)
-            TimedLyricsView(lyrics: found, startLine: found.line(at: player.livePosition + 0.1))
+            TimedLyricsView(lyrics: found, startLine: found.line(at: player.livePosition + 0.1), active: shown)
                 .id(track.id)
         case .found(let found):
             PlainLyricsView(lyrics: found)
@@ -479,14 +484,17 @@ private struct TimedLyricsView: View {
     @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion       // seconds per line change (Settings › Lyrics)
     @AppStorage("buttonFeedback") private var feedback = Look.buttonFeedback  // the highlight under the pointer
     @State private var current: Int?
+    let active: Bool                                   // false while hidden behind Up Next: the lines ignore the mouse
 
-    init(lyrics: Lyrics, startLine: Int?) {
+    init(lyrics: Lyrics, startLine: Int?, active: Bool = true) {
         self.lyrics = lyrics
+        self.active = active
         _current = State(initialValue: startLine)
     }
 
     var body: some View {
-        LyricLines(lines: lyrics.lines, current: current, motion: motion, fontSize: 21 * textScale, feedback: feedback) {
+        LyricLines(lines: lyrics.lines, current: current, motion: motion, fontSize: 21 * textScale, feedback: feedback,
+                   active: active) {
             jump(to: $0)
         }
         // starts again on play, pause, a stall and its end (`position` is re-anchored) and every seek: the sleep
@@ -535,11 +543,13 @@ private struct LyricLines: NSViewRepresentable {
     let motion: Double
     let fontSize: CGFloat
     let feedback: Bool
+    let active: Bool
     let jump: (Int) -> Void
 
     func makeNSView(context: Context) -> LyricLinesView { LyricLinesView() }
 
     func updateNSView(_ view: LyricLinesView, context: Context) {
+        view.active = active
         view.update(lines: lines, current: current, motion: motion, fontSize: fontSize, feedback: feedback, jump: jump)
     }
 }
@@ -748,6 +758,13 @@ final class LyricLinesView: NSView {
 
     // MARK: scroll, click, hover
 
+    /// False while Lyrics is hidden behind Up Next: the lines take no clicks, drags, scrolls or hover there.
+    var active = true {
+        didSet { if !active { setHovered(nil) } }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { active ? super.hitTest(point) : nil }
+
     override func scrollWheel(with event: NSEvent) {
         guard !texts.isEmpty else { return }
         // you look around: the light is not followed for 4 s; the next line change after that brings it back
@@ -777,7 +794,8 @@ final class LyricLinesView: NSView {
                                        owner: self, userInfo: nil))
     }
 
-    override func mouseMoved(with event: NSEvent) { setHovered(line(at: convert(event.locationInWindow, from: nil))) }
+    // a tracking area reports the pointer whatever hitTest says: hidden, the lines light nothing
+    override func mouseMoved(with event: NSEvent) { setHovered(active ? line(at: convert(event.locationInWindow, from: nil)) : nil) }
     override func mouseExited(with event: NSEvent) { setHovered(nil) }
 
     /// Settings › Appearance › Button feedback: the same soft highlight as the app's other plain buttons.

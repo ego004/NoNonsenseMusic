@@ -36,7 +36,7 @@ final class Player {
     var upNext: [Track] { order.upNext }
     /// The playlist the queue came from ("Gym"), for Now Playing and Discord; nil for other queues.
     var playingFrom: String? {
-        guard let source = order.source, source.hasPrefix("playlist:"),
+        guard let source = order.origin, source.hasPrefix("playlist:"),
               let id = UUID(uuidString: String(source.dropFirst("playlist:".count))) else { return nil }
         return library.playlists.first { $0.id == id }?.name ?? library.details[id]?.name
     }
@@ -246,10 +246,23 @@ final class Player {
     /// still be 0 from the song's start (it changes only on events), so nothing would change. Lyrics follow this.
     private(set) var seeks = 0
 
-    /// Space plays/pauses anywhere in the window, except while typing in a text field.
+    /// Space plays/pauses anywhere in the window, except while typing in a text field. And while typing, ⌘← ⌘→ ⌘↑ ⌘↓
+    /// move the cursor, as in any text field: menus answer their shortcuts before the field sees the key, so the
+    /// Controls menu's Next, Previous and Volume took them (audit, 7 Oct). A monitor sees the key before the menus do.
     func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            // arrow keys also carry the numeric-pad and function flags: only ⌘ itself counts
+            let isCommandArrow = (123...126).contains(event.keyCode)
+                && event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]) == .command
+            if isCommandArrow {
+                let typed = MainActor.assumeIsolated { () -> Bool in
+                    guard let field = NSApp.keyWindow?.firstResponder as? NSTextView else { return false }
+                    field.keyDown(with: event)                  // the field's own ⌘-arrow: start or end of line or text
+                    return true
+                }
+                return typed ? nil : event
+            }
             let isPlainSpace = event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
             guard isPlainSpace else { return event }
             let handled = MainActor.assumeIsolated { () -> Bool in
@@ -274,7 +287,8 @@ final class Player {
                       let content = window.contentView else { return false }
                 let inWindow = event.window == nil ? window.convertPoint(fromScreen: event.locationInWindow) : event.locationInWindow
                 let point = CGPoint(x: inWindow.x, y: content.bounds.height - inWindow.y)
-                guard self.barFrame.contains(point) else { return false }
+                // the bar is hidden under Now Playing: a sideways swipe there skipped songs (audit, 7 Oct)
+                guard !self.showNowPlaying, self.barFrame.contains(point) else { return false }
                 if event.phase == .began { self.swipeTravel = 0; self.swipeDone = false }
                 guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return false }
                 // the fingers' direction, whatever the "natural scrolling" setting
