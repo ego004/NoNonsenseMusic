@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
-from fractional_indexing import FIError, generate_key_between
+from fractional_indexing import FIError, generate_key_between, generate_n_keys_between
 from psycopg import AsyncConnection
 
 from music_backend.matching import normalise, pick_best, same_recording
@@ -141,6 +141,7 @@ async def _with_listings(conn: AsyncConnection, rows: list[dict]) -> list[Librar
 
 async def create_playlist(conn: AsyncConnection, name : str) -> UUID:
     """A new playlist at the bottom of your list. A name already in use raises psycopg's UniqueViolation."""
+    await _lock_playlist_list(conn)
     # the bottom = after the largest position so far (None when there are no playlists: then the first key, "a0")
     last = (await (await conn.execute("SELECT max(position) AS last FROM playlists")).fetchone())["last"]
     row = await (await conn.execute(
@@ -157,7 +158,7 @@ async def get_playlists(conn: AsyncConnection) -> list[PlaylistMetadata]:
              LEFT JOIN playlist_items p ON p.playlist_id = pl.id
              LEFT JOIN songs s ON s.id = p.song_id
             GROUP BY pl.id, pl.name, pl.position
-            ORDER BY pl.position ASC""")).fetchall()
+            ORDER BY pl.position, pl.id""")).fetchall()     # pl.id: two at one position keep their order (BUG-6)
     return [PlaylistMetadata(**row) for row in rows]
 
 async def _totals(conn: AsyncConnection, playlist_id : UUID) -> Any | None:
@@ -176,6 +177,7 @@ async def get_playlist_metadata(conn: AsyncConnection, playlist_id : UUID) -> Pl
     return PlaylistMetadata(id = row["id"], name = row["name"], **await _totals(conn, playlist_id))
 
 async def add_to_playlist(conn: AsyncConnection, playlist_id : UUID, song_id: UUID) -> UUID:
+    await _lock_playlist(conn, playlist_id)
     # this playlist's last position: the (playlist_id, position) index answers it without reading other playlists
     last = (await (await conn.execute("SELECT max(position) AS last FROM playlist_items WHERE playlist_id = %s",
                                       [playlist_id])).fetchone())["last"]
@@ -210,6 +212,24 @@ async def remove_from_playlist(conn: AsyncConnection, playlist_id : UUID, item_i
                                [item_id, playlist_id])).rowcount > 0
 
 
+# ---------- taking turns (BUG-6) ----------
+# Every write that picks a position (add, move) reads the positions around it, then writes a key between them. Two at
+# the same moment read the same positions and wrote the same key: a tie, and nothing can go between a tie (moving a
+# song there answered 422, for good). So they take turns, in the database: the lock holds across server processes and
+# scripts (a lock in Python holds in one process only), and it is released when the transaction commits. Whoever comes
+# next reads the positions as the one before left them.
+
+async def _lock_playlist(conn: AsyncConnection, playlist_id: UUID) -> None:
+    """This playlist's turn: a second add or move in it waits here until the first has committed. Per playlist, so
+    work on different playlists never waits. Before any read of its positions."""
+    await conn.execute("SELECT 1 FROM playlists WHERE id = %s FOR UPDATE", [playlist_id])
+
+async def _lock_playlist_list(conn: AsyncConnection) -> None:
+    """The list of playlists' turn (create, move). It has no row of its own to lock, so a named lock for the list
+    (6001, a number nothing else uses). With accounts, each user's own row becomes the lock."""
+    await conn.execute("SELECT pg_advisory_xact_lock(6001)")
+
+
 class NotInList(Exception):
     """The row to move, or one of its new neighbours, is not in that list (the endpoint's 404)."""
 
@@ -218,21 +238,23 @@ class BadMove(ValueError):
 
 async def move_item(conn: AsyncConnection, playlist_id : UUID, item_id : UUID,
                     top_id : UUID | None, bottom_id : UUID | None) -> None:
-    """Moves one song of a playlist to between two of its songs. Exactly one row changes."""
-    rows = await (await conn.execute(
-        "SELECT id, position FROM playlist_items WHERE playlist_id = %s AND id = ANY(%s)",
-        [playlist_id, [item_id, top_id, bottom_id]])).fetchall()
-    await _move(conn, "UPDATE playlist_items SET position = %s WHERE id = %s", rows, item_id, top_id, bottom_id)
+    """Moves one song of a playlist to between two of its songs. One row changes (the whole playlist only when it
+    held a tie: see `_move`)."""
+    await _lock_playlist(conn, playlist_id)
+    await _move(conn, "playlist_items", "playlist_id = %s", [playlist_id], item_id, top_id, bottom_id)
 
 async def move_playlist(conn: AsyncConnection, playlist_id : UUID, top_id : UUID | None, bottom_id : UUID | None) -> None:
-    """Moves one playlist to between two others in your list. Exactly one row changes."""
-    rows = await (await conn.execute(
-        "SELECT id, position FROM playlists WHERE id = ANY(%s)", [[playlist_id, top_id, bottom_id]])).fetchall()
-    await _move(conn, "UPDATE playlists SET position = %s WHERE id = %s", rows, playlist_id, top_id, bottom_id)
+    """Moves one playlist to between two others in your list. One row changes (all of them only after a tie)."""
+    await _lock_playlist_list(conn)
+    await _move(conn, "playlists", "TRUE", [], playlist_id, top_id, bottom_id)
 
-async def _move(conn: AsyncConnection, update_sql : str, rows : list[dict], row_id : UUID,
-                top_id : UUID | None, bottom_id : UUID | None) -> None:
-    """The shared part of both moves. `rows` holds the positions of whichever of the three ids are in the list."""
+async def _move(conn: AsyncConnection, table: str, where: str, args: list, row_id: UUID,
+                top_id: UUID | None, bottom_id: UUID | None) -> None:
+    """The shared part of both moves, in one list: the rows of `table` that match `where` (one playlist's songs, or
+    every playlist). The caller holds the list's turn, so the positions read here stay as read until the commit.
+    `table` and `where` are this file's own text, never a request's: safe to put into the SQL."""
+    rows = await (await conn.execute(f"SELECT id, position FROM {table} WHERE {where} AND id = ANY(%s)",
+                                     [*args, [row_id, top_id, bottom_id]])).fetchall()
     positions = {r["id"]: r["position"] for r in rows}
     for needed in (row_id, top_id, bottom_id):
         if needed is not None and needed not in positions:
@@ -241,9 +263,33 @@ async def _move(conn: AsyncConnection, update_sql : str, rows : list[dict], row_
         raise BadMove("a row cannot be its own neighbour")
     if top_id is None and bottom_id is None:
         return                                     # nothing to put it between: it stays where it is
+    top, bottom = positions.get(top_id), positions.get(bottom_id)    # None: the top or the bottom of the list
+    if top is not None and top == bottom:
+        # tied neighbours (two adds at once, before the turns): nothing sorts between two equal keys, so the move
+        # answered 422 for good. The whole list gets fresh keys once, in the order it shows; never tied after that
+        fresh = await _rekey(conn, table, where, args)
+        top, bottom = fresh[top_id], fresh[bottom_id]
     try:
-        # the new key sorts between the two neighbours; a missing neighbour is None (the top or the bottom)
-        new = generate_key_between(positions.get(top_id), positions.get(bottom_id))
+        new = generate_key_between(top, bottom)    # sorts between the two neighbours
     except FIError as e:
         raise BadMove("the top neighbour must come before the bottom one") from e
-    await conn.execute(update_sql, [new, row_id])
+    # the same two neighbours always give the same key: a row moved into this slot since the app last looked (from
+    # another window or device) already has it, and the two would tie. Go just after it, still before the bottom one
+    while await _taken(conn, table, where, args, new, row_id):
+        new = generate_key_between(new, bottom)
+    await conn.execute(f"UPDATE {table} SET position = %s WHERE id = %s", [new, row_id])
+
+async def _rekey(conn: AsyncConnection, table: str, where: str, args: list) -> dict[UUID, str]:
+    """Every row of the list gets a fresh key, evenly spaced, in the order it shows (position, then id)."""
+    ids = [r["id"] for r in await (await conn.execute(
+        f"SELECT id FROM {table} WHERE {where} ORDER BY position, id", args)).fetchall()]
+    keys = generate_n_keys_between(None, None, len(ids))
+    async with conn.cursor() as cur:
+        await cur.executemany(f"UPDATE {table} SET position = %s WHERE id = %s", list(zip(keys, ids)))
+    return dict(zip(ids, keys))
+
+async def _taken(conn: AsyncConnection, table: str, where: str, args: list, position: str, row_id: UUID) -> bool:
+    """Whether another row of the list already has this key."""
+    found = await (await conn.execute(f"SELECT 1 FROM {table} WHERE {where} AND position = %s AND id <> %s LIMIT 1",
+                                      [*args, position, row_id])).fetchone()
+    return found is not None

@@ -334,14 +334,15 @@ Each source module also has `http`, its `SharedClient` (above); the lifespan clo
 
 ### Playlists (MUS-2)
 - **Positions:** `fractional-indexing` keys in `position text COLLATE "C"` (`a0`, `a1`, `a0V` between them, `Zz` before `a0`). A new playlist or song goes after the largest key so far. A move computes one key between the new neighbours, so one row changes.
+- **Taking turns (BUG-6):** every write that picks a position reads the positions first, so two at the same moment read the same ones and wrote the same key: a tie, which nothing could be moved between (422, for good). They take turns in the database: `_lock_playlist` (`SELECT … FOR UPDATE` on the playlist's row: adds and moves in one playlist wait for each other, other playlists never wait) and `_lock_playlist_list` (`pg_advisory_xact_lock(6001)` for create and move in the list of playlists, which has no row of its own; with accounts, the user's row). Held until the transaction commits; the next writer reads what the one before left. In the database, not in Python: it holds across server processes and scripts.
 - `create_playlist(conn, name)` → the new id. A taken name raises `UniqueViolation`.
-- `get_playlists(conn)` → every `PlaylistMetadata`, in your order, with counts and durations: **one query** (`LEFT JOIN` + `GROUP BY`; an empty playlist gets 0 and 0). It was one query plus `_totals` per playlist (1 + N), 7 Oct.
+- `get_playlists(conn)` → every `PlaylistMetadata`, in your order (then by id: a tie keeps its order), with counts and durations: **one query** (`LEFT JOIN` + `GROUP BY`; an empty playlist gets 0 and 0). It was one query plus `_totals` per playlist (1 + N), 7 Oct.
 - `_totals(conn, playlist_id)` → `{"song_count", "duration"}`. `COALESCE`: an empty playlist's `SUM` is `NULL`.
 - `get_playlist_metadata(conn, playlist_id)` → one `PlaylistMetadata`, or `None` (the 404).
 - `get_playlist_items(conn, playlist_id)` → the `PlaylistItem`s in order: one row per item (a song added twice is two items), `ORDER BY position, id` (the UUIDv7 id breaks ties), songs built by `_with_listings`.
 - `add_to_playlist(conn, playlist_id, song_id)` → the new item id. An unknown playlist raises `ForeignKeyViolation`.
 - `rename_playlist`, `delete_playlist`, `remove_from_playlist` → `True` if a row changed (`rowcount`). Remove matches the item **and** the playlist.
-- `move_item(conn, playlist_id, item_id, top_id, bottom_id)`, `move_playlist(conn, playlist_id, top_id, bottom_id)` → read the positions of the row and its neighbours, then `_move`: raises `NotInList` (404) if one is missing, `BadMove` (422) for a row named as its own neighbour or neighbours in the wrong order (`FIError`), else updates one row.
+- `move_item(conn, playlist_id, item_id, top_id, bottom_id)`, `move_playlist(conn, playlist_id, top_id, bottom_id)` → take the list's turn, then `_move(table, where, …)`: raises `NotInList` (404) if a row is missing, `BadMove` (422) for a row named as its own neighbour or neighbours in the wrong order (`FIError`), else updates one row. Two cases more: tied neighbours (left from before the turns) → `_rekey` gives the whole list fresh, evenly spaced keys in its shown order once, then the move; a key already taken (two moves into one slot, the second from an app that had not seen the first: the same neighbours give the same key) → `_taken`, and the row goes just after it, still before the bottom neighbour.
 
 ## db.py
 

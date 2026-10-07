@@ -1,11 +1,13 @@
 """Playlist tests (MUS-2), through the real endpoints, against music_test (the real `music` is never touched)."""
+import asyncio
 from uuid import UUID, uuid4
 
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
-from music_backend import db
+from music_backend import db, library
+from music_backend.models import Listing
 
 TEST_URL = "postgresql:///music_test"
 
@@ -333,3 +335,52 @@ def test_moving_playlists_reorders_the_list(client):
     after = all_positions("playlists")
     assert [k for k in before if before[k] != after[k]] == [UUID(focus)]
     assert client.post(f"/playlists/{uuid4()}/move", json={"top_neighbour_id": gym}).status_code == 404
+
+
+# ---------- BUG-6: writes that pick a position take turns, and no tie stays ----------
+
+@pytest.mark.anyio
+async def test_two_adds_at_once_take_turns_and_get_their_own_places(pool):
+    # both read the same last position and stored the same key: a tie nothing could be moved between
+    async def in_transaction(write):
+        async with pool.connection() as conn, conn.transaction():
+            return await write(conn)
+    gym = await in_transaction(lambda conn: library.create_playlist(conn, f"Gym {uuid4().hex[:6]}"))
+    song = await in_transaction(lambda conn: library.resolve_song(conn, [Listing(**listings("Song")["listings"][0])]))
+    async with pool.connection() as first, first.transaction():
+        await library.add_to_playlist(first, gym, song)              # holds the playlist's turn until it commits
+        second = asyncio.create_task(in_transaction(lambda conn: library.add_to_playlist(conn, gym, song)))
+        await asyncio.sleep(0.2)
+        assert not second.done()                                     # waiting for it
+    await second
+    with psycopg.connect(TEST_URL) as conn:
+        assert conn.execute("SELECT count(DISTINCT position) FROM playlist_items WHERE playlist_id = %s", [gym]).fetchone()[0] == 2
+
+
+def test_a_move_between_two_tied_songs_works(client):
+    # a tie from before the turns answered 422 for good; the playlist gets fresh keys once
+    gym, ids = abc(client)
+    with psycopg.connect(TEST_URL) as conn:
+        conn.execute("UPDATE playlist_items SET position = 'a1' WHERE id = ANY(%s)", [[UUID(ids["A"]), UUID(ids["B"])]])
+    assert move(client, gym, ids["C"], top=ids["A"], bottom=ids["B"]).status_code == 204
+    assert order(client, gym) == ["A", "C", "B"]
+
+
+def test_two_moves_into_the_same_slot_both_land_there(client):
+    # the same neighbours give the same key: the second move (the app had not seen the first) would have tied with it
+    gym, ids = abc(client)
+    d = add(client, gym, listings("D"))["item_id"]
+    move(client, gym, ids["C"], top=ids["A"], bottom=ids["B"])
+    assert move(client, gym, d, top=ids["A"], bottom=ids["B"]).status_code == 204
+    assert order(client, gym) == ["A", "C", "D", "B"]
+    assert len(set(all_positions("playlist_items").values())) == len(all_positions("playlist_items"))
+
+
+def test_a_move_between_two_tied_playlists_works(client):
+    gym, chill, focus = (create(client, n).json()["id"] for n in ("Gym", "Chill", "Focus"))
+    with psycopg.connect(TEST_URL) as conn:
+        conn.execute("UPDATE playlists SET position = 'a0' WHERE id = ANY(%s)", [[UUID(gym), UUID(chill)]])
+    names = lambda: [p["name"] for p in client.get("/playlists").json()["playlists"]]
+    assert names() == ["Gym", "Chill", "Focus"]                      # a tie keeps its order: then by id
+    assert client.post(f"/playlists/{focus}/move", json={"top_neighbour_id": gym, "bottom_neighbour_id": chill}).status_code == 204
+    assert names() == ["Gym", "Focus", "Chill"]
