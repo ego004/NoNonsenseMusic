@@ -35,8 +35,10 @@ class Settings(BaseSettings):
     cache_max_size_in_memory: int = 3000
     # rows in the listing_urls table: after each write, the oldest-fetched beyond this are deleted
     cache_max_size_in_db: int = 6000
+    # days: plain or empty lyrics are asked for again after this long (timed lyrics are kept for good)
+    lyrics_recheck_days: float = 7
+
     # not used yet: jiosaavn.py still has its own copy of the key
     jiosaavn_des_key: str | None = None
-
 
 settings = Settings()
