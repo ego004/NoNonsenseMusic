@@ -40,8 +40,10 @@ struct HomeView: View {
             .padding(.bottom, 32)
             .frame(maxWidth: 1180, alignment: .leading)
             .frame(maxWidth: .infinity)
+            // the page is a page, not a web page: it never stretches past its top or bottom. A swipe on a shelf moved
+            // it (7 Oct); `.basedOnSize` below stopped that only while the page fitted the window
+            .background(ScrollElasticity(vertical: .none, horizontal: .none))
         }
-        // no bounce while the page fits the window: a sideways swipe on a shelf moved the whole page with it (7 Oct)
         .scrollBounceBehavior(.basedOnSize)
         .navigationTitle("Home")
         .task { await library.refresh() }
@@ -76,6 +78,7 @@ struct HomeView: View {
                 }
             }
             .padding(.vertical, 12)                         // room for the hover lift and its shadow
+            .background(ScrollElasticity(vertical: .none))   // a shelf moves sideways only
         }
         .scrollIndicators(.never)                           // .hidden still showed them with a mouse
         .defaultScrollAnchor(.leading)
@@ -107,6 +110,7 @@ struct HomeView: View {
                     }
                 }
             }
+            .background(ScrollElasticity(vertical: .none))   // a shelf moves sideways only
         }
         .scrollIndicators(.never)
         .defaultScrollAnchor(.leading)

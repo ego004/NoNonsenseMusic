@@ -82,6 +82,10 @@ struct PlayerBar: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             .background { fill }
+            // the whole bar is the bar: with no fill (Liquid Glass, Fill 0) its empty parts were not there for the
+            // pointer, so a pinch opened Now Playing only over the progress line (the one part with a hit area), and
+            // a click between the controls fell through to the song under the bar (7 Oct)
+            .contentShape(shape)
             .glassEffect(barStyle == .glass ? barGlass : .identity, in: shape)
             .glassEffectID("bar", in: glass)
             .glassEffectTransition(.materialize)
@@ -899,31 +903,31 @@ struct UpNextView: View {
                     .textStyle(.callout).foregroundStyle(.secondary)
                     .padding(.horizontal, 16).padding(.bottom, 16)
             } else {
-                // a List, for drag to reorder; each row is an entry (a song queued twice is two rows)
-                List {
-                    ForEach(Array(player.upNextEntries.enumerated()), id: \.element.id) { offset, entry in
+                // drag a row to move it: it follows the pointer and the others make room (ReorderableStack; List's own
+                // drag and drop never delivered the drop in here, 7 Oct). Each row is an entry: a song queued twice is two
+                ScrollView {
+                    ReorderableStack(items: player.upNextEntries, rowHeight: 46) { from, to in
+                        // moveUpNext counts as List's onMove does: the destination before the row is taken out
+                        player.moveUpNext(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+                    } row: { entry, offset in
                         UpNextRow(track: entry.track) {
                             player.jump(to: player.index + 1 + offset)
                         } remove: {
                             withAnimation(.snappy) { player.removeFromUpNext(at: offset) }
                         }
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+                        .padding(.horizontal, 6)
                     }
-                    .onMove { player.moveUpNext(fromOffsets: $0, toOffset: $1) }
+                    .animation(.snappy(duration: 0.3), value: player.upNextEntries.map(\.id))
+                    .padding(.bottom, 8)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .animation(.snappy(duration: 0.3), value: player.upNextEntries.map(\.id))
-                .padding(.bottom, 8)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // the glass is Now Playing's, shared with Lyrics
     }
 }
 
-/// One song in Up Next: click plays it now; drag to move it; ✕ (on hover) or right-click removes it.
+/// One song in Up Next: double-click plays it now; drag to move it (ReorderableStack); ✕ (on hover) or right-click
+/// removes it.
 private struct UpNextRow: View {
     let track: Track
     let play: () -> Void
@@ -953,9 +957,7 @@ private struct UpNextRow: View {
         .padding(.horizontal, 6).padding(.vertical, 4)
         .background(hovering ? AnyShapeStyle(.primary.opacity(0.06)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 8, style: .continuous))
         .contentShape(.rect)
-        // double-click plays: a single-click tap gesture took the mouse-down, so the list never started a drag and
-        // Up Next could not be reordered (7 Oct). Playlists' rows work the same way
-        .onTapGesture(count: 2, perform: play)
+        .onTapGesture(count: 2, perform: play)             // no List under it now: a gesture here stops no drag
         .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
         .contextMenu {
             Button("Play Now", action: play)

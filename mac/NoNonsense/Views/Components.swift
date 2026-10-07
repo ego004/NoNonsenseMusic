@@ -755,3 +755,115 @@ extension View {
         modifier(ScaledText(size: size, weight: weight, monospacedDigit: false))
     }
 }
+
+/// How far a SwiftUI ScrollView may stretch past its edges (the rubber band), which SwiftUI has no modifier for on
+/// macOS: `scrollBounceBehavior(.basedOnSize)` stops it only while the content fits. Put it behind the scroll view's
+/// content (`.background(ScrollElasticity(...))`): it finds the AppKit scroll view that draws it. Takes no clicks.
+struct ScrollElasticity: NSViewRepresentable {
+    var vertical: NSScrollView.Elasticity = .automatic
+    var horizontal: NSScrollView.Elasticity = .automatic
+
+    func makeNSView(context: Context) -> ScrollElasticityView { ScrollElasticityView() }
+
+    func updateNSView(_ view: ScrollElasticityView, context: Context) {
+        view.vertical = vertical
+        view.horizontal = horizontal
+        view.apply()
+    }
+}
+
+final class ScrollElasticityView: NSView {
+    var vertical: NSScrollView.Elasticity = .automatic
+    var horizontal: NSScrollView.Elasticity = .automatic
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        apply()
+    }
+
+    /// Now, and once more after SwiftUI's own update of the scroll view, which may set it back
+    func apply() {
+        set()
+        Task { @MainActor [weak self] in self?.set() }      // runs after the current update, on the main thread
+    }
+
+    private func set() {
+        guard let scroll = enclosingScrollView else { return }
+        if scroll.verticalScrollElasticity != vertical { scroll.verticalScrollElasticity = vertical }
+        if scroll.horizontalScrollElasticity != horizontal { scroll.horizontalScrollElasticity = horizontal }
+    }
+}
+
+/// A list you reorder by dragging a row: it lifts and follows the pointer, the rows it passes slide aside to make
+/// room, and it settles where you let go. A plain stack and one drag gesture per row, not List's drag and drop: inside
+/// Now Playing's own host the drop never reached `onMove` (the row went back, 7 Oct; Apple's forums report the same
+/// for a list in a popover), and a Mac list only draws an insertion line, never the rows making room.
+/// Costs nothing until you drag. While you drag, the lifted row follows the pointer and the others move only when the
+/// place it would land changes. Rows have one height (`rowHeight`): the drag counts places in it.
+struct ReorderableStack<Item: Identifiable, Row: View>: View {
+    let items: [Item]
+    let rowHeight: CGFloat
+    /// The row at `from` goes to `to`: both are places in `items`, `to` the row's place once moved.
+    let move: (_ from: Int, _ to: Int) -> Void
+    @ViewBuilder let row: (Item, Int) -> Row
+    @AppStorage("haptics") private var haptics = true
+    @State private var dragged: Item.ID?
+    @State private var from = 0
+    @State private var travel: CGFloat = 0                 // how far the lifted row has been dragged, in points
+
+    /// Where the lifted row would land if you let go now.
+    private var target: Int {
+        guard dragged != nil, !items.isEmpty else { return from }
+        return min(max(0, from + Int((travel / rowHeight).rounded())), items.count - 1)
+    }
+
+    var body: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+                let lifted = item.id == dragged
+                row(item, i)
+                    .frame(height: rowHeight)
+                    .scaleEffect(lifted ? 1.03 : 1)
+                    .shadow(color: .black.opacity(lifted ? 0.2 : 0), radius: lifted ? 10 : 0, y: lifted ? 4 : 0)
+                    .offset(y: lifted ? travel : shift(i))
+                    // the lifted row follows the pointer at once; the others glide aside
+                    .animation(lifted ? nil : Animation.snappy(duration: 0.22), value: shift(i))
+                    .zIndex(lifted ? 1 : 0)
+                    .gesture(drag(item.id, at: i))
+                    .accessibilityAction(named: "Move Up") { if i > 0 { move(i, i - 1) } }
+                    .accessibilityAction(named: "Move Down") { if i < items.count - 1 { move(i, i + 1) } }
+            }
+        }
+        // a light tick for each place the row passes (Force Touch trackpads; Settings › Trackpad › Haptic ticks)
+        .sensoryFeedback(.levelChange, trigger: target) { _, _ in haptics && dragged != nil }
+    }
+
+    /// How far a row that is not lifted moves aside: one row up or down while the lifted one is past it.
+    private func shift(_ i: Int) -> CGFloat {
+        guard dragged != nil else { return 0 }
+        let to = target
+        if from < to, i > from, i <= to { return -rowHeight }
+        if from > to, i < from, i >= to { return rowHeight }
+        return 0
+    }
+
+    private func drag(_ id: Item.ID, at i: Int) -> some Gesture {
+        // in the window's coordinates: in the row's own, which moves with the drag, the distance would feed back on itself
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .onChanged { value in
+                if dragged == nil { dragged = id; from = i }
+                travel = value.translation.height
+            }
+            .onEnded { _ in
+                let (start, end) = (from, target)
+                // one animation: the lifted row settles into its new place, the others stay where they slid
+                withAnimation(.snappy(duration: 0.25)) {
+                    if end != start { move(start, end) }
+                    dragged = nil
+                    travel = 0
+                }
+            }
+    }
+}
