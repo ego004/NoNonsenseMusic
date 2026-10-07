@@ -301,19 +301,25 @@ final class Player {
         guard let track = current else { return }
         fallbacksTried = 0
         freshRetried = []
-        load(downloads.file(for: track)?.listing ?? track.best)      // a downloaded copy plays from the file
+        let first = downloads.file(for: track)?.listing ?? track.best   // a downloaded copy plays from the file
+        firstCopy = first.key
+        load(first)
         report("play", track, at: 0)
         announceNext()
     }
 
-    private func load(_ listing: Listing, fresh: Bool = false) {
+    /// The copy the song started with: a downloaded one need not be `best`. The fallbacks are the others.
+    @ObservationIgnored private var firstCopy: String?
+
+    /// `fromFile: false` streams even a downloaded copy (its file would not play).
+    private func load(_ listing: Listing, fromFile: Bool = true) {
         position = 0
         isBuffering = true                                        // the spinner, until audio arrives
         playingListing = listing
-        let file = fresh ? nil : downloads.localURL(for: listing)
+        let file = fromFile ? downloads.localURL(for: listing) : nil
         playingFile = file != nil
         // a downloaded copy plays from its file; any other, through the server (which redirects to the audio file)
-        let item = AVPlayerItem(url: file ?? API.playURL(listing, fresh: fresh))
+        let item = AVPlayerItem(url: file ?? API.playURL(listing))
         // no time-stretching: the default algorithm processed every sample to allow speed changes we never make
         // (MEMixerChannel::TimePitch, a steady share of the audio thread, profiled 7 Oct). Varispeed at 1x is a pass-through
         item.audioTimePitchAlgorithm = .varispeed
@@ -335,7 +341,9 @@ final class Player {
         guard let loaded = player.currentItem, ObjectIdentifier(loaded) == item else { return }
         if status == .readyToPlay { failuresInARow = 0 }         // this song loads: the run of failures is over
         guard status == .failed, let track = current, let failed = playingListing else { return }
-        let others = track.listings.filter { $0.key != track.best.key }
+        // every copy but the one it started with: excluding `best` instead retried a broken downloaded copy that was not
+        // `best`, and never tried `best` (audit, 7 Oct)
+        let others = track.listings.filter { $0.key != (firstCopy ?? track.best.key) }
 
         // another copy exists: switch to it at once, then say why the first one failed
         if fallbacksTried < others.count {
@@ -359,7 +367,8 @@ final class Player {
             Task {
                 let answer = await API.refresh(failed)
                 guard current?.id == track.id, playingListing?.key == failed.key else { return }
-                if answer?.status == 307 { load(failed) } else { giveUp(track, because: Self.reason(answer, failed)) }
+                // streamed: when the copy that failed was a downloaded file, loading it again replayed the same broken file
+                if answer?.status == 307 { load(failed, fromFile: false) } else { giveUp(track, because: Self.reason(answer, failed)) }
             }
             return
         }

@@ -144,7 +144,7 @@ State the screens read: `queue`, `index`, `current`, `playingFrom` (the playlist
 | `installKeyMonitor()` | Space = play/pause, except while typing in a text field. |
 | `installSwipeMonitor()` | Two-finger swipe across the player bar: fingers left = next, right = previous. One skip per swipe; the coasting afterwards is ignored; vertical swipes pass through. Uses `barFrame`, which the bar reports. Checked 5 Oct with a synthetic swipe: one swipe, one `next()`. |
 | `startCurrent()` (private) | Plays the current song's best copy, reports `play`, and tells the Prefetcher the next 5 songs (`announceNext`). |
-| `load(listing, fresh:)` (private) | Gives AVPlayer the `/play` URL (or the `serve_fresh` one); remembers which copy is loaded; watches for failure. |
+| `load(listing, fromFile:)` (private) | Gives AVPlayer the copy's file if it is downloaded, else the `/play` URL; remembers which copy is loaded (`firstCopy`: the fallbacks are every other copy); watches for failure. `fromFile: false` streams a downloaded copy whose file would not play. |
 | `statusChanged(status, of:)` (private) | Ignores news about a copy already replaced (it failed just as you pressed ⏭). A copy failed. **2+ copies:** switch to the next one at once, then `API.refresh` the failed one and show why ("YouTube Music is unavailable right now. Playing the JioSaavn copy."). **1 copy:** `API.refresh` first (spinner); play the fresh URL if one came back (307), else say why and move on. Checked 5 Oct with `NN_SELFTEST_PLAY` and `NN_SELFTEST_LISTINGS` (a bot-checked YouTube copy → 502 → JioSaavn copy plays → message). |
 | `show(message)` (private) | Shows `errorMessage` for 4 seconds; a newer message replaces it. |
 | `seeks` | Counts every seek: Lyrics restarts its wait on it (`position` alone misses ⏮ to 0 when it is still 0 from the song's start). |
@@ -306,7 +306,7 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | | `TiltCard` | Any square artwork that answers the pointer (tilt off, the default: only whether the pointer is over it; following every pointer move cost work on every frame of a scroll): tilts toward it, a light follows the pointer, the shadow deepens, a glass ▶ floats in. No tilt with Reduce Motion. Used by song covers and playlist cards. |
 | | `CoverTile` | One cover: under the pointer it tilts toward it with a soft light following the pointer (the Apple TV focus look), lifts, deepens its shadow and shows a glass play button; click plays (the whole Recently Played list becomes the queue). No tilt with Reduce Motion. |
 | | `SongListView` | Liked Songs and Recently Played: title, count, Play, Shuffle, the list. |
-| `SongRow.swift` | `SongRow` | One song: artwork (click to play), title, artists, "N listings" (click to open), heart (on hover), duration. Double-click plays. Right-click: Play, Play Next, Like, Add to Playlist (every playlist, or New Playlist…), and in a playlist "Remove from …". Playing a chosen listing keeps the rest of the list as the queue. |
+| `SongRow.swift` | `SongRow` | (The look and the hover are `SongRowLine`: a hover or a song change redraws only that, not the row and its menu.) One song: artwork (click to play), title, artists, "N listings" (click to open), heart (on hover), duration. Double-click plays. Right-click: Play, Play Next, Like, Add to Playlist (every playlist, or New Playlist…), and in a playlist "Remove from …". Playing a chosen listing keeps the rest of the list as the queue. |
 | | `ListingRow` | One copy, inside an opened song: title, artists, "Default" for the copy that plays normally, source, quality, length. Click plays exactly this copy; the playing copy shows an animated speaker. |
 | `PlayerViews.swift` | `UpNextView` | Now Playing's Up Next: drag to reorder (a grip shows on hover), double-click to play, ✕ or right-click to remove, Clear. Double-click since 7 Oct: a single-click tap gesture took the mouse-down, so the list never started a drag. Once you change it by hand, the queue is yours: the playlist it came from no longer reorders it. |
 | | `PlayerBar` | The floating bar (a rounded rectangle, at most 900 pt wide, 70 pt tall): the song on the left; in the centre ⏮ ▶ ⏭ with the progress line under them, elapsed time on its left and time left on its right; the buttons on the right. The progress line used to run along the bar's curved bottom edge, which looked stuck on (6 Oct). Liquid Glass by default (*interactive*: reacts to hover and press; *materializes* in), or Frosted (Settings › Appearance › Surfaces › Player bar). In a narrow window the volume slider folds away first (the speaker still mutes). Hidden until a song plays. |
@@ -318,7 +318,7 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 | `Home.swift` | `HomeView` | The first screen: a greeting; "Jump back in" (recently played covers in a shelf that stops on a cover); "Your playlists" (a grid of cards); "Liked Songs" (compact rows three high, scrolling sideways). Both shelves are made once, not lazily (a lazy stack made tiles again on the way back: it stuttered), scroll freely (snapping felt laggy) and never show scroll bars; the page does not bounce while it fits the window (a sideways swipe moved it, 7 Oct); See All on each. A new library shows one step: Search. Sections fade up one after another (not with Reduce Motion). |
 | | `PlaylistCard` | A playlist on Home: cover (its songs are loaded on first sight), name, length. Click opens it; the glass ▶ plays it; right-click: Open, Play, Rename, Delete. |
 | | `CompactSongTile` | A song as a compact row for the sideways grids. Click plays; right-click has the full row's menu. The look and the hover live in `CompactSongFace`: a hover redraws only that, and the cover's overlay fades instead of being added and removed (that laid the tile out again on every hover: 8% of a core while hovering, 7 Oct). `SongRow` fades its overlay the same way. |
-| `Playlists.swift` | `PlaylistView` | One playlist: cover, name, "12 songs · 48 min", Play, Shuffle, ⋯ (Rename, Delete), the songs. Drag a song to move it; right-click to remove it. "This playlist is gone" if it was deleted elsewhere. |
+| `Playlists.swift` | `PlaylistView` | One playlist: cover, name, "12 songs · 48 min", Play, Shuffle, ⋯ (Rename, Delete), the songs. "Couldn't load this playlist" with Try Again when the server cannot be asked (it spun forever). Drag a song to move it; right-click to remove it. "This playlist is gone" if it was deleted elsewhere. |
 | | `PlaylistCover` | Until uploads exist: the first four different covers in a 2×2 grid, one cover for fewer, a soft gradient for none. The gradient's colour comes from the playlist's name, so empty playlists differ. |
 | | `NamePlaylistSheet` | New Playlist and Rename: the server decides whether a name is free; its reason shows under the field, and the field shakes (not with Reduce Motion). |
 | | `AddToPlaylistMenu` | "Add to Playlist" in a song's menu: New Playlist… (made, then the song added), then every playlist. |
@@ -342,9 +342,22 @@ Measured: 3 artists × 4 songs, 1,000 shuffles: same-artist neighbours per shuff
 
 ---
 
-## Performance (measured 7 Oct, debug build, a song playing, muted)
+## Performance
 
-**The rule:** the lightest choice is the default; anything that costs more is a setting that says what it costs (Settings › Footprint lists them, with the live readings). Measured with `NN_SELFTEST_PERF` (each screen held 12 s, `top` sampling the app once a second; medians).
+**The rule:** the lightest choice is the default; anything that costs more is a setting that says what it costs (Settings › Footprint lists them, with the live readings). **Daily use is the Release build** (`-configuration Release`); Debug is unoptimised and runs the self-test hooks.
+
+**Release build, 7 Oct evening, a song playing (`top`):**
+
+| Screen | CPU |
+|---|---|
+| Home, nothing touched | **0.0–0.9%** |
+| Now Playing | **0.6–0.9%** |
+| Now Playing + Lyrics (a line every second) | **1.0%** (was 30–40%: the lines were a SwiftUI scroll redrawn every frame) |
+| Clicking on the app (macOS redraws an active window) | a moment, ~4% |
+
+What moves on screen is Core Animation, played by macOS's render server, not redrawn by the app: the progress line (10 fps), the equaliser bars (30 fps), the lyrics (≤60 fps), a new song's cover and background crossfades. Nothing under Now Playing moves while it is open. Still open (left for later): scrolling lists is a little less fluid than Apple's own apps (the app is nearly idle while scrolling: measured with `sample`; Reduce Transparency did not change it).
+
+**Earlier measurements (Debug build, NN_SELFTEST_PERF, 7 Oct morning):**
 
 | Screen | Still background (default) | Moving background | Before 7 Oct (still / moving) |
 |---|---|---|---|

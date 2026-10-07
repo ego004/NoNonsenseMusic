@@ -8,6 +8,7 @@ struct PlaylistView: View {
     @Environment(Player.self) private var player
     @Environment(DownloadStore.self) private var downloads
     @State private var gone = false
+    @State private var loading = true
 
     private var detail: PlaylistDetail? { library.details[id] }
 
@@ -18,12 +19,27 @@ struct PlaylistView: View {
                                        description: Text("It was deleted, maybe on another device."))
             } else if let detail {
                 songs(detail)
-            } else {
+            } else if loading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // the server could not be asked (it spun forever, audit 7 Oct): say so, and offer to ask again
+                ContentUnavailableView {
+                    Label("Couldn't load this playlist", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text("Is the server running?")
+                } actions: {
+                    Button("Try Again") { Task { await load() } }
+                }
             }
         }
         .navigationTitle(detail?.name ?? library.playlists.first { $0.id == id }?.name ?? "Playlist")
-        .task(id: id) { gone = !(await library.loadPlaylist(id)) }
+        .task(id: id) { await load() }
+    }
+
+    private func load() async {
+        loading = true
+        gone = !(await library.loadPlaylist(id))
+        loading = false
     }
 
     private func songs(_ detail: PlaylistDetail) -> some View {

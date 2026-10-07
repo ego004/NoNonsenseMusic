@@ -70,5 +70,11 @@ flowchart LR
 1. Start the database (it starts automatically after a reboot): `brew services start postgresql@18`
 2. Start the server: `cd ~/projects/music/backend && uv run fastapi dev src/music_backend/main.py`
 3. Run the tests: `cd ~/projects/music/backend && uv run pytest -q`
-4. Open the app: `open ~/projects/music/mac/build/Build/Products/Debug/NoNonsense.app`
-   (or open `mac/NoNonsense.xcodeproj` in Xcode and press ⌘R)
+4. Build and open the app (Release: the one to use every day; Debug is unoptimised and for self-tests):
+   ```bash
+   cd ~/projects/music/mac
+   xcodebuild -project NoNonsense.xcodeproj -scheme NoNonsense -configuration Release -derivedDataPath build build 2>&1 | grep -E "error:|BUILD"
+   open build/Build/Products/Release/NoNonsense.app
+   ```
+   (or open `mac/NoNonsense.xcodeproj` in Xcode and press ⌘R for a Debug run)
+5. The database needs PostgreSQL 18: `schema.sql` uses `uuidv7()`, which older versions do not have.

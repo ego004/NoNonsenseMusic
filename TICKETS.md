@@ -13,7 +13,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 > **Renumbered 5 Oct 2026.** Done and removed: resilient search, play, merge + rank, library, shuffle, and the Mac app v1. Git history and old commit messages use the old numbers. Old → new: 16 → 1 (and 4), 15 → 2, 8 → 3, 5 → 5, 9 → 6, 10 → 7, 6 + 11 → 8, 12 → 9, 13 → 10, 14 → 11.
 
-> **Order (decided 5 Oct, updated 7 Oct 2026):** ~~MUS-2~~ ✅ → ~~MUS-1~~ ✅ → ~~MUS-12 lyrics~~ ✅ → **MUS-15** links that survive an IP change (small; you feel it daily) → **MUS-16** log searches and measure ranking → **MUS-17** a ranking foundation (features, weights, explanations) → **MUS-18** your taste → MUS-3 autoplay (ranked by MUS-17 + 18) → MUS-13 YouTube. MUS-14 covers whenever you want a contained evening.
+> **Order (decided 5 Oct, updated 7 Oct 2026, evening):** ~~MUS-2~~ ✅ → ~~MUS-1~~ ✅ → ~~MUS-12 lyrics~~ ✅ → **BUG-1 → BUG-7** (the 7 Oct audit's bugs; BUG-1 first: MUS-15 changes the same check) → **MUS-15** links that survive an IP change (small; you feel it daily) → **MUS-16** log searches and measure ranking → **MUS-17** a ranking foundation (features, weights, explanations) → **MUS-18** your taste → MUS-3 autoplay (ranked by MUS-17 + 18) → MUS-13 YouTube. MUS-14 covers whenever you want a contained evening.
 
 | Ticket | What you can show at the end | Who | Size |
 |---|---|---|---|
@@ -36,6 +36,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 | MUS-17 | Search ranked by named, weighted signals; each result can say why it ranks where it does; a change is judged by MUS-16's number | **You** (scorer) · Claude (app "why", tests) | L |
 | MUS-18 | Your taste as numbers (songs and artists you play, finish, skip, like), used by search and autoplay | **You** · Claude (tests) | M |
 | MUS-19 ✅ | Explicit and clean versions: an 🅴 on explicit ones, and your choice of which plays (done 7 Oct) | Claude (wired in, on your go-ahead) | S |
+| BUG-1…7 | The 7 Oct audit's backend bugs, each gone and each with a test (BUG-1 before MUS-15) | **You** · Claude (review, tests) | S each |
 
 ---
 
@@ -273,6 +274,10 @@ Claude writes the pytest tests (against `music_test`). The app work (sidebar, pl
 | — | 7 Oct: Up Next: double-click plays, drag moves (a single-click tap took the mouse-down, so drags never started); lyrics fade instead of snapping | ✅ built; the drag itself needs your hands |
 | — | 7 Oct: search prepares only its top result, 1 s after you stop typing (Settings › Footprint: none / top / top 5) | ✅ `NN_SELFTEST_PREFETCH`: top result 5.3 ms |
 | — | 7 Oct: safety. Your saved server address had become the test one (8765): a test could use your app's server. Tests now run only on a server they started; the scripts refuse a busy port; the address field saves on Return only | ✅ |
+| — | 7 Oct evening, audit: CPU. Release build, a song playing: Home 0.0–0.9%, Now Playing 0.6–0.9%, **Lyrics 1.0% (was 30–40%)**. The lyrics, the progress line (10 fps), the equaliser bars (30 fps), a new song's cover and background crossfades are Core Animation; nothing moves under Now Playing; Now Playing is built once and kept; a song start refreshes only Recent; unchanged data redraws nothing; Footprint no longer measures itself (it said 1.8% for 0.9%) | ✅ measured by you with `top` |
+| — | 7 Oct evening, audit: bugs. The clean copy played the explicit one; play after "Stopped" did nothing; ⏭⏭ left song 2's cover and colours on song 3; lyrics followed the previous song's times; a broken download fell back to itself; a playlist spun forever with the server down; `/health` accepted any answer; the Release build did not compile (SelfTest); four files were never committed | ✅ built; not covered by a self-test yet |
+| — | 7 Oct evening: Now Playing hides the toolbar (the sidebar button showed over it); Home's shelves neither snap nor bounce and are made once; a hover redraws only the row or tile under the pointer | ✅ |
+| — | **Open:** lists scroll a little less fluidly than Apple's apps (the app is nearly idle meanwhile, measured with `sample`; not transparency). Rare: like then unlike at once on a search result can stay liked; a slow playlist load can undo a drag made just before it lands; Settings › Server › Restart can freeze the window up to 2 s | later |
 
 ---
 
@@ -283,6 +288,59 @@ Claude writes the pytest tests (against `music_test`). The app work (sidebar, pl
 **Facts (checked 7 Oct):** JioSaavn gives `explicit_content` "1"/"0" on every search result and in `song.getDetails` (many ids per call); YouTube Music marks explicit rows with a `MUSIC_EXPLICIT_BADGE` badge (`badges[…].musicInlineBadgeRenderer.icon.iconType`), and no badge means clean. *Les*: 2 explicit and 2 clean copies; the server's pick was clean.
 
 **Done:** `Listing.explicit` (None = unknown) parsed by both sources; the `listings.explicit` column (added by `schema.sql`; an unknown flag is filled in when the listing is seen again, a known one never overwritten); the app plays your version (Settings › Playback: explicit by default, or clean), shows 🅴 beside explicit titles and in a song's versions. Your library's 111 listings were filled in by `scripts/backfill_explicit.py` (nothing deleted): JioSaavn 27 explicit / 37 clean, YouTube 24 / 23, none unknown. Tests: 3 backend, `NN_SELFTEST_EXPLICIT`.
+
+---
+
+## BUG · The 7 Oct audit's bugs (yours: the backend)
+
+Found by reading the code and, where it says *reproduced*, by running it with fake replies (no network). Each one: what goes wrong, how to see it, what done looks like. Where the fix goes is yours to find: reproduce it first, then follow it through the code. Bring "BUG-n ready" and Claude reviews it and writes the test.
+
+### BUG-1 · A YouTube link without `?expire=` breaks `/play` for that song, for good
+**What goes wrong:** the cache reads a YouTube link's expiry from its `expire=` query parameter. yt-dlp can also return links that carry it in the path (`…/expire/1759999999/…`). Such a link is stored; every later `/play` of that song then answers **500**, even after a restart (the link is in the table). `serve_fresh` works once, and stores the same kind of link again.
+**Reproduced (7 Oct):** play → 200; play again → 500 (`AttributeError`); `serve_fresh` → 200; play again → 500.
+**Done when:** a link whose expiry cannot be read is never a crash and never served as fresh; a test with a path-style link shows it; nothing logs a URL or an IP.
+**Yours to decide:** read the expiry from the path too, or treat "can't tell" as stale (and what that costs).
+**Docs:** [`re.search`](https://docs.python.org/3/library/re.html#re.search) (what it returns when nothing matches) · [`urllib.parse`](https://docs.python.org/3/library/urllib.parse.html)
+
+### BUG-2 · One bot check can pause YouTube for 16 minutes instead of 2
+**What goes wrong:** the back-off adds a strike per failed answer, not per blocking episode. Four prefetch lookups in flight when YouTube starts blocking all fail: four strikes, so the first pause is 2 × 2³ = **16 min**. The other way round: a lookup that began before the block and succeeds after it resets the strikes to 0 in the middle of a pause.
+**Reproduced (7 Oct):** four lookups at once, all blocked → paused 16 min.
+**Done when:** tests: four lookups blocked at once → the first pause (2 min); a success that began before the block leaves the pause alone.
+**Yours to decide:** what counts as one episode.
+**Docs:** [`time.monotonic`](https://docs.python.org/3/library/time.html#time.monotonic) (and why it suits pauses better than `time.time`)
+
+### BUG-3 · JioSaavn's bad days answer 500
+**What goes wrong:** when JioSaavn answers with an HTML error page, with `{"songs": []}`, with a song that has no media URL, or with a JSON error on a 429/5xx, `/play` answers **500** (or 404 "Song not found" during an outage). The app then says "didn't load" instead of "JioSaavn is unavailable right now".
+**Reproduced (7 Oct):** an HTML body → `JSONDecodeError` → 500; `{"songs": []}` → `IndexError` → 500.
+**Done when:** every way JioSaavn can fail ends in one of the sources' own errors, so `/play` answers 404 or 502, never 500; a test per case, with fake replies.
+**Yours to decide:** which failures mean "this song is gone" and which "JioSaavn is unavailable".
+
+### BUG-4 · One odd JioSaavn row loses the whole JioSaavn half of a search
+**What goes wrong:** one result with, say, `"duration": ""` fails validation, and the whole JioSaavn search reports unhealthy with 0 results. YouTube Music already skips one bad row and keeps the other 19. *(Read in the code, not run.)*
+**Done when:** a saved reply with one broken row gives all the others, and JioSaavn stays healthy; the skipped row is one log line.
+
+### BUG-5 · An overloaded LRCLIB is remembered as "no lyrics" for 7 days
+**What goes wrong:** LRCLIB answers 503 when it is overloaded, even for songs it has (MUS-12's own trap). For a song with no YouTube copy, that 503 counts as "every source answered, nothing found", and the empty reply is stored for 7 days. *(Read in the code, not run.)*
+**Done when:** a test: LRCLIB 503 and no YouTube id → an empty reply, nothing stored, and the next request asks again.
+
+### BUG-6 · Two songs at the same position cannot be moved between
+**What goes wrong:** two adds at the same moment can get the same position (the code knows: it sorts ties by time). Dragging a song between those two asks for a key between two equal keys, which raises, so the move answers **422**, for good. Playlists can tie the same way, and the list of playlists has no tie-break, so two tied playlists can swap places between loads. *(Read in the code, not run.)*
+**Done when:** a test: two items at one position, a third moved between them → 204, and the order is what you asked for; the playlist list always comes back in the same order.
+**Yours to decide:** make ties impossible, or repair them when you meet one.
+
+### BUG-7 · `/recent?limit=-1` answers 500
+**What goes wrong:** a negative limit reaches PostgreSQL ("LIMIT must not be negative"). *(Read in the code.)*
+**Done when:** a negative (or absurd) limit is a 422 before any SQL runs.
+**Docs:** FastAPI [Query parameters and validation](https://fastapi.tiangolo.com/tutorial/query-params-str-validations/) (numbers: `ge`, `le`)
+
+### STRIP · A lighter server (optional, one evening)
+From the same audit. The server idles at ~0.2% of a core (uvicorn's own 10-a-second tick; only another server would remove it), so this is about memory and less code:
+- `fastapi[standard]` loads FastAPI Cloud's tools (Sentry among them) on every start: `fastapi[standard-no-fastapi-cloud-cli]` measured 96 → 89 MB, with no change to how the app starts the server.
+- Unused: the `jiosaavn_cache_expiry_threshold` setting (and its line in `.env.example`), `GET /`.
+- Written twice: single-flight in the URL cache and in the lyrics cache.
+- A cache hit in the table is two statements; one `UPDATE … RETURNING` does both.
+- The prefetch worker asks "is it cached?" in a way that also marks the row as used, so "least recently used" means "least recently prefetched".
+- The tests define the same database fixtures in 4–7 files: one `tests/conftest.py`.
 
 ---
 
