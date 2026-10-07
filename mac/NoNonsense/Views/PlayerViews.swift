@@ -82,6 +82,10 @@ struct PlayerBar: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             .background { fill }
+            // the whole bar is the bar: with no fill (Liquid Glass, Fill 0) its empty parts were not there for the
+            // pointer, so a pinch opened Now Playing only over the progress line (the one part with a hit area), and
+            // a click between the controls fell through to the song under the bar (7 Oct)
+            .contentShape(shape)
             .glassEffect(barStyle == .glass ? barGlass : .identity, in: shape)
             .glassEffectID("bar", in: glass)
             .glassEffectTransition(.materialize)
