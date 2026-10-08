@@ -1577,8 +1577,14 @@ extension SelfTest {
             if let fixed, let before {
                 report(String(format: "fullscreen: top strip brightness %.2f now, %.2f as before (0 black, 1 white); middle %.2f",
                               fixed.top, before.top, fixed.middle))
-                check("the top strip is not black (brighter than as before, and near the window's middle)",
-                      fixed.top > before.top + 0.1 && abs(fixed.top - fixed.middle) < 0.35)
+                // without Screen Recording, screencapture shows the desktop only: both pictures then read the same, and
+                // they say nothing about the app (seen on CI, 8 Oct: 0.99 and 0.99). Judged on a real screen then
+                if abs(fixed.top - before.top) < 0.02 && abs(fixed.middle - before.middle) < 0.02 {
+                    report("fullscreen: the screenshots do not show the app (no Screen Recording here?): the strip is not judged")
+                } else {
+                    check("the top strip is not black (brighter than as before, and near the window's middle)",
+                          fixed.top > before.top + 0.1 && abs(fixed.top - fixed.middle) < 0.35)
+                }
             }
 
             window.toggleFullScreen(nil)

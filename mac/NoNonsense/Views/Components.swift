@@ -706,7 +706,7 @@ struct ClearWindow: NSViewRepresentable {
             // full screen: the window opaque, in its own colour. A full-screen Space has no desktop behind the window:
             // every see-through pixel showed black, the toolbar's strip most of all (8 Oct). Switched as full screen
             // begins and back once it has ended, so neither animation shows black either
-            // (entering again, once it has: a full screen that failed to begin is not left opaque)
+            // once entered, the window's own state is read again
             let changes: [(Notification.Name, Bool?)] = [(NSWindow.willEnterFullScreenNotification, true),
                                                          (NSWindow.didEnterFullScreenNotification, nil),
                                                          (NSWindow.didExitFullScreenNotification, false)]
