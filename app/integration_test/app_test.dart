@@ -110,8 +110,13 @@ void main() {
     expect(find.text('Up Next'), findsWidgets);
     await snap(tester, 'now-playing');
 
+    // lyrics were asked for when the song started (8 Oct: only when the panel opened, so it said "Finding lyrics…")
+    await until(tester, () => lyrics.of(player.current!) != null, seconds: 15);
+    expect(lyrics.of(player.current!), isNotNull, reason: 'fetched with the song, before the panel opens');
     // lyrics beside the song: found (or "Couldn't find lyrics"), never stuck on "Finding lyrics…"
     player.setPanel('lyrics');
+    await tester.pump();
+    expect(find.text('Finding lyrics…'), findsNothing, reason: 'already there when the panel opens');
     await until(tester, () => lyrics.of(player.current!) != null, seconds: 15);
     await tester.pump(const Duration(seconds: 1));
     final found = lyrics.of(player.current!);

@@ -83,7 +83,9 @@ class NoNonsenseApp extends StatelessWidget {
   const NoNonsenseApp({super.key, required this.player, required this.library, required this.lyrics, required this.settings, required this.auth});
 
   @override
-  Widget build(BuildContext context) => Scope(
+  Widget build(BuildContext context) {
+    lyrics.follow(player); // each song's lyrics asked for as it starts (once; later builds do nothing)
+    return Scope(
         player: player,
         library: library,
         lyrics: lyrics,
@@ -101,4 +103,5 @@ class NoNonsenseApp extends StatelessWidget {
           ),
         ),
       );
+  }
 }

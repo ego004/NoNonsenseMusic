@@ -56,7 +56,7 @@ Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress 
 - ✅ YouTube links looked up by the apps (visionOS client: whole songs, ~0.6 s), the server's /play as fallback; Mac self-test and Flutter integration test play one with no /play reaching the server. Also fixes YouTube failing (-1) in the Flutter Mac build
 - ☐ Explain YouTube old vs new
 - ☐ Genius lyrics, experimental (Settings), with its annotations shown elegantly; find the efficient way to get them
-- ☐ Flutter: "Finding lyrics" showed on opening the lyrics: why, when they should have been fetched already
+- ✅ Flutter: "Finding lyrics" showed on opening the lyrics: Flutter asked only when the panel opened; now as each song starts, like the Mac (integration test checks the panel opens with them)
 - ☐ Rate limiting and recovery codes: built together with you
 - ☐ Deploy on Render (your choice, 8 Oct)
 - ❓ Keychain prompt on every build (ad-hoc signing): A, a certificate made on this Mac, or B, the token in a file only your account reads
