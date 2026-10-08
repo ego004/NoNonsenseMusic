@@ -365,9 +365,44 @@ From the same audit. The server idles at ~0.2% of a core (uvicorn's own 10-a-sec
 
 ---
 
+## AUTH-1 · Accounts and sessions (release 1: start here)
+
+**Problem:** the server has no idea who is asking. Every library belongs to whoever reaches the port. Release 1 needs accounts: sign up, sign in, sign out, and every request knowing its user. (Email comes in AUTH-2, per-user data in AUTH-3, devices in AUTH-4.)
+
+**Decided (8 Oct):**
+- **Username + password.** Open sign-up for anyone. Email (verification, password reset) is AUTH-2.
+- **Server sessions, not JWT.** Sign-in creates a random token (`secrets.token_urlsafe(32)`, 256 bits). The server keeps only its **hash** (SHA-256 is enough for a random token: nobody can guess one), with the user, a device name, the time it was made and last used, and when it expires. Each request: one lookup. Sign-out deletes the row, instantly. A session is a device (AUTH-4 builds on it).
+- **Passwords hashed with Argon2id** (package `argon2-cffi`): deliberately slow, so a leaked database cannot be cracked quickly. Never stored or logged in any other form.
+- The app sends the token as a header: `Authorization: Bearer <token>`.
+
+**Deliverables:**
+1. Tables: `users` (id, username, password hash, created) and `sessions` (token hash, user, device name, created, last used, expires).
+2. `POST /auth/signup` → creates the user, signs them in (returns a token).
+3. `POST /auth/signin` → a token, or 401.
+4. `POST /auth/signout` → deletes this session.
+5. `GET /auth/me` → who this token belongs to, or 401.
+6. One FastAPI dependency, `current_user`, that reads the header, finds the session, and gives the route the user (or answers 401). Routes use it in AUTH-3; for now `/auth/me` proves it.
+
+**Traps (each will have a test):**
+- **Usernames are unique regardless of capitals**: `Alex` and `alex` are one name.
+- **"Wrong password" and "no such user" must look identical**: same message, same status, and *about the same time*. Run a hash check even when the user does not exist, or the timing tells an attacker which usernames are real.
+- **Never log a password or a token**: check what FastAPI logs on an error, and the access log.
+- **An expired session is a 401**, and it should be deleted when found.
+- **401 vs 403**: 401 = "who are you?" (no or bad token); 403 = "I know you, but no" (later: someone else's playlist).
+
+**Yours to decide:** username rules (length, characters); minimum password length; how long a session lives (30 days, renewed on use?); whether `signup` signs you in at once.
+
+**Done when:** sign up, sign in, `me`, sign out, and `me` again answers 401 (curl shows it); a wrong password and an unknown user give the same answer; the database holds no password and no token in readable form. Claude writes the tests; Claude builds the apps' sign-in screens alongside.
+
+**Docs:** [argon2-cffi](https://argon2-cffi.readthedocs.io/en/stable/) (`PasswordHasher`) · Python [`secrets`](https://docs.python.org/3/library/secrets.html) · FastAPI [Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/) and [Security](https://fastapi.tiangolo.com/tutorial/security/) (read for the header handling; their tutorial uses JWT, we do not) · [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) (the "generic error messages" and "password storage" parts)
+
+**Next:** AUTH-2 email (verification at sign-up, password reset by code; choose a sender: Gmail app password, or a provider with your own domain) · AUTH-3 `user_id` on likes, events, playlists, your library moved to your account · AUTH-4 devices · LIVE-1 the live connection · LIVE-2 remote control · LIVE-3 audio outputs · FRIENDS-1, JAM-1. Release 1 = all of these.
+
+---
+
 ## AUTH · Accounts (release 1), planning notes (8 Oct)
 
-Decided so far: `user_id` on likes, events and playlists (Jam and shared playlists cross users); sign-up with a username and password, then sign in; playlists shareable later; Jam: everyone controls, joined via a friend list or a link. To decide: forgotten passwords (you reset, or recovery codes); open sign-up or invite codes; release 1 without live control.
+Decided so far: `user_id` on likes, events and playlists (Jam and shared playlists cross users); sign-up with a username and password, then sign in; playlists shareable later; Jam: everyone controls, joined via a friend list or a link. Decided 8 Oct: forgotten password = reset by email (so email is verified at sign-up); open sign-up; release 1 includes live control.
 
 Rate limiting, after auth: per account and session (several devices, or a household, share one IP); per IP only for sign-in attempts, where there is no session yet.
 
