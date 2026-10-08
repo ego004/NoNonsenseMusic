@@ -6,7 +6,7 @@ from typing import get_args, Annotated
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, Query
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from psycopg import errors
 
 from music_backend.core import db
@@ -116,6 +116,37 @@ async def search_one(name: SourceName, source, q: str) -> tuple[list[Listing], S
     ms = round((time.perf_counter() - start) * 1000)
     info = SearchSourceInfo(source = name, healthy = error is None, num_results = len(listings), ms = ms, error = error)
     return listings, info
+
+
+# ---------- a shared playlist's link (8 Oct) ----------
+# What people share is this web address: chat apps make it clickable, and the page hands over to the app's own link
+# (nononsense://playlist/<id>, which the app registers). Open (no sign-in): it names no playlist and shows nothing of
+# one, so it reveals nothing; the app then opens it only for someone allowed to see it (public, or shared with them).
+PLAYLIST_LINK_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open in NoNonsense</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1d1d1f; --muted: #6e6e73; --bg: #f5f5f7; --accent: #0a84ff }
+  @media (prefers-color-scheme: dark) { :root { --fg: #f5f5f7; --muted: #a1a1a6; --bg: #1c1c1e } }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
+         font: 16px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; padding: 0 16px }
+  main { text-align: center; max-width: 360px }
+  a.open { display: inline-block; margin: 16px 0; padding: 10px 22px; border-radius: 999px; background: var(--accent);
+           color: white; text-decoration: none; font-weight: 600 }
+  p { color: var(--muted) }
+</style></head>
+<body><main>
+  <h1>A playlist on NoNonsense</h1>
+  <a class="open" href="nononsense://playlist/{id}">Open in NoNonsense</a>
+  <p>Nothing opened? The app is at <a href="https://github.com/ego004/NoNonsenseMusic">github.com/ego004/NoNonsenseMusic</a>.</p>
+</main>
+<script>location.href = "nononsense://playlist/{id}"</script>
+</body></html>"""
+
+@app.get("/p/{playlist_id}", response_class=HTMLResponse)
+async def playlist_link(playlist_id: UUID) -> HTMLResponse:
+    # a UUID only (FastAPI checks it): nothing typed into the address reaches the page
+    return HTMLResponse(PLAYLIST_LINK_PAGE.replace("{id}", str(playlist_id)))
 
 
 @app.get("/search")

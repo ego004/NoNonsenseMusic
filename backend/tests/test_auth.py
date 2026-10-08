@@ -131,7 +131,7 @@ def test_use_slides_the_expiry_but_at_most_once_an_hour(client):
 
 def test_every_route_but_health_signup_and_signin_answers_401_without_a_token(client):
     from music_backend.main import app
-    open_routes = {"/health", "/auth/signup", "/auth/signin"}
+    open_routes = {"/health", "/auth/signup", "/auth/signin", "/p/{playlist_id}"}   # /p: a link page, names nothing
     checked = 0
     for route in app.routes:
         if not hasattr(route, "dependant") or route.path in open_routes:

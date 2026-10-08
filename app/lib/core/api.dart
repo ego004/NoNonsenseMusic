@@ -178,6 +178,9 @@ class Api {
   static Future<void> setPublic(String id, bool public) => _send('PATCH', 'playlists/$id', {'public': public});
   static Future<void> share(String id, String username, String role) =>
       _send('PUT', 'playlists/$id/members', {'username': username, 'role': role});
+  /// A playlist's link to share (8 Oct): the server's page, which hands over to the app (`nononsense://playlist/<id>`).
+  static String playlistLink(String id) => '$base/p/$id';
+
   /// Its owner first, then who it is shared with (for the owner and the members).
   static Future<List<PlaylistMember>> members(String id) async =>
       ((await _get('playlists/$id/members')) as List).map((m) => PlaylistMember.fromJson(m as Map<String, dynamic>)).toList();

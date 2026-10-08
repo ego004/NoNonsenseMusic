@@ -20,6 +20,10 @@ targets:
       properties:
         CFBundleDisplayName: NoNonsense
         LSApplicationCategoryType: public.app-category.music
+        # nononsense://playlist/<id> opens a playlist here (a shared link; the server's /p/<id> page hands over to it)
+        CFBundleURLTypes:
+          - CFBundleURLName: app.nononsense.music
+            CFBundleURLSchemes: [nononsense]
         NSAppTransportSecurity:
           # the backend runs on this Mac over plain http; everything else (audio CDNs) is https
           NSAllowsLocalNetworking: true

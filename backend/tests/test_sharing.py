@@ -166,3 +166,12 @@ def test_the_owner_and_members_see_who_is_on_it_and_a_public_viewer_does_not(peo
     assert kai("GET", f"/playlists/{trip}/members").status_code == 403
     alex("PATCH", f"/playlists/{trip}", json={"public": False})
     assert kai("GET", f"/playlists/{trip}/members").status_code == 404
+
+
+def test_a_playlist_link_page_hands_over_to_the_app_and_names_nothing(client, people):
+    alex, _, _, trip, _ = people
+    page = client.get(f"/p/{trip}", headers={"Authorization": ""})      # no sign-in needed
+    assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
+    assert f"nononsense://playlist/{trip}" in page.text
+    assert "Road trip" not in page.text                              # private or not, the page shows nothing of it
+    assert client.get("/p/not-a-uuid").status_code == 422

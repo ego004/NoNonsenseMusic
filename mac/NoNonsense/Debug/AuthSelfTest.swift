@@ -97,6 +97,13 @@ extension SelfTest {
                   viewerAdd.status == 403 && API.detail(viewerAdd.body) == "Your role on this playlist does not allow that",
                   "\(viewerAdd.status) \(API.detail(viewerAdd.body) ?? "")")
             check("share again as an editor", await library.share(mine, with: friendName, role: "editor") == nil)
+            // its link: the web address to share, and the app's own; both name this playlist
+            let web = PlaylistLink.web(mine.id)
+            check("the shared link is the server's /p/<id> page", web.absoluteString == API.baseURL.absoluteString + "/p/" + mine.id.uuidString.lowercased(), web.absoluteString)
+            check("…and both kinds of link read back to the playlist",
+                  PlaylistLink.playlistID(in: web) == mine.id
+                  && PlaylistLink.playlistID(in: URL(string: "nononsense://playlist/\(mine.id.uuidString.lowercased())")!) == mine.id
+                  && PlaylistLink.playlistID(in: URL(string: "nononsense://playlist/not-an-id")!) == nil)
             let people = (try? await API.members(of: mine.id)) ?? []
             check("the members list: the owner, then the editor", people.map(\.role) == ["owner", "editor"] && people.last?.username == friendName,
                   people.map { "\($0.username) \($0.role)" }.joined(separator: ", "))

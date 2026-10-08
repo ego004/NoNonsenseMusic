@@ -63,7 +63,7 @@ Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress 
 - ☐ Deploy on Render (your choice, 8 Oct)
 - ❓ Keychain prompt on every build (ad-hoc signing): A, a certificate made on this Mac, or B, the token in a file only your account reads
 - ☐ Footprint at 11%: measure it with you, not a priority (you, 8 Oct)
-- ☐ Public playlists open by **link** (your choice, 8 Oct). How: each app registers a URL scheme, `nononsense://playlist/<id>` (Mac: Info.plist `CFBundleURLTypes`; Windows: a registry key the installer writes; Android: an intent filter), and the server serves `https://<server>/p/<id>`, a tiny page that opens that link (and says "get the app" when nothing opens it). Share… gets "Copy Link"
+- ◐ Public playlists open by **link** (your choice, 8 Oct): ✅ the server's `/p/<id>` page, ✅ the Mac app opens `nononsense://playlist/<id>`, ✅ Copy Link in both apps' share dialogs; ☐ Flutter opening links (a new package, `app_links`, plus registration on each platform). How: each app registers a URL scheme, `nononsense://playlist/<id>` (Mac: Info.plist `CFBundleURLTypes`; Windows: a registry key the installer writes; Android: an intent filter), and the server serves `https://<server>/p/<id>`, a tiny page that opens that link (and says "get the app" when nothing opens it). Share… gets "Copy Link"
 - ✅ Members list: `GET /playlists/{id}/members`; the share sheet lists people, the owner removes them, members see it under People… (both apps)
 
 **Server, then deploy on the web**

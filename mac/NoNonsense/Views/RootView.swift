@@ -138,6 +138,13 @@ struct RootView: View {
             .hidden()
         }
         .environment(\.textScale, textScale)              // every textStyle in the window, Now Playing included
+        // a shared playlist's link (PlaylistLink): it opens here; one you may not see says so and closes (PlaylistView)
+        .onOpenURL { url in
+            if let id = PlaylistLink.playlistID(in: url) {
+                player.showNowPlaying = false
+                selection = .playlist(id)
+            }
+        }
         #if DEBUG
         .onReceive(NotificationCenter.default.publisher(for: .selfTestOpen)) { note in
             if let id = note.object as? UUID { selection = .playlist(id) }

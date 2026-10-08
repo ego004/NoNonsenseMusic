@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/api.dart';
@@ -200,6 +201,7 @@ Future<String?> share(BuildContext context, PlaylistSummary p) {
   var busy = false;
   List<PlaylistMember>? members;
   var asked = false;
+  var copied = false;
   return showDialog<String>(
     context: context,
     builder: (c) => StatefulBuilder(
@@ -238,7 +240,18 @@ Future<String?> share(BuildContext context, PlaylistSummary p) {
 
         final theme = Theme.of(c);
         return AlertDialog(
-          title: Text(p.isOwner ? 'Share “${p.name}”' : 'People on “${p.name}”'),
+          title: Row(children: [
+            Expanded(child: Text(p.isOwner ? 'Share “${p.name}”' : 'People on “${p.name}”')),
+            // the web address: anyone it is shared with, or anyone at all when it is public, can open it
+            TextButton.icon(
+              icon: Icon(copied ? Icons.check : Icons.link, size: 18),
+              label: Text(copied ? 'Copied' : 'Copy Link'),
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: Api.playlistLink(p.id)));
+                set(() => copied = true);
+              },
+            ),
+          ]),
           content: SizedBox(
             width: 340,
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [

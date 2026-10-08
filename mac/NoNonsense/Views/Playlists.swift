@@ -327,6 +327,7 @@ struct SharePlaylistSheet: View {
     let submit: (String, String) async -> String?
     @Environment(\.dismiss) private var dismiss
     @State private var members: [PlaylistMember] = []
+    @State private var copied = false
     @State private var username = ""
     @State private var role = "viewer"
     @State private var problem: String?
@@ -337,7 +338,17 @@ struct SharePlaylistSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(playlist.isOwner ? "Share “\(playlist.name)”" : "People on “\(playlist.name)”").font(.title3.weight(.semibold))
+            HStack {
+                Text(playlist.isOwner ? "Share “\(playlist.name)”" : "People on “\(playlist.name)”").font(.title3.weight(.semibold))
+                Spacer()
+                // the web address: anyone it is shared with, or anyone at all when it is public, can open it
+                Button(copied ? "Copied" : "Copy Link", systemImage: copied ? "checkmark" : "link") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(PlaylistLink.web(playlist.id).absoluteString, forType: .string)
+                    copied = true
+                }
+                .buttonStyle(.borderless)
+            }
             if !members.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(members) { member in

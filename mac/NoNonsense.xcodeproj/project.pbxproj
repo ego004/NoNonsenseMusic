@@ -23,6 +23,7 @@
 		5189797CB1F3CCE3852B8037 /* PlayQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 065566838EF587BE46F586CF /* PlayQueue.swift */; };
 		5630B8DC8F8427B02858E427 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 292804CD0EB5D2B5A39CF640 /* Models.swift */; };
 		613193FB7E14FC5C4BB443D8 /* Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB8186E89FB9026CB640031 /* Player.swift */; };
+		675885066C8F17C2E243C6FA /* PlaylistLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07FEC0506650B4C844D25EA /* PlaylistLink.swift */; };
 		7631DFA4A645CD8634E543C8 /* PlaybackTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1793902EFA792B2E0C4600 /* PlaybackTimeline.swift */; };
 		775849477665E5B0397C9BEE /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73F3F3979510A3CCDB133168 /* API.swift */; };
 		7764B8459C18BB33A437F195 /* DownloadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 413FB74B40D0CE16AB8515BB /* DownloadStore.swift */; };
@@ -78,6 +79,7 @@
 		CCDA5EC827220ADD683A012F /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		CF34CE64DF6A78F1C8313C22 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
 		D2B2FE4C7E6EEAA589159B7F /* ThemeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeStore.swift; sourceTree = "<group>"; };
+		F07FEC0506650B4C844D25EA /* PlaylistLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistLink.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -159,6 +161,7 @@
 				93FF752447B1866FD59A5D9D /* LibraryStore.swift */,
 				881C5D7D7460D755FDFC0061 /* LyricsStore.swift */,
 				AEB8186E89FB9026CB640031 /* Player.swift */,
+				F07FEC0506650B4C844D25EA /* PlaylistLink.swift */,
 				065566838EF587BE46F586CF /* PlayQueue.swift */,
 				18C1A9DC93EAF19E0637D439 /* Prefetcher.swift */,
 				B5C8CE53A38023E1F773BDBD /* Presence.swift */,
@@ -266,6 +269,7 @@
 				7631DFA4A645CD8634E543C8 /* PlaybackTimeline.swift in Sources */,
 				613193FB7E14FC5C4BB443D8 /* Player.swift in Sources */,
 				F72DD52D3A19BE855522588B /* PlayerViews.swift in Sources */,
+				675885066C8F17C2E243C6FA /* PlaylistLink.swift in Sources */,
 				EAD89C6A64DF6656871BE823 /* Playlists.swift in Sources */,
 				BD5B300141EDC58A26525276 /* Prefetcher.swift in Sources */,
 				2378FEC447BD5BF1FCB49A4C /* Presence.swift in Sources */,
