@@ -706,12 +706,16 @@ struct ClearWindow: NSViewRepresentable {
             // full screen: the window opaque, in its own colour. A full-screen Space has no desktop behind the window:
             // every see-through pixel showed black, the toolbar's strip most of all (8 Oct). Switched as full screen
             // begins and back once it has ended, so neither animation shows black either
-            let changes: [(Notification.Name, Bool)] = [(NSWindow.willEnterFullScreenNotification, true),
-                                                        (NSWindow.didFailToEnterFullScreenNotification, false),
-                                                        (NSWindow.didExitFullScreenNotification, false)]
+            // (entering again, once it has: a full screen that failed to begin is not left opaque)
+            let changes: [(Notification.Name, Bool?)] = [(NSWindow.willEnterFullScreenNotification, true),
+                                                         (NSWindow.didEnterFullScreenNotification, nil),
+                                                         (NSWindow.didExitFullScreenNotification, false)]
             observers = changes.map { name, full in
                 NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.show(fullScreen: full) }
+                    MainActor.assumeIsolated {
+                        guard let self, let window = self.window else { return }
+                        self.show(fullScreen: full ?? window.styleMask.contains(.fullScreen))
+                    }
                 }
             }
             show(fullScreen: window.styleMask.contains(.fullScreen))
