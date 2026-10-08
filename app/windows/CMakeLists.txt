@@ -31,6 +31,9 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
+# just_audio_windows still uses <experimental/coroutine>, which MSVC 14.51 (Visual Studio 2026) refuses unless this
+# is defined (its own error STL1011 names it). Remove once the plugin moves to C++20 <coroutine>. (8 Oct)
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 
 # Compilation settings that should be applied to most targets.
 #
