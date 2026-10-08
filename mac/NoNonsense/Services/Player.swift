@@ -197,6 +197,8 @@ final class Player {
         // after "Stopped: … Press play to try again" the loaded copy is the one that failed: play() on it did nothing
         // (isPlaying on, no sound). Play means: try this song again, from its first copy
         if !isPlaying, player.currentItem?.status == .failed { startCurrent(); return }
+        // the same when the server gave it no address (nothing loaded): play() on no item did nothing
+        if !isPlaying, !resolving, player.currentItem == nil { startCurrent(); return }
         isPlaying ? player.pause() : player.play()
         isPlaying.toggle()
         refreshBuffering()
@@ -337,6 +339,28 @@ final class Player {
 
     // MARK: - loading
 
+    /// The session ended (signed out): nothing of that account keeps playing, stays queued, or shows in Control Center
+    /// and Discord. Shuffle and repeat are this Mac's settings, so they stay.
+    func stop() {
+        loads += 1                                                // an address still on its way is dropped
+        resolving = false
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        let repeatMode = order.repeatMode
+        order = PlayQueue()
+        order.repeatMode = repeatMode
+        isPlaying = false
+        isBuffering = false
+        playingListing = nil
+        playingFile = false
+        audioLength = nil
+        position = 0
+        showNowPlaying = false
+        errorMessage = nil
+        Prefetcher.shared.queueChanged([])
+        publish()
+    }
+
     /// Starts song `i` of the queue; nil is the end of the queue (repeat off): stop on the last song.
     private func go(to i: Int?) {
         guard let i else {
@@ -368,10 +392,44 @@ final class Player {
         audioLength = nil                                         // the listed length, until this copy says its own
         isBuffering = true                                        // the spinner, until audio arrives
         playingListing = listing
-        let file = fromFile ? downloads.localURL(for: listing) : nil
-        playingFile = file != nil
-        // a downloaded copy plays from its file; any other, through the server (which redirects to the audio file)
-        let item = AVPlayerItem(url: file ?? API.playURL(listing))
+        loads += 1
+        if start { isPlaying = true }
+        // a downloaded copy plays from its file
+        if let file = fromFile ? downloads.localURL(for: listing) : nil {
+            playingFile = true
+            attach(AVPlayerItem(url: file), for: listing)
+            return
+        }
+        playingFile = false
+        // any other through the server, which needs the token; the player is given only the audio's own address
+        // (API.audioURL, handoff 3.2, 8 Oct). The last song stops now, not when this one's address arrives
+        player.replaceCurrentItem(with: nil)
+        resolving = true
+        refreshBuffering()
+        publish()
+        let mine = loads
+        Task {
+            let url: URL
+            do {
+                url = try await API.audioURL(listing)
+            } catch {
+                guard mine == loads else { return }               // another song or copy since: this one no longer matters
+                resolving = false
+                if let track = current { copyFailed(listing, of: track) }
+                return
+            }
+            guard mine == loads else { return }
+            resolving = false
+            attach(AVPlayerItem(url: url), for: listing)
+        }
+    }
+
+    /// Counts loads: an address that arrives after another load began (⏭ pressed meanwhile) is dropped.
+    @ObservationIgnored private var loads = 0
+    /// True while /play is asked for the copy's address: the spinner shows (`refreshBuffering`).
+    @ObservationIgnored private var resolving = false
+
+    private func attach(_ item: AVPlayerItem, for listing: Listing) {
         // no time-stretching: the default algorithm processed every sample to allow speed changes we never make
         // (MEMixerChannel::TimePitch, a steady share of the audio thread, profiled 7 Oct). Varispeed at 1x is a pass-through
         item.audioTimePitchAlgorithm = .varispeed
@@ -387,10 +445,8 @@ final class Player {
             Task { @MainActor in self?.statusChanged(status, of: which) }
         }
         player.replaceCurrentItem(with: item)
-        if start {
-            player.play()
-            isPlaying = true
-        }
+        // you may have paused or played while its address was on its way: as you left it
+        if isPlaying { player.play() }
         refreshBuffering()
         publish()
     }
@@ -411,6 +467,11 @@ final class Player {
             if length.isFinite, length > 0, length != audioLength { audioLength = length; publish() }
         }
         guard status == .failed, let track = current, let failed = playingListing else { return }
+        copyFailed(failed, of: track)
+    }
+
+    /// A copy would not play: AVPlayer failed on it, or the server gave no address for it.
+    private func copyFailed(_ failed: Listing, of track: Track) {
         // every copy but the one it started with: excluding `best` instead retried a broken downloaded copy that was not
         // `best`, and never tried `best` (audit, 7 Oct)
         let others = track.listings.filter { $0.key != (firstCopy ?? track.best.key) }
@@ -502,7 +563,7 @@ final class Player {
     /// data. AVPlayer's own "playing" comes the moment play() is called, before any audio, and it cleared the spinner:
     /// on a slow line the button showed ⏸ over silence for the whole load (6 s, emulated with NN_SELFTEST_SLOWPLAY, 8 Oct)
     private func refreshBuffering() {
-        let loading = player.currentItem?.status == .unknown
+        let loading = resolving || player.currentItem?.status == .unknown
         let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
         let now = isPlaying && (loading || waiting)
         if now != isBuffering { isBuffering = now }

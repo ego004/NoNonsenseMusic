@@ -34,8 +34,12 @@ struct HomeView: View {
                     section("Jump back in", seeAll: .section(.recent)) { recentShelf }
                         .appear(appeared, order: 1, reduceMotion: reduceMotion)
                 }
-                if !library.playlists.isEmpty {
-                    section("Your playlists", seeAll: nil) { playlistGrid }
+                if !library.ownPlaylists.isEmpty {
+                    section("Your playlists", seeAll: nil) { playlistGrid(library.ownPlaylists) }
+                        .appear(appeared, order: 2, reduceMotion: reduceMotion)
+                }
+                if !library.sharedPlaylists.isEmpty {
+                    section("Shared with you", seeAll: nil) { playlistGrid(library.sharedPlaylists) }
                         .appear(appeared, order: 2, reduceMotion: reduceMotion)
                 }
                 if !library.liked.isEmpty {
@@ -95,10 +99,10 @@ struct HomeView: View {
         .selfTestFrame("home.recentShelf")
     }
 
-    private var playlistGrid: some View {
+    private func playlistGrid(_ playlists: [PlaylistSummary]) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: cardSize + 10), spacing: 22, alignment: .topLeading)],
                   alignment: .leading, spacing: 26) {
-            ForEach(library.playlists) { playlist in
+            ForEach(playlists) { playlist in
                 PlaylistCard(playlist: playlist, side: cardSize) { open(.playlist(playlist.id)) }
             }
         }
@@ -196,8 +200,7 @@ struct PlaylistCard: View {
             Button("Open") { open() }
             if let play { Button("Play", action: play) }
             Divider()
-            Button("Rename…") { library.renameRequest = playlist }
-            Button("Delete…", role: .destructive) { library.deleteRequest = playlist }
+            PlaylistRoleActions(playlist: playlist)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)

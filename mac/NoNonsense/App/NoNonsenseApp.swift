@@ -7,6 +7,7 @@ struct NoNonsenseApp: App {
     @State private var player: Player
     @State private var downloads: DownloadStore
     @State private var lyrics: LyricsStore
+    @State private var account: Account
     @State private var server = ServerLauncher.shared
     @State private var theme = ThemeStore()
     @AppStorage("appearance") private var appearance = Appearance.system
@@ -25,12 +26,31 @@ struct NoNonsenseApp: App {
         _library = State(initialValue: library)
         _presence = State(initialValue: presence)
         _downloads = State(initialValue: downloads)
-        _player = State(initialValue: Player(library: library, presence: presence, downloads: downloads))
+        let player = Player(library: library, presence: presence, downloads: downloads)
+        _player = State(initialValue: player)
+        #if DEBUG
+        let account = Account(keychain: !SelfTest.isRunning)        // a self-test never reads or replaces your token
+        #else
+        let account = Account()
+        #endif
+        // the session ended: nothing of that account plays on or stays on screen (Account.onEnded)
+        account.onEnded = { [weak player, weak library] in
+            player?.stop()
+            library?.clear()
+        }
+        _account = State(initialValue: account)
     }
 
     var body: some Scene {
         WindowGroup("NoNonsense") {
-            RootView()
+            AccountGate {
+                RootView()
+                    #if DEBUG
+                    // once signed in: every self-test talks to the server, which now needs an account (AUTH-1)
+                    .onAppear { runSelfTests() }
+                    #endif
+            }
+                .environment(account)
                 .environment(server)
                 .environment(theme)
                 .environment(player)
@@ -43,36 +63,6 @@ struct NoNonsenseApp: App {
                 .onAppear {
                     player.installKeyMonitor()
                     player.installSwipeMonitor()
-                    #if DEBUG
-                    SelfTest.runIfAsked()
-                    SelfTest.runPlaybackIfAsked(player: player)
-                    SelfTest.runPresenceCheckIfAsked(presence: presence)
-                    SelfTest.runThemeCheckIfAsked(theme: theme)
-                    SelfTest.runLikeCheckIfAsked()
-                    SelfTest.runSearchCheckIfAsked(player: player)
-                    SelfTest.runQueueCheckIfAsked()
-                    SelfTest.runPlaylistCheckIfAsked(library: library, player: player)
-                    SelfTest.runHomeCheckIfAsked(library: library, player: player)
-                    SelfTest.runNowPlayingCheckIfAsked(library: library, player: player, theme: theme)
-                    SelfTest.runSizesCheckIfAsked()
-                    SelfTest.runIdleIfAsked(player: player)
-                    SelfTest.runPrefetchCheckIfAsked(player: player)
-                    SelfTest.runUpNextCheckIfAsked(player: player)
-                    SelfTest.runDownloadsCheckIfAsked(player: player, downloads: downloads)
-                    SelfTest.runSidebarCheckIfAsked(library: library)
-                    SelfTest.runSettingsFitCheckIfAsked()
-                    SelfTest.runBarCheckIfAsked(player: player)
-                    SelfTest.runLyricsCheckIfAsked(player: player, lyrics: lyrics, downloads: downloads)
-                    SelfTest.runPerfIfAsked(player: player)
-                    SelfTest.runFootprintCheckIfAsked()
-                    SelfTest.runConnectionCheckIfAsked(player: player)
-                    SelfTest.runCoversCheckIfAsked()
-                    SelfTest.runExplicitCheckIfAsked()
-                    SelfTest.runHandsCheckIfAsked(player: player, library: library)
-                    SelfTest.runScrollCheckIfAsked(player: player, library: library)
-                    SelfTest.runLikeRaceCheckIfAsked(library: library)
-                    SelfTest.runSlowPlayCheckIfAsked(player: player)
-                    #endif
                 }
         }
         .windowToolbarStyle(.unified)
@@ -83,10 +73,11 @@ struct NoNonsenseApp: App {
         // the window can never be smaller than the content's minimum size (it was, and the player bar got cut off)
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1180, height: 760)
-        .commands { PlaybackCommands(player: player, library: library) }
+        .commands { PlaybackCommands(player: player, library: library, account: account) }
 
         Settings {
             SettingsView()
+                .environment(account)                       // Account › Sign Out
                 .environment(presence)
                 .environment(server)
                 .environment(theme)
@@ -96,15 +87,54 @@ struct NoNonsenseApp: App {
     }
 }
 
+#if DEBUG
+extension NoNonsenseApp {
+    /// The self-test asked for at launch (NN_SELFTEST…), if any.
+    private func runSelfTests() {
+        SelfTest.runIfAsked()
+        SelfTest.runPlaybackIfAsked(player: player)
+        SelfTest.runPresenceCheckIfAsked(presence: presence)
+        SelfTest.runThemeCheckIfAsked(theme: theme)
+        SelfTest.runLikeCheckIfAsked()
+        SelfTest.runSearchCheckIfAsked(player: player)
+        SelfTest.runQueueCheckIfAsked()
+        SelfTest.runPlaylistCheckIfAsked(library: library, player: player)
+        SelfTest.runHomeCheckIfAsked(library: library, player: player)
+        SelfTest.runNowPlayingCheckIfAsked(library: library, player: player, theme: theme)
+        SelfTest.runSizesCheckIfAsked()
+        SelfTest.runIdleIfAsked(player: player)
+        SelfTest.runPrefetchCheckIfAsked(player: player)
+        SelfTest.runUpNextCheckIfAsked(player: player)
+        SelfTest.runDownloadsCheckIfAsked(player: player, downloads: downloads)
+        SelfTest.runSidebarCheckIfAsked(library: library)
+        SelfTest.runSettingsFitCheckIfAsked()
+        SelfTest.runBarCheckIfAsked(player: player)
+        SelfTest.runLyricsCheckIfAsked(player: player, lyrics: lyrics, downloads: downloads)
+        SelfTest.runPerfIfAsked(player: player)
+        SelfTest.runFootprintCheckIfAsked()
+        SelfTest.runConnectionCheckIfAsked(player: player)
+        SelfTest.runCoversCheckIfAsked()
+        SelfTest.runExplicitCheckIfAsked()
+        SelfTest.runHandsCheckIfAsked(player: player, library: library)
+        SelfTest.runScrollCheckIfAsked(player: player, library: library)
+        SelfTest.runLikeRaceCheckIfAsked(library: library)
+        SelfTest.runSlowPlayCheckIfAsked(player: player)
+        SelfTest.runAuthCheckIfAsked(account: account, library: library, player: player)
+    }
+}
+#endif
+
 /// The "Controls" menu in the menu bar, with the keyboard shortcuts.
 struct PlaybackCommands: Commands {
     let player: Player
     let library: LibraryStore
+    let account: Account
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Playlist…") { library.newPlaylistRequest = .init(track: nil) }
                 .keyboardShortcut("n", modifiers: .command)
+                .disabled(account.state != .signedIn)          // on the sign-in screen the sheet would wait, then pop up
         }
         CommandMenu("Controls") {
             // greyed out with nothing playing: they did nothing and said nothing (audit, 7 Oct)

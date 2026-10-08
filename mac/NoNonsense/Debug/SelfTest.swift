@@ -272,6 +272,7 @@ enum SelfTest {
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.httpBody = body
+                if let token = API.token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
                 let (data, response) = try await URLSession.shared.data(for: request)
                 report("like: server answered \((response as? HTTPURLResponse)?.statusCode ?? 0): \(String(decoding: data, as: UTF8.self).prefix(400))")
             } catch {
@@ -661,10 +662,12 @@ enum SelfTest {
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
             guard await onOwnTestServer(), parts.count == 2 else { report("prefetch: test server and two searches needed"); NSApp.terminate(nil); return }
-            let noRedirect = URLSession(configuration: .ephemeral, delegate: StopRedirects(), delegateQueue: nil)
             func time(_ listing: Listing) async -> String {
                 let start = Date()
-                let status = ((try? await noRedirect.data(from: API.playURL(listing)))?.1 as? HTTPURLResponse)?.statusCode ?? 0
+                let status: Int
+                do { _ = try await API.audioURL(listing); status = 307 }       // as the player asks it: the token on, no redirect
+                catch API.Failure.http(let code, _) { status = code }
+                catch { status = 0 }
                 return String(format: "%@ %d in %.1f ms", listing.source, status, Date().timeIntervalSince(start) * 1000)
             }
             if !player.isMuted { player.toggleMute() }

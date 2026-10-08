@@ -533,7 +533,9 @@ extension SelfTest {
 
 extension SelfTest {
     /// With `NN_SELFTEST_SLOWPLAY="<search>"` (own test server): a slow connection, emulated. A local proxy holds every
-    /// /play for 6 s before passing it on (your line on 8 Oct: 2–6 s to the first audio). The song is paused while it
+    /// /play for 6 s before passing it on (your line on 8 Oct: 2–6 s to the first audio). It asks the server itself, with
+    /// the app's token, and relays its answer: a redirect back to the server's /play reached AVPlayer, which has no token
+    /// (accounts, 8 Oct). The song is paused while it
     /// loads (what a click on the spinner does: it sits in the play button), then played again; the player's state is
     /// reported every half second. It must end up playing, and say so.
     static func runSlowPlayCheckIfAsked(player: Player) {
@@ -546,14 +548,19 @@ extension SelfTest {
             let proxy = Process()
             proxy.executableURL = URL(filePath: "/usr/bin/python3")
             proxy.arguments = ["-c", """
-            import http.server, socketserver, time
+            import http.client, http.server, socketserver, time
             class H(http.server.BaseHTTPRequestHandler):
                 def do_GET(self):
                     import sys
                     if len(sys.argv) > 1 and sys.argv[1] in self.path:   # this copy fails, after 3 s
                         time.sleep(3); self.send_response(502); self.end_headers(); return
                     time.sleep(6)
-                    self.send_response(307); self.send_header('Location', 'http://127.0.0.1:\(API.baseURL.port ?? 8765)' + self.path); self.end_headers()
+                    server = http.client.HTTPConnection('127.0.0.1', \(API.baseURL.port ?? 8765), timeout=30)
+                    server.request('GET', self.path, headers={'Authorization': self.headers.get('Authorization', '')})
+                    answer = server.getresponse(); answer.read()
+                    self.send_response(answer.status)
+                    if answer.getheader('Location'): self.send_header('Location', answer.getheader('Location'))
+                    self.end_headers()
                 do_HEAD = do_GET
                 def log_message(self, *a): pass
             socketserver.ThreadingTCPServer.allow_reuse_address = True

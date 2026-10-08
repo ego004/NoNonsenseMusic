@@ -32,7 +32,7 @@ struct RootView: View {
                     case .section(.liked): SongListView(item: .liked)
                     case .section(.recent): SongListView(item: .recent)
                     case .section(.downloads): SongListView(item: .downloads)
-                    case .playlist(let id): PlaylistView(id: id).id(id)
+                    case .playlist(let id): PlaylistView(id: id) { selection = .section(.home) }.id(id)
                     }
                 }
                 .safeAreaPadding(.bottom, player.current == nil ? 0 : 100)  // lists scroll clear of the bar (72 pt + its 18 pt margin)
@@ -277,7 +277,8 @@ final class NowPlayingContainer: NSView {
 }
 
 /// The playlist sheets and questions, wherever they were asked for (sidebar, playlist screen, a song's menu, ⌘N):
-/// New Playlist, Rename, and "Delete …?". Deleting the open playlist goes back to Search.
+/// New Playlist, Rename, Share, "Delete …?" and "Leave …?". Deleting the open playlist goes back to Search; leaving
+/// it, to Home.
 private struct PlaylistSheets: ViewModifier {
     @Binding var selection: Destination?
     @Environment(LibraryStore.self) private var library
@@ -304,6 +305,19 @@ private struct PlaylistSheets: ViewModifier {
                 }
             } message: { _ in
                 Text("Its songs stay in your library.")
+            }
+            .sheet(item: $library.shareRequest) { playlist in
+                SharePlaylistSheet(playlist: playlist) { await library.share(playlist, with: $0, role: $1) }
+            }
+            .confirmationDialog("Leave “\(library.leaveRequest?.name ?? "")”?",
+                                isPresented: Binding(get: { library.leaveRequest != nil }, set: { if !$0 { library.leaveRequest = nil } }),
+                                presenting: library.leaveRequest) { playlist in
+                Button("Leave", role: .destructive) {
+                    if selection == .playlist(playlist.id) { selection = .section(.home) }
+                    Task { await library.leave(playlist) }
+                }
+            } message: { _ in
+                Text("It goes from your list; its owner keeps it.")
             }
     }
 }

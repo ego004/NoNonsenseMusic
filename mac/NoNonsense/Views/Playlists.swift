@@ -4,10 +4,11 @@ import SwiftUI
 /// to remove it. Everything goes through LibraryStore, which also keeps a playing copy of this playlist in step.
 struct PlaylistView: View {
     let id: UUID
+    /// It is gone (deleted, or no longer shared with you): RootView closes it.
+    var closed: () -> Void = {}
     @Environment(LibraryStore.self) private var library
     @Environment(Player.self) private var player
     @Environment(DownloadStore.self) private var downloads
-    @State private var gone = false
     @State private var loading = true
     @State private var selection: Set<UUID> = []
 
@@ -15,10 +16,7 @@ struct PlaylistView: View {
 
     var body: some View {
         Group {
-            if gone {
-                ContentUnavailableView("This playlist is gone", systemImage: "music.note.list",
-                                       description: Text("It was deleted, maybe on another device."))
-            } else if let detail {
+            if let detail {
                 songs(detail)
             } else if loading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -39,7 +37,13 @@ struct PlaylistView: View {
 
     private func load() async {
         loading = true
-        gone = !(await library.loadPlaylist(id))
+        let name = detail?.name ?? library.playlists.first { $0.id == id }?.name
+        // a 404: deleted, maybe on another device, or no longer shared with you. Closed, and gone from the list
+        // (LibraryStore.loadPlaylist), instead of a screen saying so (handoff 3.3, 8 Oct)
+        if !(await library.loadPlaylist(id)) {
+            library.notify(name.map { "“\($0)” is no longer available" } ?? "That playlist is no longer available", symbol: "music.note.list")
+            closed()
+        }
         loading = false
     }
 
@@ -52,21 +56,23 @@ struct PlaylistView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
                 .moveDisabled(true)
 
+            // a viewer's rows: no Remove, no drag (the server would refuse both, 403)
+            let canEdit = detail.summary.canEdit
             ForEach(Array(detail.items.enumerated()), id: \.element.itemID) { i, entry in
                 SongRow(track: tracks[i], queue: tracks, index: i, keys: detail.keys, source: detail.queueSource,
-                        removeLabel: "Remove from “\(detail.name)”", remove: {
+                        removeLabel: "Remove from “\(detail.name)”", remove: canEdit ? {
                     Task { await library.remove(entry, from: detail.id) }
-                }, doubleClickPlays: false)
+                } : nil, doubleClickPlays: false)
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
                 .selfTestFrame("playlist.row:\(i)")
             }
-            .onMove { from, to in Task { await library.moveItems(in: detail.id, from: from, to: to) } }
+            .onMove(perform: canEdit ? { from, to in Task { await library.moveItems(in: detail.id, from: from, to: to) } } : nil)
 
             if detail.items.isEmpty {
                 ContentUnavailableView("No songs yet", systemImage: "music.note.list",
-                                       description: Text("Right-click any song › Add to Playlist."))
+                                       description: Text(canEdit ? "Right-click any song › Add to Playlist." : "Its owner hasn't added any."))
                     .frame(maxWidth: .infinity)                 // a list row is only as wide as its content: centre it (6 Oct)
                     #if DEBUG
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { SelfTest.emptyStateFrame = $0 }
@@ -100,6 +106,11 @@ struct PlaylistView: View {
                     .textStyle(.body)
                     .foregroundStyle(.secondary)
                     .contentTransition(.numericText())
+                if let standing = Self.standing(detail.summary) {
+                    Label(standing, systemImage: detail.summary.isOwner ? "globe" : "person.2.fill")
+                        .textStyle(.callout)
+                        .foregroundStyle(.secondary)
+                }
                 HStack(spacing: 10) {
                     Button { player.playInOrder(tracks, keys: detail.keys, source: detail.queueSource) } label: {
                         Label("Play", systemImage: "play.fill")
@@ -115,15 +126,14 @@ struct PlaylistView: View {
                         Button("Download Playlist") { Task { await downloads.download(all: tracks, name: detail.name) } }
                             .disabled(tracks.isEmpty)
                         Divider()
-                        Button("Rename…") { library.renameRequest = detail.summary }
-                        Button("Delete…", role: .destructive) { library.deleteRequest = detail.summary }
+                        PlaylistRoleActions(playlist: detail.summary)
                     } label: {
                         Image(systemName: "ellipsis")
                     }
                     .menuIndicator(.hidden)
                     .buttonStyle(.glass)
                     .fixedSize()
-                    .help("Rename or delete")
+                    .help(detail.summary.isOwner ? "Rename, share or delete" : "Download or leave")
                 }
                 .controlSize(.large)
                 .padding(.top, 8)
@@ -132,6 +142,13 @@ struct PlaylistView: View {
         }
         .padding(.top, 22)
         .padding(.bottom, 16)
+    }
+
+    /// How it is shared, under its length: "Shared with you · You can edit", or "Public" for your own; nil for your
+    /// own private ones.
+    static func standing(_ playlist: PlaylistSummary) -> String? {
+        if playlist.isOwner { return playlist.isPublic ? "Public: anyone signed in can open it" : nil }
+        return "Shared with you · " + (playlist.canEdit ? "You can add, remove and reorder songs" : "You can view and play")
     }
 
     /// "12 songs · 48 min", "1 song · 3 min", "30 songs · 1 hr 52 min"
@@ -258,18 +275,106 @@ struct NamePlaylistSheet: View {
     }
 }
 
-/// "Add to Playlist" in a song's right-click menu: every playlist, plus "New Playlist…" (created, then the song added).
+/// "Add to Playlist" in a song's right-click menu: every playlist you may add to (yours, and those shared with you
+/// as an editor), plus "New Playlist…" (created, then the song added).
 struct AddToPlaylistMenu: View {
     let track: Track
     @Environment(LibraryStore.self) private var library
 
     var body: some View {
+        let editable = library.playlists.filter(\.canEdit)
         Menu("Add to Playlist") {
             Button("New Playlist…") { library.newPlaylistRequest = .init(track: track) }
-            if !library.playlists.isEmpty { Divider() }
-            ForEach(library.playlists) { playlist in
+            if !editable.isEmpty { Divider() }
+            ForEach(editable) { playlist in
                 Button(playlist.name) { Task { await library.add(track, to: playlist) } }
             }
+        }
+    }
+}
+
+/// A playlist's actions by your role on it (AUTH-3), in every menu that offers them (the sidebar, Home, the playlist
+/// screen). The owner renames, shares, makes it public and deletes; someone it is shared with can leave. The server
+/// refuses the rest (403): they are not offered, rather than offered and refused.
+struct PlaylistRoleActions: View {
+    let playlist: PlaylistSummary
+    @Environment(LibraryStore.self) private var library
+
+    var body: some View {
+        if playlist.isOwner {
+            Button("Rename…") { library.renameRequest = playlist }
+            Button("Share…") { library.shareRequest = playlist }
+            Button(playlist.isPublic ? "Make Private" : "Make Public") {
+                Task { await library.setPublic(playlist, !playlist.isPublic) }
+            }
+            Divider()
+            Button("Delete…", role: .destructive) { library.deleteRequest = playlist }
+        } else {
+            Button("Leave…", role: .destructive) { library.leaveRequest = playlist }
+        }
+    }
+}
+
+/// Share a playlist: a username, and what they may do. Sharing again with the same person changes their role.
+/// The server's reason shows under the field ("No account with that username"). Who it is shared with cannot be
+/// listed yet: the server has no route for it (handoff 3.3).
+struct SharePlaylistSheet: View {
+    let playlist: PlaylistSummary
+    /// username, role → nil: it worked (the sheet closes); otherwise why not.
+    let submit: (String, String) async -> String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var username = ""
+    @State private var role = "viewer"
+    @State private var problem: String?
+    @State private var working = false
+    @FocusState private var focused: Bool
+
+    private var trimmed: String { username.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Share “\(playlist.name)”").font(.title3.weight(.semibold))
+            TextField("Username", text: $username, prompt: Text("Their username"))
+                .textFieldStyle(.roundedBorder)
+                .font(.title3)
+                .focused($focused)
+                .onSubmit(go)
+            Picker("They can", selection: $role) {
+                Text("View and play").tag("viewer")
+                Text("Add, remove and reorder songs").tag("editor")
+            }
+            .pickerStyle(.radioGroup)
+            if let problem {
+                Label(problem, systemImage: "exclamationmark.circle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+            Text("Sharing again with someone changes what they can do.")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Share") { go() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmed.isEmpty || working)
+            }
+        }
+        .padding(22)
+        .frame(width: 380)
+        .animation(.snappy(duration: 0.25), value: problem)
+        .onAppear { focused = true }
+        .onChange(of: username) { problem = nil }
+    }
+
+    private func go() {
+        guard !trimmed.isEmpty, !working else { return }
+        working = true
+        Task {
+            problem = await submit(trimmed, role)
+            working = false
+            if problem == nil { dismiss() }
         }
     }
 }
