@@ -123,6 +123,7 @@ extension NoNonsenseApp {
         SelfTest.runFullScreenCheckIfAsked()
         SelfTest.runYouTubeCheckIfAsked(player: player)
         SelfTest.runLatencyCheckIfAsked(player: player)
+        SelfTest.runLoaderCheckIfAsked()
     }
 }
 #endif

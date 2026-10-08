@@ -40,6 +40,9 @@ actor YouTubeLookup {
         }
     }
 
+    /// At launch (TICKETS 0c, 8 Oct): the visitor id, so the first YouTube song does not wait ~0.5 s for it.
+    func prepare() async { _ = try? await currentVisitorID() }
+
     /// A link that failed to play: the next ask looks it up again.
     func forget(_ videoID: String) { links[videoID] = nil }
 

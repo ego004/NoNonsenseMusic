@@ -420,7 +420,9 @@ final class Player {
             }
             guard mine == loads else { return }
             resolving = false
-            attach(AVPlayerItem(url: url), for: listing)
+            // YouTube's audio in bounded ranges: open-ended, YouTube sends it at playback speed (TICKETS 0a, 8 Oct)
+            let youtube = url.host()?.hasSuffix("googlevideo.com") == true
+            attach(youtube ? AVPlayerItem(asset: BoundedRangeLoader.shared.asset(for: url)) : AVPlayerItem(url: url), for: listing)
         }
     }
 

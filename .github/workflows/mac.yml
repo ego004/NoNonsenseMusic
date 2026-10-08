@@ -73,6 +73,22 @@ jobs:
             -discordEnabled NO -ApplePersistenceIgnoreState YES > fullscreen.log 2>&1 || true
           grep SELFTEST fullscreen.log
           grep -q "fullscreen: all checks pass" fullscreen.log
+      - name: Self-test, YouTube's loader (NN_SELFTEST_LOADER), on a local file; then latency on real songs (counts only)
+        run: |
+          env NN_SELFTEST_LOADER=1 DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 120 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > loader.log 2>&1 || true
+          grep SELFTEST loader.log
+          grep -q "loader: all checks pass" loader.log
+      - name: Self-test, latency (NN_SELFTEST_LATENCY) on real songs, if YouTube and JioSaavn answer this runner
+        continue-on-error: true
+        run: |
+          env NN_SELFTEST_LATENCY=1 DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 200 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > latency.log 2>&1 || true
+          grep "SELFTEST latency" latency.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -154,6 +154,7 @@ struct RootView: View {
         }
         #endif
         .task {
+            Task { await YouTubeLookup.shared.prepare() }   // the visitor id now, not at the first YouTube song
             await server.ensureRunning()     // starts the backend if nothing answers (Services/ServerLauncher.swift)
             await Connectivity.shared.checkServer()
             await library.refresh()
