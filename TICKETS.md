@@ -53,7 +53,12 @@ Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress 
 - ❓ Flutter: the Settings screen could not be seen → it draws fine in the macOS build (integration test, 8 Oct): which build, and what showed?
 - ☐ Flutter: every Mac fix of 8 Oct, checked one by one, and the app run for real
 - ✅ Discord: the application id built in, no field to fill (public by design; Discord's record shows only the name, no owner)
-- ☐ YouTube links looked up by the apps (visionOS client, tested 8 Oct: whole songs, ~0.8 s), the server as fallback; then explain old vs new
+- ✅ YouTube links looked up by the apps (visionOS client: whole songs, ~0.6 s), the server's /play as fallback; Mac self-test and Flutter integration test play one with no /play reaching the server. Also fixes YouTube failing (-1) in the Flutter Mac build
+- ☐ Explain YouTube old vs new
+- ☐ Genius lyrics, experimental (Settings), with its annotations shown elegantly; find the efficient way to get them
+- ☐ Flutter: "Finding lyrics" showed on opening the lyrics: why, when they should have been fetched already
+- ☐ Rate limiting and recovery codes: built together with you
+- ☐ Deploy on Render (your choice, 8 Oct)
 - ❓ Keychain prompt on every build (ad-hoc signing): A, a certificate made on this Mac, or B, the token in a file only your account reads
 - ❓ Footprint at 11%: measure it with you (play a song, say "ready")
 - ☐ Public playlists open by **link** (your choice, 8 Oct)

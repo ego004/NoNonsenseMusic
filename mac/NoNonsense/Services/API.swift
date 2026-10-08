@@ -73,7 +73,13 @@ enum API {
     /// HTTP stack that follows the redirect may carry `Authorization` on to the audio host (YouTube, JioSaavn). So the
     /// app asks /play itself, does not follow the redirect, and hands over the `Location` (handoff 3.2, 8 Oct). The same
     /// two requests as before: AVPlayer following the redirect was two already.
+    ///
+    /// A YouTube copy is looked up by this Mac first (YouTubeLookup: the link then belongs to this Mac's IP, so a server
+    /// on the web still plays it); the server's /play is the fallback, as it was for every copy before (8 Oct).
     static func audioURL(_ listing: Listing, fresh: Bool = false) async throws -> URL {
+        if listing.source == "ytmusic", let url = try? await YouTubeLookup.shared.audioURL(videoID: listing.id, fresh: fresh) {
+            return url
+        }
         let (data, response) = try await perform(URLRequest(url: playURL(listing, fresh: fresh), timeoutInterval: 20), on: noRedirect)
         let http = response as? HTTPURLResponse
         if let code = http?.statusCode, (300..<400).contains(code),

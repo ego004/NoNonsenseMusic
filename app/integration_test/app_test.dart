@@ -13,6 +13,7 @@ import 'package:nononsense/core/api.dart';
 import 'package:nononsense/core/auth.dart';
 import 'package:nononsense/core/library.dart';
 import 'package:nononsense/core/lyrics.dart';
+import 'package:nononsense/core/models.dart';
 import 'package:nononsense/core/settings.dart';
 import 'package:nononsense/core/player.dart';
 import 'package:nononsense/main.dart';
@@ -142,6 +143,15 @@ void main() {
     expect(library.playlists.any((p) => p.id == id), isFalse);
     player.togglePlayPause();
     await tester.pump(const Duration(milliseconds: 500));
+
+    // a YouTube copy, looked up by this device (YouTubeLookup, 8 Oct): on the Mac build these failed with just_audio's
+    // -1 when the server's link was played
+    const yt = Listing(source: 'ytmusic', id: 'J7p4bzqLvCw', title: 'Blinding Lights', artists: ['The Weeknd'], duration: 200);
+    await player.play([Track(yt, const [yt])]);
+    await until(tester, () => player.position > 3, seconds: 20);
+    expect(player.position, greaterThan(3), reason: 'a YouTube song plays in the app');
+    expect(player.current?.title, 'Blinding Lights', reason: 'the YouTube copy itself, not a fallback song');
+    player.togglePlayPause();
 
     // Settings, from the sidebar's bottom item: its sections are on screen, inside the window (8 Oct: "couldn't see")
     await tester.tap(find.text('Settings').last);

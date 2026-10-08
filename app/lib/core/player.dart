@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart' as ja;
 import 'api.dart';
 import 'models.dart';
 import 'play_queue.dart';
+import 'youtube.dart';
 
 /// Playback: the queue (PlayQueue) plus the audio, the events the server records (play, skip, finish), copies that
 /// fail falling back to the song's other copies, and the next songs prefetched. The same behaviour as the Mac app's
@@ -232,6 +233,9 @@ class Player extends ChangeNotifier {
   void _failed() {
     final t = current;
     if (t == null) return;
+    // a YouTube link this device looked up and that would not play: never handed out again
+    final failedCopy = t.listings[_copy];
+    if (failedCopy.source == 'ytmusic') YouTubeLookup.instance.forget(failedCopy.id);
     if (_copy + 1 < t.listings.length) {
       _copy++;
       final failed = t.listings[_copy - 1].sourceName, next = t.listings[_copy].sourceName;

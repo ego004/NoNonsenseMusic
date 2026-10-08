@@ -472,6 +472,8 @@ final class Player {
 
     /// A copy would not play: AVPlayer failed on it, or the server gave no address for it.
     private func copyFailed(_ failed: Listing, of track: Track) {
+        // a YouTube link this Mac looked up and that would not play: never handed out again (the retry looks it up anew)
+        let forgotten = failed.source == "ytmusic" ? Task { await YouTubeLookup.shared.forget(failed.id) } : nil
         // every copy but the one it started with: excluding `best` instead retried a broken downloaded copy that was not
         // `best`, and never tried `best` (audit, 7 Oct)
         let others = track.listings.filter { $0.key != (firstCopy ?? track.best.key) }
@@ -496,6 +498,7 @@ final class Player {
             freshRetried.insert(failed.key)
             isBuffering = isPlaying                               // paused: no spinner while it asks
             Task {
+                await forgotten?.value
                 let answer = await API.refresh(failed)
                 guard current?.id == track.id, playingListing?.key == failed.key else { return }
                 // streamed: when the copy that failed was a downloaded file, loading it again replayed the same broken file

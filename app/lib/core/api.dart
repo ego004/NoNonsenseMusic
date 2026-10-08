@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'youtube.dart';
 
 /// Every call the app makes to the FastAPI server (the same calls as the Mac app's API.swift).
 class Api {
@@ -123,7 +124,15 @@ class Api {
   /// follows the redirect may carry `Authorization` on to the audio host (YouTube, JioSaavn). So the app asks /play
   /// itself, does not follow the redirect, and hands the player the `Location` (handoff 3.2, 8 Oct). The same two
   /// requests as before: following the redirect was two already.
+  ///
+  /// A YouTube copy is looked up by this device first (YouTubeLookup: the link then carries this device's IP, so a
+  /// server on the web still plays it); the server's /play is the fallback, as it was for every copy (8 Oct).
   static Future<String> audioUrl(Listing l, {bool fresh = false}) async {
+    if (l.source == 'ytmusic') {
+      try {
+        return await YouTubeLookup.instance.audioUrl(l.id, fresh: fresh);
+      } catch (_) {}
+    }
     final sent = token;
     final req = http.Request('GET', Uri.parse(playUrl(l, fresh: fresh)))
       ..followRedirects = false
@@ -147,10 +156,14 @@ class Api {
   static Future<void> event(List<Listing> listings, String type, int position) =>
       _send('POST', 'events', {'listings': listings.map((l) => l.toJson()).toList(), 'type': type, 'position': position < 0 ? 0 : position});
 
-  /// What plays next, so it starts from the server's cache (answered 202 at once).
+  /// What plays next, made ready before you press play. YouTube copies are looked up by this device (YouTubeLookup,
+  /// 8 Oct); the rest (JioSaavn) by the server, which answers 202 at once.
   static Future<void> prefetch(List<Listing> listings) async {
-    if (listings.isEmpty) return;
-    await _send('POST', 'prefetch', {'listings': listings.take(50).map((l) => {'source': l.source, 'source_id': l.id}).toList()});
+    final others = listings.where((l) => l.source != 'ytmusic').take(50).toList();
+    if (others.isNotEmpty) {
+      await _send('POST', 'prefetch', {'listings': others.map((l) => {'source': l.source, 'source_id': l.id}).toList()});
+    }
+    await YouTubeLookup.instance.warm(listings.where((l) => l.source == 'ytmusic').map((l) => l.id));
   }
 
   // playlists and lyrics

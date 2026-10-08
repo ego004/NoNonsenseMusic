@@ -39,7 +39,12 @@ final class Prefetcher {
             let list = (queuePart + searchPart).filter { seen.insert($0.key).inserted }
             guard !list.isEmpty, list.map(\.key) != lastSent else { return }
             lastSent = list.map(\.key)
-            try? await API.prefetch(list)          // a server without /prefetch just answers 404: nothing breaks
+            // YouTube copies are looked up by this Mac (YouTubeLookup, 8 Oct): its links carry the asker's IP. The rest
+            // (JioSaavn) the server makes ready, as before
+            let youtube = list.filter { $0.source == "ytmusic" }.map(\.id)
+            let others = list.filter { $0.source != "ytmusic" }
+            if !others.isEmpty { try? await API.prefetch(others) }   // a server without /prefetch answers 404: nothing breaks
+            await YouTubeLookup.shared.warm(youtube)
         }
     }
 }
