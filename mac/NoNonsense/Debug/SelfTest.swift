@@ -1533,4 +1533,98 @@ extension Notification.Name {
     /// A self-test asks SearchView to play its first result, as a double-click on that row would.
     static let selfTestPlayFirstResult = Notification.Name("NNSelfTestPlayFirstResult")
 }
+
+/// With `NN_SELFTEST_FULLSCREEN=1`: the main window in full screen, as ⌃⌘F does. The top strip (the toolbar) was black
+/// there (8 Oct). Takes real screenshots (the self-test pictures cannot draw the toolbar's own window) and measures how
+/// bright the top strip is: with the fix, and with the window see-through as before; then leaves full screen and checks
+/// the window is see-through again. Needs the Screen Recording permission for the screenshots; says so without it.
+extension SelfTest {
+    private static var startedFullScreen = false
+
+    static func runFullScreenCheckIfAsked() {
+        guard ProcessInfo.processInfo.environment["NN_SELFTEST_FULLSCREEN"] != nil, !startedFullScreen else { return }
+        startedFullScreen = true
+        Task {
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("fullscreen \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            try? await Task.sleep(for: .seconds(2))
+            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) else {
+                report("fullscreen: no window"); NSApp.terminate(nil); return
+            }
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+            check("before: the window is see-through", !window.isOpaque && window.backgroundColor.alphaComponent == 0)
+            window.toggleFullScreen(nil)
+            for _ in 0..<40 where !window.styleMask.contains(.fullScreen) { try? await Task.sleep(for: .milliseconds(250)) }
+            try? await Task.sleep(for: .seconds(2))                       // the animation, then the toolbar settles
+            check("in full screen", window.styleMask.contains(.fullScreen))
+            check("…the window is opaque, in its own colour", window.isOpaque && window.backgroundColor.alphaComponent == 1)
+            check("…and the app knows (the surface solid, the toolbar's background shown)", WindowMode.shared.fullScreen)
+            let fixed = topStrip(snapName: "fullscreen")
+
+            // the same full screen as before the fix: see-through, the toolbar's background hidden
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            WindowMode.shared.fullScreen = false
+            try? await Task.sleep(for: .seconds(1.5))
+            let before = topStrip(snapName: "fullscreen-as-before")
+            window.isOpaque = true
+            window.backgroundColor = .windowBackgroundColor
+            WindowMode.shared.fullScreen = true
+            if let fixed, let before {
+                report(String(format: "fullscreen: top strip brightness %.2f now, %.2f as before (0 black, 1 white); middle %.2f",
+                              fixed.top, before.top, fixed.middle))
+                // without Screen Recording, screencapture shows the desktop only: both pictures then read the same, and
+                // they say nothing about the app (seen on CI, 8 Oct: 0.99 and 0.99). Judged on a real screen then
+                if abs(fixed.top - before.top) < 0.02 {
+                    report("fullscreen: the screenshots do not show the app (no Screen Recording here?): the strip is not judged")
+                } else {
+                    check("the top strip is not black (brighter than as before, and near the window's middle)",
+                          fixed.top > before.top + 0.1 && abs(fixed.top - fixed.middle) < 0.35)
+                }
+            }
+
+            window.toggleFullScreen(nil)
+            for _ in 0..<40 where window.styleMask.contains(.fullScreen) { try? await Task.sleep(for: .milliseconds(250)) }
+            try? await Task.sleep(for: .seconds(1.5))
+            check("out of full screen: see-through again", !window.isOpaque && window.backgroundColor.alphaComponent == 0
+                  && !WindowMode.shared.fullScreen)
+            report("fullscreen: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// A real screenshot of the main screen (screencapture), saved to NN_SELFTEST_SNAP when set; the mean brightness of
+    /// the strip 4–40 pt from the top (the toolbar in full screen) and of the middle. nil without Screen Recording.
+    private static func topStrip(snapName: String) -> (top: Double, middle: Double)? {
+        let folder = ProcessInfo.processInfo.environment["NN_SELFTEST_SNAP"].map { URL(filePath: $0) } ?? FileManager.default.temporaryDirectory
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appending(path: "\(snapName)-screen.png")
+        let shot = Process()
+        shot.executableURL = URL(filePath: "/usr/sbin/screencapture")
+        shot.arguments = ["-x", "-m", file.path]                         // silent, the main screen only
+        try? shot.run()
+        shot.waitUntilExit()
+        guard let data = try? Data(contentsOf: file), let image = NSBitmapImageRep(data: data), let screen = NSScreen.main else {
+            report("fullscreen: no screenshot (Screen Recording not allowed?)"); return nil
+        }
+        report("wrote \(file.path)")
+        let scale = Double(image.pixelsHigh) / screen.frame.height
+        func mean(_ rows: ClosedRange<Double>) -> Double {
+            var sum = 0.0, n = 0.0
+            for y in stride(from: rows.lowerBound * scale, to: rows.upperBound * scale, by: 4) {
+                for x in stride(from: 0, to: Double(image.pixelsWide), by: 16) {
+                    guard let c = image.colorAt(x: Int(x), y: Int(y))?.usingColorSpace(.sRGB) else { continue }
+                    sum += 0.2126 * c.redComponent + 0.7152 * c.greenComponent + 0.0722 * c.blueComponent; n += 1
+                }
+            }
+            return n > 0 ? sum / n : 0
+        }
+        let middle = screen.frame.height / 2
+        return (mean(4...40), mean((middle - 20)...(middle + 20)))
+    }
+}
 #endif

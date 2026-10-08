@@ -120,6 +120,7 @@ extension NoNonsenseApp {
         SelfTest.runLikeRaceCheckIfAsked(library: library)
         SelfTest.runSlowPlayCheckIfAsked(player: player)
         SelfTest.runAuthCheckIfAsked(account: account, library: library, player: player)
+        SelfTest.runFullScreenCheckIfAsked()
         SelfTest.runYouTubeCheckIfAsked(player: player)
     }
 }
