@@ -29,7 +29,7 @@ struct NoNonsenseApp: App {
         let player = Player(library: library, presence: presence, downloads: downloads)
         _player = State(initialValue: player)
         #if DEBUG
-        let account = Account(keychain: !SelfTest.isRunning)        // a self-test never reads or replaces your token
+        let account = Account(persistent: !SelfTest.isRunning)        // a self-test never reads or replaces your token
         #else
         let account = Account()
         #endif

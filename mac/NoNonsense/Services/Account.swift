@@ -22,11 +22,11 @@ final class Account {
     @ObservationIgnored var onEnded: (() -> Void)?
 
     @ObservationIgnored private let store: TokenStore
-    @ObservationIgnored private var keychainTurn: Task<Void, Never>?
+    @ObservationIgnored private var storeTurn: Task<Void, Never>?
 
-    /// keychain false: self-tests, which sign up a fresh test account each run and never read or replace yours.
-    init(keychain: Bool = true) {
-        store = TokenStore(keychain: keychain)
+    /// persistent false: self-tests, which sign up a fresh test account each run and never read or replace yours.
+    init(persistent: Bool = true) {
+        store = TokenStore(folder: persistent ? TokenStore.appFolder : nil)
     }
 
     /// At launch, once the server is up: a stored token is checked with it (`GET /auth/me`). 200: in. 401: the
@@ -36,7 +36,7 @@ final class Account {
         // Account would have taken the callback with it (see ServerLauncher.shared)
         API.onSignedOut = { [weak self] in self?.ended() }
         guard state == .checking else { return }
-        guard let token = await keychain({ $0.read() }) else { state = .signedOut; return }
+        guard let token = await stored({ $0.read() }) else { state = .signedOut; return }
         API.token = token
         user = savedUser
         do {
@@ -67,7 +67,7 @@ final class Account {
             savedUser = reply.user
             notice = nil
             state = .signedIn
-            await keychain { $0.write(reply.token) }
+            await stored { $0.write(reply.token) }
             return nil
         } catch let failure as API.Failure {
             unreachable = false
@@ -100,7 +100,7 @@ final class Account {
         try? await API.signOut()
         if state != .signedOut { forget() }          // a 401 to the sign-out itself has already done it
         notice = nil                                  // you chose it: nothing to explain
-        await keychainTurn?.value
+        await storeTurn?.value
     }
 
     /// The server answered 401 to the token in use.
@@ -116,31 +116,30 @@ final class Account {
         savedUser = nil
         state = .signedOut
         onEnded?()
-        Task { await keychain { $0.delete() } }
+        Task { await stored { $0.delete() } }
     }
 
-    /// Keychain work off the main thread, one at a time and in order. Off: after a rebuild macOS may ask whether this
-    /// build may read the token, and that question blocks the thread that asked. In order: a delete finishing after a
-    /// quick sign-in would remove the new token.
-    private func keychain<T: Sendable>(_ work: @escaping @Sendable (TokenStore) -> T) async -> T {
-        let previous = keychainTurn, store = store
+    /// The token's file off the main thread, one change at a time and in order: a delete finishing after a quick sign-in
+    /// would remove the new token. Off: moving a token out of the Keychain may ask for the password, which blocks.
+    private func stored<T: Sendable>(_ work: @escaping @Sendable (TokenStore) -> T) async -> T {
+        let previous = storeTurn, store = store
         let task = Task.detached { () -> T in
             await previous?.value
             return work(store)
         }
-        keychainTurn = Task { _ = await task.value }
+        storeTurn = Task { _ = await task.value }
         return await task.value
     }
 
-    /// The last signed-in user, for Settings while the server cannot be asked. Not secret: the token is in the Keychain.
+    /// The last signed-in user, for Settings while the server cannot be asked. Not secret: the token is in its own file.
     /// Not kept for self-tests: they share your app's settings, and their accounts are not yours.
     private var savedUser: AccountUser? {
         get {
-            guard store.keychain else { return nil }
+            guard store.persistent else { return nil }
             return UserDefaults.standard.data(forKey: "account.user").flatMap { try? JSONDecoder().decode(AccountUser.self, from: $0) }
         }
         set {
-            guard store.keychain else { return }
+            guard store.persistent else { return }
             UserDefaults.standard.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "account.user")
         }
     }
@@ -160,19 +159,67 @@ final class Account {
     }
 }
 
-/// The token in the Keychain (a generic password), never in preferences: a plist anyone with the disk can read.
-/// The login keychain: the data-protection one needs a signed entitlement, and the app is signed ad hoc (8 Oct).
+/// The token in a file only your account can read, not the Keychain (8 Oct, the owner's choice). The app is signed ad
+/// hoc, so to the Keychain every build was a new app, and it asked for the login password after each one. A stable
+/// signature (an Apple Developer ID) would end that; without one, a file readable by you alone is what open-source apps
+/// do. `~/Library/Application Support/app.nononsense.music/session`: mode 0600 in a 0700 folder, written whole or not at
+/// all (a temporary file renamed over it). A token the Keychain held moves into it once, and leaves the Keychain.
 nonisolated struct TokenStore: Sendable {
-    let keychain: Bool
+    /// nil: memory only (self-tests: they never read or replace your session)
+    let folder: URL?
+    /// Where the token was before 8 Oct. A self-test gives its own, never yours
+    var keychainService = "app.nononsense.music.session"
+
+    static let appFolder = URL.applicationSupportDirectory.appending(path: "app.nononsense.music")
+    var persistent: Bool { folder != nil }
+    private var file: URL? { folder?.appending(path: "session") }
+
+    func read() -> String? {
+        guard let folder, let file else { return nil }
+        if let data = try? Data(contentsOf: file) { return String(data: data, encoding: .utf8) }
+        let moved = folder.appending(path: ".moved")
+        // once only: reading the old item may ask for the login password, and must not at every launch
+        guard !FileManager.default.fileExists(atPath: moved.path) else { return nil }
+        let old = keychainRead()
+        if let old { write(old) }
+        keychainDelete()
+        store(Data(), at: moved)
+        return old
+    }
+
+    func write(_ token: String) {
+        guard let file else { return }
+        store(Data(token.utf8), at: file)
+    }
+
+    func delete() {
+        guard let file else { return }
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    private func store(_ data: Data, at url: URL) {
+        guard let folder else { return }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        chmod(folder.path, 0o700)
+        let temp = url.path + ".tmp"
+        let fd = open(temp, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+        guard fd >= 0 else { return }
+        fchmod(fd, 0o600)                             // a temporary file left by a crash keeps its old mode otherwise
+        let written = data.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+        fsync(fd)
+        close(fd)
+        if written == data.count { rename(temp, url.path) } else { unlink(temp) }
+    }
+
+    // the Keychain, as before 8 Oct: the login keychain, a generic password
 
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "app.nononsense.music.session",
+         kSecAttrService as String: keychainService,
          kSecAttrAccount as String: "token"]
     }
 
-    func read() -> String? {
-        guard keychain else { return nil }
+    func keychainRead() -> String? {
         var ask = query
         ask[kSecReturnData as String] = true
         ask[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -181,17 +228,16 @@ nonisolated struct TokenStore: Sendable {
         return String(data: data, encoding: .utf8)
     }
 
-    func write(_ token: String) {
-        guard keychain else { return }
-        SecItemDelete(query as CFDictionary)
+    #if DEBUG
+    /// Self-tests: a token where the app kept it before 8 Oct (their own service only)
+    func keychainWrite(_ token: String) {
         var item = query
         item[kSecValueData as String] = Data(token.utf8)
-        item[kSecAttrLabel as String] = "NoNonsense session"
         SecItemAdd(item as CFDictionary, nil)
     }
+    #endif
 
-    func delete() {
-        guard keychain else { return }
+    func keychainDelete() {
         SecItemDelete(query as CFDictionary)
     }
 }
