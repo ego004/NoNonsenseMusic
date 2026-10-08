@@ -28,6 +28,65 @@ class SecureTokenStore implements TokenStore {
   Future<void> delete(String key) => _storage.delete(key: key);
 }
 
+/// The Mac: a file only your account can read, not the Keychain (8 Oct, the owner's choice). The app is signed ad hoc,
+/// so to the Keychain every build is a new app, and it asked for the login password after each one. A stable signature
+/// (an Apple Developer ID) would end that; without one, a file readable by you alone is what open-source apps do.
+/// One file per key in `folder` (`token`, `user`), mode 0600, written whole or not at all (a temporary file renamed).
+/// `movedFrom`: where the values were before; whatever is there moves here, once, and is deleted there.
+class FileTokenStore implements TokenStore {
+  FileTokenStore(this.folder, {this.movedFrom});
+  final Directory folder;
+  final TokenStore? movedFrom;
+
+  File _file(String key) => File('${folder.path}/$key');
+  File get _moved => File('${folder.path}/.moved');
+
+  /// The Mac app's own folder: in its sandbox container, `HOME` is the container (`~/Library/Containers/<id>/Data`).
+  static Directory get macFolder =>
+      Directory('${Platform.environment['HOME']}/Library/Application Support/dev.nononsense.nononsense');
+
+  @override
+  Future<String?> read(String key) async {
+    final file = _file(key);
+    if (await file.exists()) return file.readAsString();
+    final old = movedFrom;
+    // once only: the Keychain may ask for the password to read the old item, and must not ask at every launch
+    if (old == null || await _moved.exists()) return null;
+    final values = {for (final k in const ['token', 'user']) k: await old.read(k)};
+    for (final e in values.entries) {
+      if (e.value != null) await write(e.key, e.value!);
+      await old.delete(e.key);
+    }
+    await _write(_moved, '');
+    return values[key];
+  }
+
+  @override
+  Future<void> write(String key, String value) => _write(_file(key), value);
+
+  @override
+  Future<void> delete(String key) async {
+    final file = _file(key);
+    if (await file.exists()) await file.delete();
+  }
+
+  Future<void> _write(File file, String value) async {
+    await folder.create(recursive: true);
+    await _chmod('700', folder.path);
+    // the whole value or nothing: a temporary file, made readable by you alone, then renamed over the old one
+    final temp = File('${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
+    await temp.writeAsString(value, flush: true);
+    await _chmod('600', temp.path);
+    await temp.rename(file.path);
+  }
+
+  // Dart cannot set a file's mode; chmod can. Only when a value is written: at sign-in, once
+  static Future<void> _chmod(String mode, String path) async {
+    final r = await Process.run('/bin/chmod', [mode, path]);
+    if (r.exitCode != 0) throw FileSystemException('chmod $mode failed: ${r.stderr}', path);
+  }
+}
+
 /// For tests: kept in memory only.
 class MemoryTokenStore implements TokenStore {
   final values = <String, String>{};
@@ -45,11 +104,17 @@ enum AuthState { checking, signedOut, signedIn }
 /// until this says signedIn; any 401 to a request with the token (the session expired, or was signed out on another
 /// device) brings it back. Not "server unreachable": the server answered.
 class Auth extends ChangeNotifier {
-  Auth({TokenStore? store}) : _store = store ?? SecureTokenStore() {
+  Auth({TokenStore? store}) : _store = store ?? defaultStore() {
     Api.onSignedOut = _ended;
   }
 
   final TokenStore _store;
+
+  /// The Mac: a file (FileTokenStore), taking over a token the Keychain held. Windows (DPAPI) and Android (Keystore):
+  /// the secure store, which never asks for a password.
+  static TokenStore defaultStore() =>
+      Platform.isMacOS ? FileTokenStore(FileTokenStore.macFolder, movedFrom: SecureTokenStore()) : SecureTokenStore();
+
   AuthState state = AuthState.checking;
   AuthUser? user;
 

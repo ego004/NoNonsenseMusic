@@ -7,7 +7,7 @@ extension SelfTest {
     private static var startedAuth = false
 
     /// A fresh `test-<random>` account, signed up at launch (AccountGate), its token in memory only
-    /// (`Account(keychain: false)`): your Keychain token is never read or replaced. Only on the test server this app
+    /// (`Account(persistent: false)`): your session is never read or replaced. Only on the test server this app
     /// started itself: never on yours. The backend's test run deletes `test-` accounts.
     static func signUpTestAccount(_ account: Account) async {
         guard await onOwnTestServer() else { report("no test account: this app did not start this server (never yours)"); return }
@@ -37,6 +37,25 @@ extension SelfTest {
                 report("auth: this app's own test server and a signed-up test account needed"); NSApp.terminate(nil); return
             }
             if !player.isMuted { player.toggleMute() }                                  // tests stay silent
+
+            // the session's file (8 Oct): its own folder and Keychain service here, never yours
+            let folder = FileManager.default.temporaryDirectory.appending(path: "nn-selftest-session-\(UUID().uuidString)")
+            let store = TokenStore(folder: folder, keychainService: "app.nononsense.music.selftest")
+            store.keychainWrite("a token kept before 8 Oct")
+            check("a token the Keychain held moves into the file", store.read() == "a token kept before 8 Oct")
+            check("…and leaves the Keychain", store.keychainRead() == nil)
+            func mode(_ url: URL) -> Int { (try? FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) ?? -1 }
+            let file = folder.appending(path: "session")
+            check("the file is yours alone: 0600, in a 0700 folder", mode(file) == 0o600 && mode(folder) == 0o700,
+                  String(format: "%o, %o", mode(file), mode(folder)))
+            store.write("a new token")
+            check("a new token replaces it whole; the next launch reads it",
+                  TokenStore(folder: folder, keychainService: store.keychainService).read() == "a new token" && !FileManager.default.fileExists(atPath: file.path + ".tmp"))
+            store.keychainWrite("not to be asked for")
+            store.delete()
+            check("signed out: no file, and the Keychain is not asked again (it may ask for your password)", store.read() == nil)
+            store.keychainDelete()
+            try? FileManager.default.removeItem(at: folder)
 
             // signed in
             check("GET /auth/me knows the account", (try? await API.me())?.username == owner.username)
