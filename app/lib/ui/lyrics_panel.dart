@@ -30,6 +30,9 @@ class LyricsPanel extends StatelessWidget {
         Widget message(String text) => Center(child: Text(text, style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6))));
         if (found == null) return s.lyrics.unreachable.contains(t.id) ? message('Couldn\'t reach the server') : message('Finding lyrics…');
         if (found.lines.isEmpty) return message('Couldn\'t find lyrics');
+        final genius = s.lyrics.notesOf(t);
+        final notes = genius?.byLine(found.lines) ?? const <int, GeniusNote>{};
+        final about = genius?.about;
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
@@ -37,9 +40,17 @@ class LyricsPanel extends StatelessWidget {
               Text('Lyrics', style: theme.textTheme.titleMedium),
               const Spacer(),
               Text(found.synced ? 'from ${found.sourceName}' : 'from ${found.sourceName} · not timed', style: theme.textTheme.bodySmall),
+              if (about != null && !about.isEmpty)
+                IconButton(
+                  tooltip: 'About This Song',
+                  icon: const Icon(Icons.info_outline, size: 18),
+                  onPressed: () => showGeniusAbout(context, about, genius?.url),
+                ),
             ]),
           ),
-          Expanded(child: found.synced ? _Timed(key: ValueKey(t.id), track: t, lyrics: found) : _Plain(found)),
+          Expanded(child: found.synced
+              ? _Timed(key: ValueKey(t.id), track: t, lyrics: found, notes: notes, notesUrl: genius?.url)
+              : _Plain(found, notes: notes, notesUrl: genius?.url)),
         ]);
       },
     );
@@ -49,17 +60,25 @@ class LyricsPanel extends StatelessWidget {
 
 class _Plain extends StatelessWidget {
   final Lyrics lyrics;
-  const _Plain(this.lyrics);
+  final Map<int, GeniusNote> notes;
+  final String? notesUrl;
+  const _Plain(this.lyrics, {this.notes = const {}, this.notesUrl});
   @override
   Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(6), children: [
-        for (final l in lyrics.lines) Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Text(l.text, style: Theme.of(context).textTheme.titleMedium)),
+        for (final (i, l) in lyrics.lines.indexed)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: NotedLyricLine(text: l.text, style: Theme.of(context).textTheme.titleMedium, note: notes[i], url: notesUrl),
+          ),
       ]);
 }
 
 class _Timed extends StatefulWidget {
   final Track track;
   final Lyrics lyrics;
-  const _Timed({super.key, required this.track, required this.lyrics});
+  final Map<int, GeniusNote> notes;
+  final String? notesUrl;
+  const _Timed({super.key, required this.track, required this.lyrics, this.notes = const {}, this.notesUrl});
   @override
   State<_Timed> createState() => _TimedState();
 }
@@ -140,20 +159,92 @@ class _TimedState extends State<_Timed> {
       itemCount: widget.lyrics.lines.length,
       itemBuilder: (_, i) {
         final line = widget.lyrics.lines[i];
-        return InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: line.startMs == null ? null : () => p.seek(line.startMs! / 1000),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Text(line.text, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withValues(alpha: i == _lit ? 1 : 0.35))),
-            ),
+        final play = line.startMs == null ? null : () => p.seek(line.startMs! / 1000);
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            // a line with a Genius note opens it instead of playing from it: Play from here is in the note
+            child: NotedLyricLine(text: line.text, note: widget.notes[i], url: widget.notesUrl, onTap: play, onPlay: play,
+                style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withValues(alpha: i == _lit ? 1 : 0.35))),
           ),
         );
       },
     ));
   }
+}
+
+// ---- Genius notes (experimental, 8 Oct) ----
+
+/// One lyric line. With a Genius note: a faint accent underline, and a click opens the note (not `onTap`).
+class NotedLyricLine extends StatelessWidget {
+  final String text;
+  final TextStyle? style;
+  final GeniusNote? note;
+  final String? url;
+  final VoidCallback? onTap; // a line without a note: play from it (timed lyrics)
+  final VoidCallback? onPlay; // in the note: Play from here
+  const NotedLyricLine({super.key, required this.text, this.style, this.note, this.url, this.onTap, this.onPlay});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final shown = Text(text, maxLines: 1, overflow: TextOverflow.ellipsis,
+        style: note == null ? style : (style ?? const TextStyle()).copyWith(decoration: TextDecoration.underline, decorationColor: accent.withValues(alpha: 0.6)));
+    final tap = note == null ? onTap : () => showGeniusNote(context, note!, url, onPlay: onPlay);
+    return InkWell(borderRadius: BorderRadius.circular(8), onTap: tap, child: shown);
+  }
+}
+
+/// The note, in a dialog over the lyrics: its text, credited "Genius", and Play from here when the line has a time.
+Future<void> showGeniusNote(BuildContext context, GeniusNote note, String? url, {VoidCallback? onPlay}) => showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        content: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 360), child: SelectableText(note.text)),
+        actions: [
+          _GeniusCredit(url: url, verified: note.verified),
+          if (onPlay != null) TextButton(onPressed: () { Navigator.pop(c); onPlay(); }, child: const Text('Play from here')),
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Close')),
+        ],
+      ),
+    );
+
+/// Genius's About this song: its description, who produced it, what it samples.
+Future<void> showGeniusAbout(BuildContext context, GeniusAbout about, String? url) => showDialog(
+      context: context,
+      builder: (c) {
+        final theme = Theme.of(c);
+        Widget fact(String title, String value) => Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                Text(value),
+              ]),
+            );
+        return AlertDialog(
+          title: const Text('About This Song'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              if (about.description != null) SelectableText(about.description!),
+              if (about.producedBy.isNotEmpty) fact('Produced by', about.producedBy.join(', ')),
+              if (about.samples.isNotEmpty) fact('Samples', about.samples.join('\n')),
+            ])),
+          ),
+          actions: [_GeniusCredit(url: url, verified: false), TextButton(onPressed: () => Navigator.pop(c), child: const Text('Close'))],
+        );
+      },
+    );
+
+/// "Genius" (and whether the artist verified it): the notes are theirs. The song's page address shows on hover.
+class _GeniusCredit extends StatelessWidget {
+  final String? url;
+  final bool verified;
+  const _GeniusCredit({required this.url, required this.verified});
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: url ?? '',
+        child: Text(verified ? 'Genius · verified by the artist' : 'Genius', style: Theme.of(context).textTheme.bodySmall),
+      );
 }

@@ -12,6 +12,24 @@ class LyricsStore extends ChangeNotifier {
   final Set<String> unreachable = {};
 
   Lyrics? of(Track t) => _found[t.id];
+
+  /// Settings › Lyrics › Genius notes (experimental, off by default).
+  static bool genius = false;
+  final Map<String, GeniusNotes> _notes = {};
+  final Set<String> _notesAsked = {};
+  GeniusNotes? notesOf(Track t) => genius ? _notes[t.id] : null;
+
+  /// This song's Genius notes, asked once beside its lyrics when the setting is on. A failure is asked again on the
+  /// song's next start. The lyrics never wait for them.
+  Future<void> fetchNotes(Track t) async {
+    if (!genius || !_notesAsked.add(t.id)) return;
+    try {
+      _notes[t.id] = await Api.genius(t);
+      notifyListeners();
+    } catch (_) {
+      _notesAsked.remove(t.id);
+    }
+  }
   bool isLoading(Track t) => _asking.contains(t.id);
 
   Player? _following;
@@ -33,6 +51,7 @@ class LyricsStore extends ChangeNotifier {
   }
 
   Future<void> fetch(Track t) async {
+    fetchNotes(t);
     if (_found.containsKey(t.id) || _asking.contains(t.id)) return;
     _asking.add(t.id);
     unreachable.remove(t.id);

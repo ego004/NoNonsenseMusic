@@ -10,13 +10,14 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from psycopg import errors
 
 from music_backend.core import db
-from music_backend.services import auth, library, cache, lyrics
+from music_backend.services import auth, library, cache, genius, lyrics
 from music_backend.services.matching import rank_songs
 from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
                                   LyricsRequest, LyricsResponse, Session, SignInRequest, SignUpRequest, User,
-                                  PlaylistUpdate, ShareRequest, DeviceNameRequest, Member)
+                                  PlaylistUpdate, ShareRequest, DeviceNameRequest, Member, GeniusRequest,
+                                  GeniusResponse)
 from music_backend.core.settings import settings
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     app.state.pool = pool
     app.state.url_cache = cache.ListingURLCache(SOURCES, pool)   # one cache for every request; it borrows connections from the pool
     app.state.lyrics_cache = cache.LyricsCache(pool)
+    app.state.genius_cache = cache.GeniusCache(pool)
     # the prefetch workers: N separate tasks, running by themselves; the list keeps them alive
     # (a list comprehension: `[create_task(...)] * N` would be ONE task listed N times)
     app.state.prefetch_workers = [asyncio.create_task(app.state.url_cache.prefetch_worker())
@@ -43,12 +45,13 @@ async def lifespan(app: FastAPI):
 
     # shutdown, in this order: the workers, then lookups still running, then the pool they write to
     stopping = ([app.state.session_cleanup] + app.state.prefetch_workers + list(app.state.url_cache.running.values())
-                + list(app.state.lyrics_cache.running.values()))
+                + list(app.state.lyrics_cache.running.values()) + list(app.state.genius_cache.running.values()))
     for task in stopping:
         task.cancel()
     await asyncio.gather(*stopping, return_exceptions=True)       # wait until they have really stopped
     await asyncio.gather(*(source.http.close() for source in SOURCES.values()))   # the sources' kept connections
     await lyrics.http.close()                                                     # and LRCLIB's
+    await genius.http.close()                                                     # and Genius's
     await pool.close()
 
 
@@ -339,6 +342,17 @@ async def unshare_playlist(playlist_id: UUID, member_id: UUID, request: Request,
 async def get_lyrics(body: LyricsRequest, request: Request, user: Signed) -> LyricsResponse:
     """Always 200: no lyrics is an empty `lines`, not an error. From the lyrics table when it has them."""
     return await request.app.state.lyrics_cache(body)
+
+
+@app.post("/genius")
+async def get_genius(body: GeniusRequest, request: Request, user: Signed) -> GeniusResponse:
+    """Genius notes (experimental; the apps ask only when Settings › Lyrics › Genius notes is on). 200 with no notes
+    when Genius has no such song; 502 when Genius cannot be asked (nothing is kept then, so the next ask tries again)."""
+    try:
+        return await request.app.state.genius_cache(body)
+    except genius.GeniusUnavailable as e:
+        logger.warning("genius: %s", e)
+        raise HTTPException(status_code = 502, detail = "Genius is unavailable right now")
 
 
 # ---- accounts (AUTH-1): sign up, sign in, who am I, sign out ----

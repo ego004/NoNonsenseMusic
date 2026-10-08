@@ -33,6 +33,8 @@ class Settings extends ChangeNotifier {
   /// line takes to move to the middle, in seconds (the Mac app's 0.9 by default).
   bool lyricsEarly = true;
   double lyricsMotion = 0.9;
+  /// Lyrics › Genius notes (experimental, 8 Oct): off by default; one more lookup per song when on.
+  bool geniusNotes = false;
   bool _loaded = false;
 
   Future<void> load() async {
@@ -45,6 +47,7 @@ class Settings extends ChangeNotifier {
     textScale = _p.getDouble('textScale') ?? 1;
     lyricsEarly = _p.getBool('lyricsEarly') ?? true;
     lyricsMotion = _p.getDouble('lyricsMotion') ?? 0.9;
+    geniusNotes = _p.getBool('geniusNotes') ?? false;
     _loaded = true;
     _apply();
   }
@@ -53,6 +56,7 @@ class Settings extends ChangeNotifier {
     Api.base = server;
     Track.prefersExplicit = explicit;
     LyricsStore.early = lyricsEarly;
+    LyricsStore.genius = geniusNotes;
   }
 
   /// One setter for the plain ones: set, kept, applied, and everything showing it redrawn.
@@ -73,6 +77,7 @@ class Settings extends ChangeNotifier {
   Future<void> setTextScale(double v) => _set('textScale', v, () => textScale = v);
   Future<void> setLyricsEarly(bool on) => _set('lyricsEarly', on, () => lyricsEarly = on);
   Future<void> setLyricsMotion(double v) => _set('lyricsMotion', v, () => lyricsMotion = v);
+  Future<void> setGeniusNotes(bool on) => _set('geniusNotes', on, () => geniusNotes = on);
 
   Future<void> setServer(String s) async {
     server = s.trim().isEmpty ? const String.fromEnvironment('SERVER', defaultValue: 'http://127.0.0.1:8000') : s.trim();

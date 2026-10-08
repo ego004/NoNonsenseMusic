@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     cache_max_size_in_db: int = 6000
     # days: plain or empty lyrics are asked for again after this long (timed lyrics are kept for good)
     lyrics_recheck_days: float = 7
+    # Genius notes (experimental): the official API's token, used only when the website's own API fails. None: no
+    # fallback (the official API answers 401 without one). Get one at genius.com/api-clients
+    genius_access_token: str | None = None
+    # days: a song's Genius notes are asked for again after this long (people keep adding notes)
+    genius_recheck_days: float = 30
 
     # days: a session (one signed-in device) not used for this long ends; each use pushes the end forward (AUTH-1)
     session_days: int = 30

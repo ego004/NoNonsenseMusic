@@ -24,9 +24,25 @@ final class LyricsStore {
 
     func state(for track: Track) -> State? { states[track.id] }
 
+    /// Genius notes by Track.id (Settings › Lyrics › Genius notes, off by default). No entry: not asked, or not found.
+    private(set) var notes: [String: GeniusNotes] = [:]
+    @ObservationIgnored private var notesAsked: Set<String> = []
+    static var geniusOn: Bool { UserDefaults.standard.bool(forKey: "geniusNotes") }
+
+    /// Asks for this song's Genius notes once, beside its lyrics, when the setting is on. A failure is asked again on
+    /// the song's next start. Nothing is shown until they arrive: the lyrics never wait for them.
+    func fetchNotes(_ track: Track) {
+        guard Self.geniusOn, !notesAsked.contains(track.id) else { return }
+        notesAsked.insert(track.id)
+        Task {
+            do { notes[track.id] = try await API.genius(for: track) } catch { notesAsked.remove(track.id) }
+        }
+    }
+
     /// Asks for this song's lyrics, once: a song already found, or being asked for, is not asked again. A song the
     /// server could not be asked about is asked again (the panel's Retry). A downloaded song answers from its file.
     func fetch(_ track: Track) {
+        fetchNotes(track)
         if case .found = states[track.id] { return }
         guard running[track.id] == nil else { return }
         if let saved = downloads.lyrics(for: track) {
@@ -57,5 +73,11 @@ final class LyricsStore {
     #if DEBUG
     /// Self-tests: forget what this session knows about a song, so the next fetch asks again (or reads the file).
     func forget(_ track: Track) { states[track.id] = nil }
+    /// Self-tests: lyrics and notes for a made-up song, as if the server had answered.
+    func give(_ found: Lyrics, notes given: GeniusNotes?, for track: Track) {
+        states[track.id] = .found(found)
+        notes[track.id] = given
+        notesAsked.insert(track.id)
+    }
     #endif
 }
