@@ -1,6 +1,6 @@
 # Backend (Python)
 
-All files are in `backend/src/music_backend/`. Each function has four lines:
+All files are in `backend/src/music_backend/`: `main.py` and `models.py` at the top, `core/` for the plumbing (settings, the database pool, the HTTP client), `services/` for what the server does (auth, library, the caches, lyrics, matching), `sources/` for JioSaavn and YouTube Music. Each function has four lines:
 
 - **Does:** what it is for.
 - **Returns:** what comes back.
@@ -16,11 +16,11 @@ Files, in the order a request touches them:
 | [`sources/jiosaavn.py`](../backend/src/music_backend/sources/jiosaavn.py) | Talks to JioSaavn. |
 | [`sources/ytmusic.py`](../backend/src/music_backend/sources/ytmusic.py) | Talks to YouTube Music. |
 | [`sources/__init__.py`](../backend/src/music_backend/sources/__init__.py) | The two errors every source uses. |
-| [`matching.py`](../backend/src/music_backend/matching.py) | Groups listings into songs. Ranks songs. |
-| [`library.py`](../backend/src/music_backend/library.py) | Likes, events, stored songs. |
-| [`cache.py`](../backend/src/music_backend/cache.py) | Remembers audio URLs (memory + the `listing_urls` table), so a replay is instant. |
-| [`db.py`](../backend/src/music_backend/db.py) | The connection pool. |
-| [`settings.py`](../backend/src/music_backend/settings.py) | Every setting, read once from `backend/.env`. |
+| [`matching.py`](../backend/src/music_backend/services/matching.py) | Groups listings into songs. Ranks songs. |
+| [`library.py`](../backend/src/music_backend/services/library.py) | Likes, events, stored songs. |
+| [`cache.py`](../backend/src/music_backend/services/cache.py) | Remembers audio URLs (memory + the `listing_urls` table), so a replay is instant. |
+| [`db.py`](../backend/src/music_backend/core/db.py) | The connection pool. |
+| [`settings.py`](../backend/src/music_backend/core/settings.py) | Every setting, read once from `backend/.env`. |
 
 ---
 

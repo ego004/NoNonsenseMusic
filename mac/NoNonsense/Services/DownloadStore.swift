@@ -76,7 +76,8 @@ final class DownloadStore {
         defer { inProgress.remove(track.id) }
         for listing in [track.best] + track.listings.filter({ $0.key != track.best.key }) {
             do {
-                let (temp, response) = try await URLSession.shared.download(from: API.playURL(listing))
+                // the audio's own address: /play needs the token, and the download must not carry it (API.audioURL)
+                let (temp, response) = try await URLSession.shared.download(from: try await API.audioURL(listing))
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 guard (200..<300).contains(status) else { try? FileManager.default.removeItem(at: temp); continue }
                 let ext = response.suggestedFilename.map { ($0 as NSString).pathExtension }.flatMap { $0.isEmpty ? nil : $0 } ?? "m4a"

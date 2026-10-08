@@ -5,9 +5,9 @@ import re
 import time
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
-from music_backend.settings import settings
+from music_backend.core.settings import settings
 from music_backend.models import Listing
-from music_backend.http_client import SharedClient
+from music_backend.core.http_client import SharedClient
 from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable
 
 SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"

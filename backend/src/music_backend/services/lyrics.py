@@ -11,7 +11,7 @@ import re
 
 from ytmusicapi import YTMusic
 
-from music_backend.http_client import SharedClient
+from music_backend.core.http_client import SharedClient
 from music_backend.models import LyricLine, LyricsRequest, LyricsResponse
 
 LRCLIB_URL = "https://lrclib.net/api/get"

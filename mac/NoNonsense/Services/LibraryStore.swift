@@ -133,6 +133,21 @@ final class LibraryStore {
         let track: Track?          // a song to add once it exists
     }
 
+    /// Your own, in your order (the sidebar's drag reorders these), then the ones shared with you: the server lists
+    /// them in that order (AUTH-3).
+    var ownPlaylists: [PlaylistSummary] { playlists.filter(\.isOwner) }
+    var sharedPlaylists: [PlaylistSummary] { playlists.filter { !$0.isOwner } }
+
+    /// The session ended: nothing of that account stays on screen for the next one.
+    func clear() {
+        liked = []; recent = []; likedKeys = []; songIDs = [:]
+        lastLiked = nil; lastRecent = nil
+        playlists = []; details = [:]; localEdits = [:]
+        likeTurns = [:]
+        newPlaylistRequest = nil; renameRequest = nil; deleteRequest = nil; shareRequest = nil; leaveRequest = nil
+        messageTimer?.cancel(); message = nil
+    }
+
     func refreshPlaylists() async {
         // a failure keeps the last good list; the same list is not assigned again (the sidebar and Home would redraw)
         if let fresh = try? await API.playlists(), fresh != playlists { playlists = fresh }
@@ -151,7 +166,9 @@ final class LibraryStore {
             playlistChanged?(detail)
             return true
         } catch API.Failure.http(404, _) {
+            // deleted, or no longer shared with you (on another device, or by its owner): gone from the list too
             details[id] = nil
+            await refreshPlaylists()
             return false
         } catch {
             show("Couldn't open the playlist: \(error.localizedDescription)")
@@ -237,20 +254,65 @@ final class LibraryStore {
         }
     }
 
-    /// A drag in the sidebar's Playlists section: the same, for the order of your playlists.
+    /// A drag in the sidebar's Playlists section: the same, for the order of your own playlists (offsets count in
+    /// `ownPlaylists`). Shared ones keep their owner's order, and the server refuses them as neighbours.
     func movePlaylists(from source: IndexSet, to destination: Int) async {
         guard source.count == 1, let from = source.first else { return }
-        let moved = playlists[from].id
-        var order = playlists
+        var order = ownPlaylists
+        let moved = order[from].id
         order.move(fromOffsets: source, toOffset: destination)
         guard let k = order.firstIndex(where: { $0.id == moved }), k != from else { return }
-        playlists = order
+        playlists = order + sharedPlaylists
         do {
             try await API.move(playlist: moved, top: k > 0 ? order[k - 1].id : nil,
                                bottom: k + 1 < order.count ? order[k + 1].id : nil)
         } catch {
             show("Couldn't move the playlist: \(error.localizedDescription)")
             await refreshPlaylists()
+        }
+    }
+
+    // MARK: - sharing (AUTH-3)
+
+    /// Asks RootView for the Share sheet (the owner's), or the "Leave …?" question (a member's).
+    var shareRequest: PlaylistSummary?
+    var leaveRequest: PlaylistSummary?
+
+    /// The owner shares a playlist by username, as "viewer" or "editor"; sharing again changes the role. nil when it
+    /// worked; else the server's reason for the sheet to show ("No account with that username").
+    func share(_ playlist: PlaylistSummary, with username: String, role: String) async -> String? {
+        do {
+            try await API.share(playlist.id, with: username, role: role)
+            show("Shared “\(playlist.name)” with \(username)", symbol: "person.2.fill")
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// The owner makes a playlist public (anyone signed in can open it by its id) or private again.
+    func setPublic(_ playlist: PlaylistSummary, _ isPublic: Bool) async {
+        do {
+            try await API.setPublic(playlist.id, isPublic)
+            show(isPublic ? "“\(playlist.name)” is public" : "“\(playlist.name)” is private", symbol: isPublic ? "globe" : "lock.fill")
+        } catch {
+            show("Couldn't change “\(playlist.name)”: \(error.localizedDescription)")
+        }
+        await refreshPlaylists()
+        if details[playlist.id] != nil { await loadPlaylist(playlist.id) }
+    }
+
+    /// A member leaves a playlist shared with them: it goes from their list; the owner's stays.
+    func leave(_ playlist: PlaylistSummary) async {
+        do {
+            // your own id: leaving is removing a member, by id (one request more; leaving is rare)
+            let me = try await API.me()
+            try await API.removeMember(me.id, from: playlist.id)
+            playlists.removeAll { $0.id == playlist.id }
+            details[playlist.id] = nil
+            show("Left “\(playlist.name)”", symbol: "rectangle.portrait.and.arrow.right")
+        } catch {
+            show("Couldn't leave “\(playlist.name)”: \(error.localizedDescription)")
         }
     }
 

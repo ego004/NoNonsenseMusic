@@ -129,7 +129,8 @@ class _SongRowState extends State<SongRow> {
           items: [
             const PopupMenuItem(value: '+', child: Text('New Playlist…')),
             const PopupMenuDivider(),
-            for (final p in s.library.playlists) PopupMenuItem(value: p.id, child: Text(p.name)),
+            // yours, and those shared with you as an editor: a viewer cannot add (the server answers 403)
+            for (final p in s.library.playlists.where((p) => p.canEdit)) PopupMenuItem(value: p.id, child: Text(p.name)),
           ],
         );
         if (to == null || !context.mounted) return;

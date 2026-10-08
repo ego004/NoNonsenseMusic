@@ -531,6 +531,8 @@ private struct ServerSettings: View {
     @AppStorage("serverReload") private var reloads = false
     @Environment(ServerLauncher.self) private var server
     @Environment(LibraryStore.self) private var library
+    @Environment(Account.self) private var account
+    @State private var signingOut = false
     @State private var serverOK: Bool?
     // drafts, saved on Return: a field bound to the setting saved whatever it showed, even a test window's
     // launch-argument address, when its window closed (that is how 8765 became your saved address, 7 Oct)
@@ -539,6 +541,22 @@ private struct ServerSettings: View {
 
     var body: some View {
         Form {
+            // your account lives on the server: signing out ends this Mac's session there (AUTH-1)
+            Section {
+                LabeledContent("Signed in as") {
+                    Text(account.user?.username ?? (account.state == .signedIn ? "Your account" : "Not signed in"))
+                        .foregroundStyle(.secondary)
+                }
+                Button(signingOut ? "Signing Out…" : "Sign Out") {
+                    signingOut = true
+                    Task { await account.signOut(); signingOut = false }
+                }
+                .disabled(account.state != .signedIn || signingOut)
+            } header: {
+                Text("Account")
+            } footer: {
+                Text("Your other devices stay signed in.").foregroundStyle(.secondary)
+            }
             Section {
                 TextField("Address", text: $addressDraft, prompt: Text(API.defaultServer))
                     .onSubmit {

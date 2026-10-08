@@ -170,6 +170,22 @@ class Player extends ChangeNotifier {
 
   void setShowNowPlaying(bool on) => _set(() => showNowPlaying = on && current != null);
 
+  /// Signed out: the music stops and the queue empties (the next request would be refused anyway, and the next
+  /// account must not inherit this one's queue).
+  Future<void> stop() async {
+    _loads++; // a load still asking the server says nothing now
+    queue.load(const [], 0, shuffled: false);
+    currentId.value = null;
+    _messageTimer?.cancel();
+    _set(() {
+      isPlaying = false;
+      isBuffering = false;
+      showNowPlaying = false;
+      message = null;
+    });
+    await _audio.stop();
+  }
+
   // MARK: loading
 
   void _go(int? i) {
@@ -197,7 +213,10 @@ class Player extends ChangeNotifier {
     final mine = ++_loads;
     _loading = true;
     try {
-      await _audio.setUrl(Api.playUrl(l, fresh: fresh));
+      // the audio's own address, asked with the token; the player never sees the token (Api.audioUrl)
+      final url = await Api.audioUrl(l, fresh: fresh);
+      if (mine != _loads) return; // replaced while asking
+      await _audio.setUrl(url);
       if (mine == _loads) _audio.play();
     } catch (e) {
       // why a copy did not load (on the Mac preview, YouTube copies fail with -1 "unknown error": TICKETS WIN)

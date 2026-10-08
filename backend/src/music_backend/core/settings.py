@@ -1,6 +1,6 @@
 """Settings, read once from backend/.env. A variable set in the real environment wins over the file.
 
-Use it anywhere:   from music_backend.settings import settings   ->   settings.cache_max_size
+Use it anywhere:   from music_backend.core.settings import settings   ->   settings.cache_max_size
 Add a setting:     a field here, plus the same name in UPPER_CASE in .env and .env.example.
 A key in .env that has no field here stops the server at startup (that catches typos).
 """
@@ -9,7 +9,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # an absolute path, so .env is found whichever folder the server is started from
-ENV_FILE = Path(__file__).resolve().parents[2] / ".env"   # backend/.env
+ENV_FILE = Path(__file__).resolve().parents[3] / ".env"   # backend/.env (this file: backend/src/music_backend/core/)
 
 
 class Settings(BaseSettings):
@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     cache_max_size_in_db: int = 6000
     # days: plain or empty lyrics are asked for again after this long (timed lyrics are kept for good)
     lyrics_recheck_days: float = 7
+
+    # days: a session (one signed-in device) not used for this long ends; each use pushes the end forward (AUTH-1)
+    session_days: int = 30
+    # minutes: a session's end is pushed forward at most this often, so most requests only read their session
+    # instead of writing it (a write on every request was the cost; a 30-day window does not care about an hour)
+    session_slide_minutes: int = 60
 
 
 settings = Settings()

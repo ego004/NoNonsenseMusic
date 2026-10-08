@@ -34,22 +34,10 @@ struct SidebarView: View {
                     .tag(Destination.section(item))
             }
             Section {
-                ForEach(library.playlists) { playlist in
-                    Label { Text(playlist.name).selfTestFrame("sidebar.title:\(playlist.name)") } icon: {
-                        Image(systemName: "music.note.list").selfTestFrame("sidebar.icon:\(playlist.name)")
-                    }
-                        .symbolEffect(.bounce, value: playlist.songCount)     // a song just went in here: the icon hops
-                        .contextMenu {
-                            Button("Play") { Task { await play(playlist, shuffled: false) } }
-                            Button("Shuffle") { Task { await play(playlist, shuffled: true) } }
-                            Divider()
-                            Button("Rename…") { library.renameRequest = playlist }
-                            Button("Delete…", role: .destructive) { library.deleteRequest = playlist }
-                        }
-                        .tag(Destination.playlist(playlist.id))            // last, as above
-                }
-                .onMove { from, to in Task { await library.movePlaylists(from: from, to: to) } }
-                .animation(.snappy(duration: 0.3), value: library.playlists.map(\.id))   // new and deleted playlists slide
+                ForEach(library.ownPlaylists) { playlistRow($0) }
+                    // only your own: shared ones keep their owner's order (LibraryStore.movePlaylists)
+                    .onMove { from, to in Task { await library.movePlaylists(from: from, to: to) } }
+                    .animation(.snappy(duration: 0.3), value: library.ownPlaylists.map(\.id))   // new and deleted playlists slide
                 // a row, not a + in the header: the header is wider than the rows, so a + there sat outside the
                 // rows' column, against the sidebar's edge (6 Oct). As a row it lines up by construction
                 Button { library.newPlaylistRequest = .init(track: nil) } label: {
@@ -60,6 +48,15 @@ struct SidebarView: View {
                 .help("New Playlist (⌘N)")
             } header: {
                 Text("Playlists")
+            }
+            // under your own, as Shared with You in Apple's apps (AUTH-3)
+            if !library.sharedPlaylists.isEmpty {
+                Section {
+                    ForEach(library.sharedPlaylists) { playlistRow($0) }
+                        .animation(.snappy(duration: 0.3), value: library.sharedPlaylists.map(\.id))
+                } header: {
+                    Text("Shared with You")
+                }
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -72,6 +69,20 @@ struct SidebarView: View {
         // macOS draws the sidebar as a floating glass panel, and SwiftUI cannot change that glass (probed 6 Oct:
         // NSContainerConcentricGlassEffectView). This frosts and fills over it, inside the panel; 0 / 0 draws nothing.
         .background { SurfaceLayer(blur: sidebarBlur, solid: sidebarSolid, blending: .behindWindow).ignoresSafeArea() }
+    }
+
+    private func playlistRow(_ playlist: PlaylistSummary) -> some View {
+        Label { Text(playlist.name).selfTestFrame("sidebar.title:\(playlist.name)") } icon: {
+            Image(systemName: playlist.isOwner ? "music.note.list" : "person.2").selfTestFrame("sidebar.icon:\(playlist.name)")
+        }
+            .symbolEffect(.bounce, value: playlist.songCount)     // a song just went in here: the icon hops
+            .contextMenu {
+                Button("Play") { Task { await play(playlist, shuffled: false) } }
+                Button("Shuffle") { Task { await play(playlist, shuffled: true) } }
+                Divider()
+                PlaylistRoleActions(playlist: playlist)
+            }
+            .tag(Destination.playlist(playlist.id))            // last, as above
     }
 
     /// Play from the sidebar without opening the playlist: load its songs, then play them.

@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../core/auth.dart';
 import '../core/library.dart';
 import '../core/lyrics.dart';
 import '../core/player.dart';
@@ -11,7 +12,8 @@ class Scope extends InheritedWidget {
   final Library library;
   final LyricsStore lyrics;
   final Settings settings;
-  const Scope({super.key, required this.player, required this.library, required this.lyrics, required this.settings, required super.child});
+  final Auth auth;
+  const Scope({super.key, required this.player, required this.library, required this.lyrics, required this.settings, required this.auth, required super.child});
 
   static Scope of(BuildContext c) => c.dependOnInheritedWidgetOfExactType<Scope>()!;
   @override

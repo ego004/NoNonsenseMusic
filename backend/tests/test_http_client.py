@@ -6,8 +6,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from music_backend import db
-from music_backend.http_client import SharedClient
+from music_backend.core import db
+from music_backend.core.http_client import SharedClient
 from music_backend.sources import jiosaavn, ytmusic
 
 TEST_URL = "postgresql:///music_test"

@@ -10,10 +10,12 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
-from music_backend import db, lyrics
-from music_backend.http_client import SharedClient
-from music_backend.lyrics import LyricsNotFound, parse_lrc, plain_lines
+from music_backend.core import db
+from music_backend.services import lyrics
+from music_backend.core.http_client import SharedClient
+from music_backend.services.lyrics import LyricsNotFound, parse_lrc, plain_lines
 from music_backend.models import LyricsRequest, LyricsResponse
+from conftest import sign_up
 
 TEST_URL = "postgresql:///music_test"
 
@@ -336,6 +338,7 @@ def server(monkeypatch, lrclib, youtube):
     monkeypatch.setattr(db, "DATABASE_URL", TEST_URL)
     from music_backend.main import app
     with TestClient(app) as client:
+        sign_up(client)
         yield client
     with psycopg.connect(TEST_URL) as conn:      # the cache stored these answers: remove them
         conn.execute("DELETE FROM lyrics WHERE song_name LIKE 'lyrics-test-%'")

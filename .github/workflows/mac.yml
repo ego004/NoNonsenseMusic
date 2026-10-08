@@ -1,0 +1,69 @@
+# The Mac app (mac/): built on a real Mac on every push that touches mac/ (Swift and SwiftUI for macOS 26 build only
+# there). Then its accounts self-test (NN_SELFTEST_AUTH, Debug/AuthSelfTest.swift) runs against this branch's own
+# server, which the app starts itself, on a fresh music_test database and port 8765, as mac/Scripts/selftest.sh does.
+# The window pictures it takes are under "Artifacts" on the run's page.
+name: Mac app
+
+on:
+  push:
+    paths: ["mac/**", "backend/**", ".github/workflows/mac.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode (the newest on the runner)
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version
+      - name: Project file (cd mac && xcodegen)
+        working-directory: mac
+        run: |
+          brew install xcodegen
+          xcodegen
+          # a committed project file without a new source file fails the daily build (which runs no xcodegen)
+          git diff --exit-code -- NoNonsense.xcodeproj || echo "::warning::XcodeGen changed the project file: commit the diff above"
+      - name: Build Debug (the self-tests' build)
+        working-directory: mac
+        run: |
+          xcodebuild -project NoNonsense.xcodeproj -scheme NoNonsense -configuration Debug -derivedDataPath build build > debug.log 2>&1 || true
+          grep -E "error:" debug.log | sort -u | head -40
+          grep -E "warning:" debug.log | grep -v "appintentsmetadataprocessor" | sort -u | head -40
+          grep -E "\*\* BUILD" debug.log
+          grep -q "BUILD SUCCEEDED" debug.log
+      - name: Build Release (daily use)
+        working-directory: mac
+        run: |
+          xcodebuild -project NoNonsense.xcodeproj -scheme NoNonsense -configuration Release -derivedDataPath build build > release.log 2>&1 || true
+          grep -E "error:" release.log | sort -u | head -40
+          grep -E "\*\* BUILD" release.log
+          grep -q "BUILD SUCCEEDED" release.log
+      - name: Test database (PostgreSQL 18, music_test) and the server's packages
+        run: |
+          brew install postgresql@18 uv
+          pg=$(brew --prefix postgresql@18)/bin
+          $pg/initdb -D "$RUNNER_TEMP/pg" --auth=trust > /dev/null
+          $pg/pg_ctl -D "$RUNNER_TEMP/pg" -l "$RUNNER_TEMP/pg.log" start
+          $pg/createdb music_test
+          cd backend && uv sync --frozen
+      - name: Self-test, accounts (NN_SELFTEST_AUTH), on the test server the app starts (8765, music_test)
+        run: |
+          mkdir -p "$RUNNER_TEMP/snaps"
+          env NN_SELFTEST_AUTH=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > selftest.log 2>&1 || true
+          grep SELFTEST selftest.log
+          echo "--- the server's answers (requests only; the repo is public: no addresses, no URLs)"
+          grep -hE '"(GET|POST|PUT|PATCH|DELETE) /' ~/Library/Logs/NoNonsense/server-selftest.log \
+            | sed -E 's/^.*"((GET|POST|PUT|PATCH|DELETE) [^ ?]*)[^"]*" ([0-9]+).*$/\1 \3/' | sed -E 's/[0-9a-f-]{36}/<id>/g' | sort | uniq -c
+          grep -q "auth: all checks pass" selftest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-selftest-pictures
+          path: ${{ runner.temp }}/snaps/
+          if-no-files-found: ignore

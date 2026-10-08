@@ -6,8 +6,10 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
-from music_backend import db, library
+from music_backend.core import db
+from music_backend.services import library
 from music_backend.models import Listing
+from conftest import sign_up
 
 TEST_URL = "postgresql:///music_test"
 
@@ -19,6 +21,7 @@ def client(monkeypatch):
     with TestClient(app) as client:          # "with" runs the lifespan (pool + schema) on music_test
         with psycopg.connect(TEST_URL) as conn:
             conn.execute("DELETE FROM playlists")          # every test starts with no playlists
+        sign_up(client)
         yield client
 
 
@@ -52,7 +55,7 @@ def test_a_name_in_use_answers_409_and_stores_nothing(client):
     create(client, "Gym")
     r = create(client, "Gym")
     assert r.status_code == 409
-    assert r.json()["detail"] == "A playlist with this name already exists"
+    assert r.json()["detail"] == "You already have a playlist with this name"
     assert positions() == [("Gym", "a0")]
 
 
@@ -340,16 +343,16 @@ def test_moving_playlists_reorders_the_list(client):
 # ---------- BUG-6: writes that pick a position take turns, and no tie stays ----------
 
 @pytest.mark.anyio
-async def test_two_adds_at_once_take_turns_and_get_their_own_places(pool):
+async def test_two_adds_at_once_take_turns_and_get_their_own_places(pool, user_id):
     # both read the same last position and stored the same key: a tie nothing could be moved between
     async def in_transaction(write):
         async with pool.connection() as conn, conn.transaction():
             return await write(conn)
-    gym = await in_transaction(lambda conn: library.create_playlist(conn, f"Gym {uuid4().hex[:6]}"))
+    gym = await in_transaction(lambda conn: library.create_playlist(conn, user_id, f"Gym {uuid4().hex[:6]}"))
     song = await in_transaction(lambda conn: library.resolve_song(conn, [Listing(**listings("Song")["listings"][0])]))
     async with pool.connection() as first, first.transaction():
-        await library.add_to_playlist(first, gym, song)              # holds the playlist's turn until it commits
-        second = asyncio.create_task(in_transaction(lambda conn: library.add_to_playlist(conn, gym, song)))
+        await library.add_to_playlist(first, user_id, gym, song)              # holds the playlist's turn until it commits
+        second = asyncio.create_task(in_transaction(lambda conn: library.add_to_playlist(conn, user_id, gym, song)))
         await asyncio.sleep(0.2)
         assert not second.done()                                     # waiting for it
     await second

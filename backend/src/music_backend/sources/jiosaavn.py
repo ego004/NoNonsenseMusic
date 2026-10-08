@@ -4,7 +4,7 @@ import logging
 import httpx
 import pyDes
 from pydantic import ValidationError
-from music_backend.http_client import SharedClient
+from music_backend.core.http_client import SharedClient
 from music_backend.models import Listing
 from music_backend.sources import SongNotFound, SourceUnavailable, SourceBlocked
 

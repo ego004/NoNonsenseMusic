@@ -9,6 +9,14 @@ enum API {
             ?? URL(string: defaultServer)!
     }
 
+    /// The signed-in session's token (AUTH-1), set by `Account`. Every request carries it as `Authorization: Bearer …`
+    /// (`perform`), except sign-up and sign-in, which make one.
+    static var token: String?
+
+    /// Called when the server answers 401 to a request sent with the token still in use: the session ended (it expired,
+    /// or you signed out on another device). `Account` forgets it and shows the sign-in screen.
+    static var onSignedOut: (() -> Void)?
+
     enum Failure: LocalizedError {
         /// detail: the server's own sentence, when it sent one ("A playlist with this name already exists")
         case http(Int, detail: String?)
@@ -39,7 +47,7 @@ enum API {
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
-    /// The server answers with a redirect to the audio file; AVPlayer follows it.
+    /// The server's address for a copy: it answers with a redirect to the audio file (see `audioURL`, which asks it).
     /// `fresh`: skip the server's cache (sent only after this listing's cached URL failed to play).
     static func playURL(_ listing: Listing, fresh: Bool = false) -> URL {
         var base = baseURL
@@ -56,10 +64,23 @@ enum API {
     /// so the player can say why a copy failed; nil when the server did not answer.
     @discardableResult
     static func refresh(_ listing: Listing) async -> (status: Int, detail: String?)? {
-        guard let (data, response) = try? await noRedirect.data(from: playURL(listing, fresh: true)),
+        guard let (data, response) = try? await perform(URLRequest(url: playURL(listing, fresh: true)), on: noRedirect),
               let http = response as? HTTPURLResponse else { return nil }
-        let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
-        return (http.statusCode, detail)
+        return (http.statusCode, detail(data))
+    }
+
+    /// The audio's own address, for AVPlayer and for downloads. /play needs the token; the player is never given it: an
+    /// HTTP stack that follows the redirect may carry `Authorization` on to the audio host (YouTube, JioSaavn). So the
+    /// app asks /play itself, does not follow the redirect, and hands over the `Location` (handoff 3.2, 8 Oct). The same
+    /// two requests as before: AVPlayer following the redirect was two already.
+    static func audioURL(_ listing: Listing, fresh: Bool = false) async throws -> URL {
+        let (data, response) = try await perform(URLRequest(url: playURL(listing, fresh: fresh), timeoutInterval: 20), on: noRedirect)
+        let http = response as? HTTPURLResponse
+        if let code = http?.statusCode, (300..<400).contains(code),
+           let location = http?.value(forHTTPHeaderField: "Location"), let url = URL(string: location, relativeTo: baseURL) {
+            return url.absoluteURL
+        }
+        throw Failure.http(http?.statusCode ?? 0, detail: detail(data))
     }
 
     /// One listing for `POST /prefetch` (MUS-1 step 3).
@@ -112,7 +133,7 @@ enum API {
     static func unlike(_ songID: UUID) async throws {
         var request = URLRequest(url: baseURL.appending(path: "liked").appending(path: songID.uuidString.lowercased()))
         request.httpMethod = "DELETE"
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await perform(request)
         try check(response, allow: [204, 404])
     }
 
@@ -176,10 +197,73 @@ enum API {
         try await sendNoContent("POST", path: "playlists/\(playlist.path)/move", body: MoveBody(top: top, bottom: bottom))
     }
 
+    // ---- sharing (AUTH-3): the owner shares by username, as a viewer or an editor (the same call again changes the
+    // role), and makes a playlist public; a member leaves by removing themselves ----
+
+    private struct PublicBody: Encodable { let `public`: Bool }
+    private struct ShareBody: Encodable { let username: String; let role: String }
+
+    static func setPublic(_ id: UUID, _ isPublic: Bool) async throws {
+        let _: PlaylistSummary = try await send("PATCH", path: "playlists/\(id.path)", body: PublicBody(public: isPublic))
+    }
+
+    static func share(_ id: UUID, with username: String, role: String) async throws {
+        try await sendNoContent("PUT", path: "playlists/\(id.path)/members", body: ShareBody(username: username, role: role))
+    }
+
+    static func removeMember(_ user: UUID, from id: UUID) async throws {
+        try await sendNoContent("DELETE", path: "playlists/\(id.path)/members/\(user.path)")
+    }
+
+    // ---- accounts (AUTH-1). Sign-up and sign-in send no token; their 401 means "wrong username or password", not a
+    // session that ended ----
+
+    private struct Credentials: Encodable {
+        let username: String
+        let password: String
+        let deviceName: String
+        enum CodingKeys: String, CodingKey { case username, password; case deviceName = "device_name" }
+    }
+
+    static func signUp(_ username: String, _ password: String, device: String) async throws -> SessionReply {
+        try await session("auth/signup", Credentials(username: username, password: password, deviceName: device))
+    }
+
+    static func signIn(_ username: String, _ password: String, device: String) async throws -> SessionReply {
+        try await session("auth/signin", Credentials(username: username, password: password, deviceName: device))
+    }
+
+    private static func session(_ path: String, _ body: Credentials) async throws -> SessionReply {
+        var request = URLRequest(url: baseURL.appending(path: path), timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await URLSession.shared.data(for: request)     // no token: this makes one
+        try check(response, data: data)
+        return try JSONDecoder().decode(SessionReply.self, from: data)
+    }
+
+    /// Who the stored token belongs to: the launch check. A 401 ends the session (through `onSignedOut`).
+    static func me() async throws -> AccountUser { try await get(baseURL.appending(path: "auth/me")) }
+
+    /// Ends this device's session on the server; your other devices stay signed in.
+    static func signOut() async throws { try await sendNoContent("POST", path: "auth/signout") }
+
     // ---- plumbing ----
 
+    /// Every request but sign-up and sign-in goes through here: the token on it, and a 401 to that token ends the
+    /// session. Only to the token still in use: an older request answering 401 after you signed in again says nothing.
+    private static func perform(_ request: URLRequest, on session: URLSession = .shared) async throws -> (Data, URLResponse) {
+        var request = request
+        let sent = token
+        if let sent { request.setValue("Bearer \(sent)", forHTTPHeaderField: "Authorization") }
+        let (data, response) = try await session.data(for: request)
+        if (response as? HTTPURLResponse)?.statusCode == 401, let sent, sent == token { onSignedOut?() }
+        return (data, response)
+    }
+
     private static func get<T: Decodable>(_ url: URL) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await perform(URLRequest(url: url))
         try check(response, data: data)
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -188,7 +272,7 @@ enum API {
     private static func sendNoContent(_ method: String, path: String) async throws {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await perform(request)
         try check(response, data: data)
     }
 
@@ -197,7 +281,7 @@ enum API {
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await perform(request)
         try check(response, data: data)
     }
 
@@ -206,19 +290,28 @@ enum API {
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await perform(request)
         try check(response, data: data)
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    /// Throws for a status outside `allow`, carrying the server's `detail` sentence when there is one
-    /// (FastAPI's 422s send a list instead: then there is no sentence, only the code).
+    /// Throws for a status outside `allow`, carrying the server's `detail` sentence when there is one.
     private static func check(_ response: URLResponse, data: Data? = nil, allow: Set<Int> = Set(200..<300)) throws {
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard allow.contains(code) else {
-            struct Detail: Decodable { let detail: String }
-            throw Failure.http(code, detail: data.flatMap { try? JSONDecoder().decode(Detail.self, from: $0) }?.detail)
-        }
+        guard allow.contains(code) else { throw Failure.http(code, detail: data.flatMap(detail)) }
+    }
+
+    /// The server's own words, written to be shown. A 422 lists what was wrong with each field instead:
+    /// `[{"loc": ["body", "password"], "msg": "String should have at least 8 characters"}]` →
+    /// "Password should have at least 8 characters" (it was no sentence at all before accounts, 8 Oct).
+    static func detail(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if let sentence = json["detail"] as? String { return sentence }
+        guard let first = (json["detail"] as? [[String: Any]])?.first, let message = first["msg"] as? String else { return nil }
+        let field = ((first["loc"] as? [Any])?.last as? String).map { $0.replacingOccurrences(of: "_", with: " ") } ?? ""
+        guard let initial = field.first else { return message }
+        let name = initial.uppercased() + field.dropFirst()
+        return message.hasPrefix("String should") ? "\(name) \(message.dropFirst("String ".count))" : "\(name): \(message)"
     }
 }
 

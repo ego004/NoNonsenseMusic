@@ -15,9 +15,10 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from music_backend import db
-from music_backend.cache import ListingURLCache
+from music_backend.core import db
+from music_backend.services.cache import ListingURLCache
 from music_backend.sources import SourceBlocked, SourceUnavailable, jiosaavn, ytmusic
+from conftest import sign_up
 
 TEST_URL = "postgresql:///music_test"
 HOUR = 3600
@@ -56,6 +57,7 @@ def client(monkeypatch):
     monkeypatch.setattr(db, "DATABASE_URL", TEST_URL)
     from music_backend.main import app
     with TestClient(app) as client:          # "with" runs the lifespan (pool + schema) on music_test
+        sign_up(client)
         yield client
 
 

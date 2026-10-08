@@ -10,6 +10,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:nononsense/core/api.dart';
+import 'package:nononsense/core/auth.dart';
 import 'package:nononsense/core/library.dart';
 import 'package:nononsense/core/lyrics.dart';
 import 'package:nononsense/core/settings.dart';
@@ -48,7 +49,11 @@ void main() {
     final player = Player()..setVolume(0);
     final library = Library()..playlistChanged = player.playlistChanged;
     final lyrics = LyricsStore();
-    await tester.pumpWidget(RepaintBoundary(key: shot, child: NoNonsenseApp(player: player, library: library, lyrics: lyrics, settings: settings)));
+    // a fresh test account, signed in before the window opens (AUTH-1): the app opens on Home, not the sign-in screen
+    final auth = Auth(store: MemoryTokenStore());
+    final error = await auth.signIn('test-${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}', 'a test password', create: true);
+    expect(error, isNull, reason: 'signed up on the test server');
+    await tester.pumpWidget(RepaintBoundary(key: shot, child: NoNonsenseApp(player: player, library: library, lyrics: lyrics, settings: settings, auth: auth)));
     await tester.pump(const Duration(seconds: 2));
     expect(find.textContaining('Good '), findsOneWidget, reason: 'the app opens on Home');
     await snap(tester, 'home');

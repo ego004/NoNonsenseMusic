@@ -2,8 +2,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from music_backend import db, library
+from music_backend.core import db
+from music_backend.services import library
 from music_backend.models import Listing
+from conftest import sign_up
 
 TEST_URL = "postgresql:///music_test"
 
@@ -17,7 +19,7 @@ async def pool():
     pool = db.make_pool(TEST_URL)
     await pool.open()
     async with pool.connection() as conn:
-        await conn.execute("DROP TABLE IF EXISTS playlist_items, playlists, events, likes, listings, songs CASCADE")
+        await conn.execute("DROP TABLE IF EXISTS playlist_members, playlist_items, playlists, events, likes, listings, songs CASCADE")
     await db.apply_schema(pool)
     yield pool
     await pool.close()
@@ -29,15 +31,15 @@ async def count(pool, table):
 
 
 @pytest.mark.anyio
-async def test_like_survives_a_restart(pool):
+async def test_like_survives_a_restart(pool, user_id):
     async with pool.connection() as conn:
         song_id = await library.resolve_song(conn, [listing("jiosaavn", "fW-Mxsnu"), listing("ytmusic", "J7p4bzqLvCw", duration=202)])
-        await library.like(conn, song_id)
+        await library.like(conn, user_id, song_id)
     await pool.close()                                  # "restart": a brand-new pool
     fresh = db.make_pool(TEST_URL)
     await fresh.open()
     async with fresh.connection() as conn:
-        songs = await library.liked_songs(conn)
+        songs = await library.liked_songs(conn, user_id)
     await fresh.close()
     assert [s.id for s in songs] == [song_id]
     assert {l.source for l in songs[0].listings} == {"jiosaavn", "ytmusic"}
@@ -81,35 +83,35 @@ async def test_cover_becomes_its_own_song(pool):
 
 
 @pytest.mark.anyio
-async def test_liking_twice_is_one_like(pool):
+async def test_liking_twice_is_one_like(pool, user_id):
     async with pool.connection() as conn:
         song_id = await library.resolve_song(conn, [listing("jiosaavn", "A")])
-        await library.like(conn, song_id)
-        await library.like(conn, song_id)
+        await library.like(conn, user_id, song_id)
+        await library.like(conn, user_id, song_id)
     assert await count(pool, "likes") == 1
 
 
 @pytest.mark.anyio
-async def test_unlike(pool):
+async def test_unlike(pool, user_id):
     async with pool.connection() as conn:
         song_id = await library.resolve_song(conn, [listing("jiosaavn", "A")])
-        await library.like(conn, song_id)
-        assert await library.unlike(conn, song_id) is True
-        assert await library.unlike(conn, song_id) is False
-        assert await library.liked_songs(conn) == []
+        await library.like(conn, user_id, song_id)
+        assert await library.unlike(conn, user_id, song_id) is True
+        assert await library.unlike(conn, user_id, song_id) is False
+        assert await library.liked_songs(conn, user_id) == []
 
 
 @pytest.mark.anyio
-async def test_events_are_stored_and_countable(pool):
+async def test_events_are_stored_and_countable(pool, user_id):
     async with pool.connection() as conn:
         song_id = await library.resolve_song(conn, [listing("jiosaavn", "A")])
-        await library.record_event(conn, song_id, "play", 0)
-        await library.record_event(conn, song_id, "skip", 12)
-        await library.record_event(conn, song_id, "play", 0)
-        await library.record_event(conn, song_id, "finish", 200)
+        await library.record_event(conn, user_id, song_id, "play", 0)
+        await library.record_event(conn, user_id, song_id, "skip", 12)
+        await library.record_event(conn, user_id, song_id, "play", 0)
+        await library.record_event(conn, user_id, song_id, "finish", 200)
         rows = await (await conn.execute(
             "SELECT type, count(*) AS n FROM events WHERE song_id = %s GROUP BY type ORDER BY type", [song_id])).fetchall()
-        recent = await library.recent_songs(conn)
+        recent = await library.recent_songs(conn, user_id)
     assert {r["type"]: r["n"] for r in rows} == {"finish": 1, "play": 2, "skip": 1}
     assert [s.id for s in recent] == [song_id] and recent[0].liked is False
 
@@ -119,6 +121,7 @@ def test_endpoints_end_to_end(monkeypatch):
     from music_backend.main import app
     body = {"listings": [listing("jiosaavn", "E2E").model_dump()]}
     with TestClient(app) as client:                     # "with" runs startup and shutdown (the lifespan)
+        sign_up(client)
         song_id = client.post("/liked", json=body).json()["song_id"]
         assert client.post("/events", json=body | {"type": "play", "position": 0}).json()["song_id"] == song_id
         assert song_id in [s["id"] for s in client.get("/liked").json()]
@@ -137,13 +140,13 @@ async def stored_flags(pool):
 
 
 @pytest.mark.anyio
-async def test_the_explicit_flag_is_stored_and_read_back(pool):
+async def test_the_explicit_flag_is_stored_and_read_back(pool, user_id):
     loud = listing("jiosaavn", "E1").model_copy(update={"explicit": True})
     clean = listing("ytmusic", "C1", duration=201).model_copy(update={"explicit": False})
     async with pool.connection() as conn:
         song_id = await library.resolve_song(conn, [loud, clean])
-        await library.like(conn, song_id)
-        liked = await library.liked_songs(conn)
+        await library.like(conn, user_id, song_id)
+        liked = await library.liked_songs(conn, user_id)
     assert await stored_flags(pool) == {"C1": False, "E1": True}
     assert {l.id: l.explicit for l in liked[0].listings} == {"C1": False, "E1": True}
 

@@ -70,12 +70,34 @@ class SongRef(BaseModel):
 class PlaylistRequest(BaseModel):
     name : str = Field(min_length=1)
 
+# AUTH-1: the limits, in one place. schema.sql's CHECK on users.username repeats the 3 and 32 as a last guard
+USERNAME_MIN, USERNAME_MAX = 3, 32
+PASSWORD_MIN = 8
+# a maximum too: Argon2 hashes any length, slowly, so a 10 MB "password" per sign-up would burn the server's CPU.
+# 64 is the least NIST asks a service to allow
+PASSWORD_MAX = 64
+DEVICE_NAME_MAX = 64
+
+class PlaylistUpdate(BaseModel):
+    """PATCH /playlists/{id}: change the name, the public flag, or both (the owner only). Missing = unchanged."""
+    name : str | None = Field(default=None, min_length=1)
+    public : bool | None = None
+
+class ShareRequest(BaseModel):
+    """PUT /playlists/{id}/members: invite someone by username, or change their role."""
+    username : str = Field(max_length=USERNAME_MAX)
+    role : Literal["viewer", "editor"]
+
 class PlaylistMetadata(BaseModel):
     id : UUID
     name : str
     song_count : int
     thumbnail : str | None = None
     duration : int
+    # sharing (AUTH-3): anyone signed in can view a public one; your role says what the app may offer you
+    # (owner: everything; editor: add, remove, reorder songs; viewer: look and play)
+    public : bool = False
+    role : Literal["owner", "editor", "viewer"] = "owner"
 
 class PlaylistsResponse(BaseModel):
     playlists : list[PlaylistMetadata]
@@ -117,3 +139,27 @@ class LyricsResponse(BaseModel):
     lyrics_source : Literal["lrclib", "ytmusic"] | None   # None: nobody had lyrics (lines is [])
     synced : bool
     lines : list[LyricLine]
+
+
+class SignUpRequest(BaseModel):
+    username : str = Field(min_length=USERNAME_MIN, max_length=USERNAME_MAX)
+    password : str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
+    device_name : str = Field(default="Unknown Device", max_length=DEVICE_NAME_MAX)
+
+class SignInRequest(BaseModel):
+    """Its own rules, not sign-up's: only the maximums. Raise PASSWORD_MIN later and an older account's shorter password
+    must still reach the password check, not stop at a 422."""
+    username : str = Field(max_length=USERNAME_MAX)
+    password : str = Field(max_length=PASSWORD_MAX)
+    device_name : str = Field(default="Unknown Device", max_length=DEVICE_NAME_MAX)
+
+class User(BaseModel):
+    """Who is signed in: what current_user gives routes and /auth/me answers. Only these fields ever reach a reply,
+    so a password hash cannot leak through a careless `return user`."""
+    id : UUID
+    username : str
+
+class Session(BaseModel):
+    """The reply to sign-up and sign-in: the only time the token itself is sent."""
+    token : str
+    user : User

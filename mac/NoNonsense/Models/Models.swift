@@ -124,7 +124,28 @@ nonisolated struct PlaylistSummary: Codable, Hashable, Identifiable, Sendable {
     let songCount: Int
     let duration: Int                 // seconds, every song added up
     let thumbnail: String?            // an uploaded cover's URL; nil: the app draws a 2×2 grid
-    enum CodingKeys: String, CodingKey { case id, name, duration, thumbnail; case songCount = "song_count" }
+    var isPublic = false              // anyone signed in can open it by its id (AUTH-3)
+    /// Yours: "owner". Shared with you: "editor" (add, remove, reorder songs) or "viewer" (look and play).
+    var role = "owner"
+    enum CodingKeys: String, CodingKey { case id, name, duration, thumbnail, role; case songCount = "song_count"; case isPublic = "public" }
+
+    var isOwner: Bool { role == "owner" }
+    /// May change its songs: the owner or an editor. The server refuses the rest (403); the app does not offer it.
+    var canEdit: Bool { role != "viewer" }
+}
+
+// ---- accounts (AUTH-1) ----
+
+/// Who is signed in [User].
+nonisolated struct AccountUser: Codable, Sendable, Equatable {
+    let id: UUID
+    let username: String
+}
+
+/// POST /auth/signup and /auth/signin [Session]: the only time the server sends the token itself.
+nonisolated struct SessionReply: Codable, Sendable {
+    let token: String
+    let user: AccountUser
 }
 
 /// GET /playlists [PlaylistsResponse]
@@ -144,10 +165,14 @@ nonisolated struct PlaylistDetail: Codable, Sendable, Equatable {
     let songCount: Int
     let duration: Int
     let thumbnail: String?
+    var isPublic = false
+    var role = "owner"
     let items: [PlaylistEntry]
-    enum CodingKeys: String, CodingKey { case id, name, duration, thumbnail, items; case songCount = "song_count" }
+    enum CodingKeys: String, CodingKey { case id, name, duration, thumbnail, items, role; case songCount = "song_count"; case isPublic = "public" }
 
-    var summary: PlaylistSummary { PlaylistSummary(id: id, name: name, songCount: songCount, duration: duration, thumbnail: thumbnail) }
+    var summary: PlaylistSummary {
+        PlaylistSummary(id: id, name: name, songCount: songCount, duration: duration, thumbnail: thumbnail, isPublic: isPublic, role: role)
+    }
     @MainActor var tracks: [Track] { items.map { Track($0.song) } }
     /// The rows' item ids as the player's queue keys: edits to this playlist find their entries by these.
     var keys: [String] { items.map { $0.itemID.uuidString } }
@@ -157,7 +182,7 @@ nonisolated struct PlaylistDetail: Codable, Sendable, Equatable {
     /// The same playlist with these rows (after a move or a remove, before the server answers).
     func with(items: [PlaylistEntry]) -> PlaylistDetail {
         PlaylistDetail(id: id, name: name, songCount: items.count, duration: items.reduce(0) { $0 + $1.song.duration },
-                       thumbnail: thumbnail, items: items)
+                       thumbnail: thumbnail, isPublic: isPublic, role: role, items: items)
     }
 }
 

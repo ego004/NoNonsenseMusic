@@ -6,10 +6,11 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from music_backend import db
-from music_backend.cache import ListingURLCache
-from music_backend.settings import settings
+from music_backend.core import db
+from music_backend.services.cache import ListingURLCache
+from music_backend.core.settings import settings
 from music_backend.sources import SongNotFound, ytmusic
+from conftest import sign_up
 
 TEST_URL = "postgresql:///music_test"
 HOUR = 3600
@@ -56,6 +57,7 @@ def server(monkeypatch):
     monkeypatch.setattr(db, "DATABASE_URL", TEST_URL)
     from music_backend.main import app
     with TestClient(app) as client:
+        sign_up(client)
         yield client, source, app
 
 
@@ -122,13 +124,31 @@ async def test_a_new_list_replaces_what_is_still_waiting(pool):
     a, b, c, d, x, y = (new_id() for _ in range(6))
 
     async def body():
-        cache.prefetch([Listing(i) for i in (a, b, c, d)])    # 1 worker: a starts, b c d wait
+        cache.prefetch("alex", [Listing(i) for i in (a, b, c, d)])    # 1 worker: a starts, b c d wait
         await asyncio.sleep(0.05)
-        cache.prefetch([Listing(i) for i in (x, y)])          # the queue moved on: b c d are no longer coming
+        cache.prefetch("alex", [Listing(i) for i in (x, y)])          # the queue moved on: b c d are no longer coming
         await asyncio.sleep(0.7)
 
     await with_workers(cache, 1, body)
     assert source.calls == [a, x, y]                          # a (already running) finished; b c d never asked
+
+
+@pytest.mark.anyio
+async def test_one_users_list_does_not_replace_or_starve_anothers(pool):
+    # AUTH-3: each user has their own waiting list, and the workers take one from each in turn
+    source = SlowSource(delay=0.05)
+    cache = ListingURLCache({"ytmusic": source}, pool)
+    alex = [new_id() for _ in range(6)]
+    sam = [new_id() for _ in range(2)]
+
+    async def body():
+        cache.prefetch("alex", [Listing(i) for i in alex])
+        cache.prefetch("sam", [Listing(i) for i in sam])          # before: this replaced Alex's list
+        await asyncio.sleep(0.6)
+
+    await with_workers(cache, 1, body)
+    assert sorted(source.calls) == sorted(alex + sam)            # nobody's list was dropped
+    assert set(source.calls[:4]) == {alex[0], sam[0], alex[1], sam[1]}     # Sam waited 1 turn, not 6
 
 
 @pytest.mark.anyio
@@ -141,7 +161,7 @@ async def test_cached_and_running_listings_are_skipped(pool):
     await asyncio.sleep(0.05)
 
     async def body():
-        cache.prefetch([Listing(i) for i in (cached, running, new)])
+        cache.prefetch("alex", [Listing(i) for i in (cached, running, new)])
         await asyncio.sleep(0.4)
 
     await with_workers(cache, 1, body)
@@ -161,7 +181,7 @@ async def test_prefetching_a_cached_listing_does_not_mark_it_used(pool):
         await conn.execute("UPDATE listing_urls SET hit_at = now() - interval '1 day' WHERE source_id = %s", [song])
 
     async def body():
-        cache.prefetch([Listing(song)])
+        cache.prefetch("alex", [Listing(song)])
         await asyncio.sleep(0.2)
 
     await with_workers(cache, 1, body)
@@ -179,7 +199,7 @@ async def test_a_failing_lookup_does_not_stop_a_worker(pool):
     cache = ListingURLCache({"ytmusic": source}, pool)
 
     async def body():
-        cache.prefetch([Listing(gone), Listing(good)])
+        cache.prefetch("alex", [Listing(gone), Listing(good)])
         await asyncio.sleep(0.6)
 
     await with_workers(cache, 1, body)
@@ -193,7 +213,7 @@ async def test_at_most_n_lookups_at_once(pool):
     cache = ListingURLCache({"ytmusic": source}, pool)
 
     async def body():
-        cache.prefetch([Listing(new_id()) for _ in range(8)])
+        cache.prefetch("alex", [Listing(new_id()) for _ in range(8)])
         await asyncio.sleep(0.6)
 
     await with_workers(cache, 2, body)

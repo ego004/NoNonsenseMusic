@@ -3,7 +3,7 @@ import pytest
 import json
 from pathlib import Path
 
-from music_backend.matching import artists_match, group_listings, interleave, normalise, pick_best, rank_songs, same_recording, to_song
+from music_backend.services.matching import artists_match, group_listings, interleave, normalise, pick_best, rank_songs, same_recording, to_song
 from music_backend.sources import jiosaavn, ytmusic
 from music_backend.models import Listing
 
