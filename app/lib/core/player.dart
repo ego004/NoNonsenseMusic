@@ -215,7 +215,9 @@ class Player extends ChangeNotifier {
     if (t == null) return;
     if (_copy + 1 < t.listings.length) {
       _copy++;
-      _show("That ${t.listings[_copy - 1].sourceName} copy didn't load. Playing the ${t.listings[_copy].sourceName} copy.");
+      final failed = t.listings[_copy - 1].sourceName, next = t.listings[_copy].sourceName;
+      // "another" when both are from one source: "didn't load. Playing the YouTube Music copy" read as nonsense (8 Oct)
+      _show(failed == next ? "That $failed copy didn't load. Playing another $next copy." : "That $failed copy didn't load. Playing the $next copy.");
       _load(t.listings[_copy]);
       return;
     }
