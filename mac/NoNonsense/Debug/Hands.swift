@@ -531,6 +531,89 @@ extension SelfTest {
     }
 }
 
+extension SelfTest {
+    /// With `NN_SELFTEST_SLOWPLAY="<search>"` (own test server): a slow connection, emulated. A local proxy holds every
+    /// /play for 6 s before passing it on (your line on 8 Oct: 2–6 s to the first audio). The song is paused while it
+    /// loads (what a click on the spinner does: it sits in the play button), then played again; the player's state is
+    /// reported every half second. It must end up playing, and say so.
+    static func runSlowPlayCheckIfAsked(player: Player) {
+        guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_SLOWPLAY"] else { return }
+        Task {
+            for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
+            guard await onOwnTestServer(), let found = try? await API.search(query), let first = found.songs.first else {
+                report("slowplay: own test server and a search needed"); NSApp.terminate(nil); return
+            }
+            let proxy = Process()
+            proxy.executableURL = URL(filePath: "/usr/bin/python3")
+            proxy.arguments = ["-c", """
+            import http.server, socketserver, time
+            class H(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):
+                    import sys
+                    if len(sys.argv) > 1 and sys.argv[1] in self.path:   # this copy fails, after 3 s
+                        time.sleep(3); self.send_response(502); self.end_headers(); return
+                    time.sleep(6)
+                    self.send_response(307); self.send_header('Location', 'http://127.0.0.1:\(API.baseURL.port ?? 8765)' + self.path); self.end_headers()
+                do_HEAD = do_GET
+                def log_message(self, *a): pass
+            socketserver.ThreadingTCPServer.allow_reuse_address = True
+            socketserver.ThreadingTCPServer(('127.0.0.1', 8799), H).serve_forever()
+            """]
+            try? proxy.run()
+            try? await Task.sleep(for: .seconds(1))
+            setenv("NN_SLOW_PLAY_PORT", "8799", 1)
+            if !player.isMuted { player.toggleMute() }
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("slowplay \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            @MainActor func state(_ t: Double) {
+                report(String(format: "slowplay: %4.1f s  playing %@  buffering %@  at %.1f s  item %@  message %@", t,
+                              "\(player.isPlaying)", "\(player.isBuffering)", player.livePosition, player.itemStatusForTests, player.errorMessage ?? "-"))
+            }
+            player.play([Track(first)])
+            var t = 0.0
+            while t < 1.5 { try? await Task.sleep(for: .milliseconds(500)); t += 0.5; state(t) }
+            check("loading: the spinner shows", player.isBuffering)
+            player.togglePlayPause()                                   // the click on the spinner
+            report("slowplay: -- pressed while loading")
+            while t < 9 { try? await Task.sleep(for: .milliseconds(500)); t += 0.5; state(t) }
+            check("paused while loading: it stays paused once the audio arrives", !player.isPlaying)
+            player.togglePlayPause()                                   // play again
+            report("slowplay: -- pressed play")
+            let before = player.livePosition
+            while t < 22 { try? await Task.sleep(for: .milliseconds(500)); t += 0.5; state(t) }
+            check("play again: it plays", player.isPlaying && player.livePosition > before + 2, String(format: "%.1f → %.1f s", before, player.livePosition))
+            // a copy that FAILS while paused: the next copy must load without starting
+            let multi = found.songs.map(Track.init).first { $0.listings.count >= 2 }
+            proxy.terminate()
+            if let song = multi {
+                let failing = Process()
+                failing.executableURL = proxy.executableURL
+                failing.arguments = proxy.arguments! + [song.best.id]
+                try? failing.run()
+                try? await Task.sleep(for: .seconds(1))
+                player.play([song])
+                try? await Task.sleep(for: .seconds(1))
+                player.togglePlayPause()                               // paused while its first copy loads
+                report("slowplay: -- \(song.listings.count) copies; the first fails while paused")
+                t = 0
+                while t < 12 { try? await Task.sleep(for: .milliseconds(500)); t += 0.5; state(t) }
+                check("a copy failed while paused: the next copy loaded, still paused", !player.isPlaying && player.playingListing?.key != song.best.key,
+                      "playing \(player.isPlaying), copy \(player.playingListing?.key == song.best.key ? "the failed one" : "another")")
+                player.togglePlayPause()
+                let at = player.livePosition
+                try? await Task.sleep(for: .seconds(9))
+                check("… and play plays it", player.isPlaying && player.livePosition > at + 2, String(format: "%.1f → %.1f s", at, player.livePosition))
+                failing.terminate()
+            } else { report("slowplay SKIP the failing copy: no song with 2 copies in this search") }
+            report("slowplay: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
+            NSApp.terminate(nil)
+        }
+    }
+}
+
 /// Frame times, from the screen's own refresh (a display link on the window): a frame shown later than the screen's
 /// next refresh is a hitch, what you feel as a stutter. Measures the app's main thread keeping up, which is what a
 /// SwiftUI list needs while it scrolls.

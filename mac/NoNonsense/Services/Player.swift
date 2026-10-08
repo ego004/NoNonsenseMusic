@@ -185,6 +185,13 @@ final class Player {
         UserDefaults.standard.set(on, forKey: "shuffle")
     }
 
+    #if DEBUG
+    /// Self-tests: the loaded copy's state, as AVPlayer sees it
+    var itemStatusForTests: String {
+        switch player.currentItem?.status { case .readyToPlay: "ready"; case .failed: "failed"; case .unknown: "loading"; default: "none" }
+    }
+    #endif
+
     func togglePlayPause() {
         guard current != nil else { return }
         // after "Stopped: … Press play to try again" the loaded copy is the one that failed: play() on it did nothing
@@ -192,6 +199,7 @@ final class Player {
         if !isPlaying, player.currentItem?.status == .failed { startCurrent(); return }
         isPlaying ? player.pause() : player.play()
         isPlaying.toggle()
+        refreshBuffering()
         position = livePosition                                     // the clock's new starting point
         publish()
     }
@@ -353,8 +361,9 @@ final class Player {
     /// The copy the song started with: a downloaded one need not be `best`. The fallbacks are the others.
     @ObservationIgnored private var firstCopy: String?
 
-    /// `fromFile: false` streams even a downloaded copy (its file would not play).
-    private func load(_ listing: Listing, fromFile: Bool = true) {
+    /// `fromFile: false` streams even a downloaded copy (its file would not play). `start: false` loads it paused: a copy
+    /// that fails while you have paused hands over to the next one without starting it (it always started, 8 Oct).
+    private func load(_ listing: Listing, fromFile: Bool = true, start: Bool = true) {
         position = 0
         audioLength = nil                                         // the listed length, until this copy says its own
         isBuffering = true                                        // the spinner, until audio arrives
@@ -378,8 +387,11 @@ final class Player {
             Task { @MainActor in self?.statusChanged(status, of: which) }
         }
         player.replaceCurrentItem(with: item)
-        player.play()
-        isPlaying = true
+        if start {
+            player.play()
+            isPlaying = true
+        }
+        refreshBuffering()
         publish()
     }
 
@@ -389,6 +401,7 @@ final class Player {
     private func statusChanged(_ status: AVPlayerItem.Status, of item: ObjectIdentifier) {
         // news about a copy already replaced (it failed just as you pressed ⏭) must not act on the new one
         guard let loaded = player.currentItem, ObjectIdentifier(loaded) == item else { return }
+        refreshBuffering()
         if status == .readyToPlay {
             failuresInARow = 0                                    // this song loads: the run of failures is over
             // its length as it will play (the audio's, or the end set in `load` when that comes first): the bar, the
@@ -406,7 +419,7 @@ final class Player {
         if fallbacksTried < others.count {
             let next = others[fallbacksTried]
             fallbacksTried += 1
-            load(next)
+            load(next, start: isPlaying)
             Task {
                 let answer = await API.refresh(failed)
                 guard current?.id == track.id else { return }                 // you have moved on: say nothing
@@ -420,12 +433,12 @@ final class Player {
         // the only copy: ask for a fresh URL first; play it if one comes back, otherwise say why not
         if track.listings.count == 1, !freshRetried.contains(failed.key) {
             freshRetried.insert(failed.key)
-            isBuffering = true
+            isBuffering = isPlaying                               // paused: no spinner while it asks
             Task {
                 let answer = await API.refresh(failed)
                 guard current?.id == track.id, playingListing?.key == failed.key else { return }
                 // streamed: when the copy that failed was a downloaded file, loading it again replayed the same broken file
-                if answer?.status == 307 { load(failed, fromFile: false) } else { giveUp(track, because: Self.reason(answer, failed)) }
+                if answer?.status == 307 { load(failed, fromFile: false, start: isPlaying) } else { giveUp(track, because: Self.reason(answer, failed)) }
             }
             return
         }
@@ -479,19 +492,20 @@ final class Player {
     /// the timeline restarts from the right place after a stall; and it ends "buffering" (the spinners), which the
     /// old twice-a-second tick only cleared while playing: paused before audio arrived, a spinner kept spinning.
     private func controlStatusChanged(_ status: AVPlayer.TimeControlStatus) {
-        switch status {
-        case .playing:
-            // not the failure count: AVPlayer says "playing" as soon as play() is called, before a broken song fails,
-            // so resetting it here meant 3 failures in a row never added up (7 Oct). A song that loads resets it
-            isBuffering = false
-        case .waitingToPlayAtSpecifiedRate:
-            if isPlaying { isBuffering = true }
-        case .paused:
-            isBuffering = false
-        @unknown default:
-            break
-        }
+        // not the failure count: AVPlayer says "playing" as soon as play() is called, before a broken song fails,
+        // so resetting it here meant 3 failures in a row never added up (7 Oct). A song that loads resets it
+        refreshBuffering()
         position = livePosition
+    }
+
+    /// The spinner: you want it playing and no audio flows yet, because the copy is still loading or AVPlayer waits for
+    /// data. AVPlayer's own "playing" comes the moment play() is called, before any audio, and it cleared the spinner:
+    /// on a slow line the button showed ⏸ over silence for the whole load (6 s, emulated with NN_SELFTEST_SLOWPLAY, 8 Oct)
+    private func refreshBuffering() {
+        let loading = player.currentItem?.status == .unknown
+        let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+        let now = isPlaying && (loading || waiting)
+        if now != isBuffering { isBuffering = now }
     }
 
     private func itemEnded(_ item: AVPlayerItem?) {

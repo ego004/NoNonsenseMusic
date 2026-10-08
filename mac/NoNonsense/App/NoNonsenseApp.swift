@@ -71,6 +71,7 @@ struct NoNonsenseApp: App {
                     SelfTest.runHandsCheckIfAsked(player: player, library: library)
                     SelfTest.runScrollCheckIfAsked(player: player, library: library)
                     SelfTest.runLikeRaceCheckIfAsked(library: library)
+                    SelfTest.runSlowPlayCheckIfAsked(player: player)
                     #endif
                 }
         }

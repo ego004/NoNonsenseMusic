@@ -42,7 +42,12 @@ enum API {
     /// The server answers with a redirect to the audio file; AVPlayer follows it.
     /// `fresh`: skip the server's cache (sent only after this listing's cached URL failed to play).
     static func playURL(_ listing: Listing, fresh: Bool = false) -> URL {
-        let url = baseURL.appending(path: "play").appending(path: listing.source).appending(path: listing.id)
+        var base = baseURL
+        #if DEBUG
+        // self-tests: songs through a local proxy that holds each /play (a slow connection, NN_SELFTEST_SLOWPLAY)
+        if let port = ProcessInfo.processInfo.environment["NN_SLOW_PLAY_PORT"], let slow = URL(string: "http://127.0.0.1:\(port)") { base = slow }
+        #endif
+        let url = base.appending(path: "play").appending(path: listing.source).appending(path: listing.id)
         return fresh ? url.appending(queryItems: [URLQueryItem(name: "serve_fresh", value: "true")]) : url
     }
 
