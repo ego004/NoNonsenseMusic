@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nononsense/core/auth.dart';
 
 void main() {
+  // the Mac's store (and Linux's, where these also run); Windows keeps its DPAPI store, and has no chmod
+  final skip = Platform.isWindows ? 'the Mac app\'s store: Windows keeps flutter_secure_storage (DPAPI)' : null;
   late Directory folder;
   setUp(() async => folder = Directory('${(await Directory.systemTemp.createTemp('session')).path}/app'));
   tearDown(() => folder.parent.delete(recursive: true));
@@ -19,7 +21,7 @@ void main() {
     expect(folder.listSync().where((f) => f.path.endsWith('.tmp')), isEmpty, reason: 'written whole, no temporary left');
     await store.delete('token');
     expect(await store.read('token'), isNull);
-  });
+  }, skip: skip);
 
   test("the Keychain's token moves into the file once, and leaves the Keychain", () async {
     final keychain = MemoryTokenStore()..values.addAll({'token': 'old token', 'user': '{"id":"u1","username":"kai"}'});
@@ -31,5 +33,5 @@ void main() {
     await store.delete('token'); // signed out; then something appears in the Keychain again
     keychain.values['token'] = 'not asked for';
     expect(await store.read('token'), isNull, reason: 'the Keychain is asked once only: it may ask for your password');
-  });
+  }, skip: skip);
 }
