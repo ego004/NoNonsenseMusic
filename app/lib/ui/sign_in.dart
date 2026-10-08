@@ -62,7 +62,15 @@ class _SignInScreenState extends State<SignInScreen> {
     if (mounted) setState(() { _busy = false; _error = error; });
   }
 
-  /// The server's address: offered only when it could not be reached (a wrong one would otherwise lock you out).
+  /// "127.0.0.1:8000" rather than "http://127.0.0.1:8000"; the scheme shows only when it is not plain http.
+  static String _short(String address) {
+    final u = Uri.tryParse(address);
+    if (u == null || u.host.isEmpty) return address;
+    final hostPort = u.hasPort ? '${u.host}:${u.port}' : u.host;
+    return u.scheme == 'https' ? 'https://$hostPort' : hostPort;
+  }
+
+  /// The server's address, changed here or in Settings › Server. Red when it could not be reached.
   Future<void> _changeServer() async {
     final field = TextEditingController(text: widget.settings.server);
     final address = await showDialog<String>(
@@ -139,8 +147,12 @@ class _SignInScreenState extends State<SignInScreen> {
                 onPressed: _busy ? null : () => setState(() { _creating = !_creating; _error = null; }),
                 child: Text(_creating ? 'Sign In Instead' : 'Create Account…'),
               ),
-              if (widget.auth.unreachable)
-                TextButton(onPressed: _busy ? null : _changeServer, child: const Text('Server Settings…')),
+              // the server: yours to choose before signing in (8 Oct); Settings › Server changes it later
+              TextButton(
+                onPressed: _busy ? null : _changeServer,
+                child: Text('Server: ${_short(widget.settings.server)}',
+                    style: theme.textTheme.bodySmall?.copyWith(color: widget.auth.unreachable ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant)),
+              ),
             ]),
           ),
         ),

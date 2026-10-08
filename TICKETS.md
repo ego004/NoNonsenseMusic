@@ -51,7 +51,7 @@ Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress 
 - ✅ Mac: the big "Liked Songs" title and the toolbar's small title overlapped → the toolbar title appears only once the big one has scrolled under it (`scrollTitle`; self-test checks it)
 - ✅ Mac: a faint sign-in screen behind the library: it was a self-test window behind yours (you, 8 Oct)
 - ☐ Flutter: Settings with everything the Mac app has (appearance, text size, lyrics, Discord, footprint…), not only account, server and playback
-- ☐ Both apps: the server's address set on the sign-in screen, and changed later in Settings
+- ✅ Both apps: the server's address set on the sign-in screen ("Server: …", a click to change), and changed later in Settings › Server
 - ☐ Flutter: every Mac fix of 8 Oct, checked one by one, and the app run for real
 - ✅ Discord: the application id built in, no field to fill (public by design; Discord's record shows only the name, no owner)
 - ✅ YouTube links looked up by the apps (visionOS client: whole songs, ~0.6 s), the server's /play as fallback; Mac self-test and Flutter integration test play one with no /play reaching the server. Also fixes YouTube failing (-1) in the Flutter Mac build

@@ -40,6 +40,10 @@ struct AccountGate<Content: View>: View {
 /// see-through like the main window.
 struct SignInView: View {
     @Environment(Account.self) private var account
+    @Environment(ServerLauncher.self) private var server
+    @AppStorage("serverURL") private var serverURL = API.defaultServer
+    @State private var editingServer = false
+    @State private var serverDraft = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var username = ""
     @State private var password = ""
@@ -118,10 +122,19 @@ struct SignInView: View {
             }
             .buttonStyle(.link)
             .disabled(working)
-            // a wrong address would lock you out: offered only when the server could not be reached
-            if account.unreachable {
-                SettingsLink { Text("Server Settings…") }
+            // the server: yours to choose before signing in (8 Oct); Settings › Server changes it later. Opens by itself
+            // when the server could not be reached (a wrong address would otherwise lock you out)
+            if editingServer || account.unreachable {
+                TextField("Server Address", text: $serverDraft, prompt: Text(API.defaultServer))
+                    .textFieldStyle(.roundedBorder)
+                    .onAppear { serverDraft = serverURL }
+                    .onSubmit { saveServer() }
+                    .help("Press Return to use this server")
+            } else {
+                Button("Server: \(Self.shortAddress(serverURL))") { editingServer = true }
                     .buttonStyle(.link)
+                    .foregroundStyle(.secondary)
+                    .textStyle(.callout)
             }
         }
         .frame(width: 280)
@@ -133,6 +146,22 @@ struct SignInView: View {
         .onAppear { focus = .username }
         .onChange(of: username) { problem = nil }
         .onChange(of: password) { problem = nil }
+    }
+
+    /// The address the field holds, saved as Settings › Server saves it; a running local server is started if needed.
+    private func saveServer() {
+        let typed = serverDraft.trimmingCharacters(in: .whitespaces)
+        serverURL = typed.isEmpty ? API.defaultServer : typed
+        editingServer = false
+        problem = nil
+        Task { await server.ensureRunning() }
+    }
+
+    /// "127.0.0.1:8000" rather than "http://127.0.0.1:8000"; the scheme shows only when it is not plain http.
+    private static func shortAddress(_ address: String) -> String {
+        guard let url = URL(string: address), let host = url.host() else { return address }
+        let port = url.port.map { ":\($0)" } ?? ""
+        return url.scheme == "https" ? "https://\(host)\(port)" : "\(host)\(port)"
     }
 
     private func go() {

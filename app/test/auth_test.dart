@@ -112,6 +112,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: AuthGate(auth: auth, settings: settings, signedIn: (_) => const Text('the app'))));
 
     expect(find.widgetWithText(TextField, Auth.computerName), findsOneWidget);    // shown before anything is sent
+    expect(find.textContaining('Server: '), findsOneWidget, reason: 'the server, changeable before signing in');
     await tester.enterText(find.widgetWithText(TextField, 'Username'), 'kai');
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'a password');
     await tester.enterText(find.widgetWithText(TextField, Auth.computerName), 'Work laptop');
