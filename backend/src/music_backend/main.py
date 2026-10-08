@@ -5,17 +5,17 @@ from contextlib import asynccontextmanager
 from typing import get_args, Annotated
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Request, Response, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, Query
 from fastapi.responses import RedirectResponse
 from psycopg import errors
 
 from music_backend.core import db
-from music_backend.services import library, cache, lyrics
+from music_backend.services import auth, library, cache, lyrics
 from music_backend.services.matching import rank_songs
 from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
-                                  LyricsRequest, LyricsResponse)
+                                  LyricsRequest, LyricsResponse, Session, SignInRequest, SignUpRequest, User)
 from music_backend.core.settings import settings
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
@@ -270,3 +270,45 @@ async def move_playlist(playlist_id: UUID, body: MoveRequest, request: Request) 
 async def get_lyrics(body: LyricsRequest, request: Request) -> LyricsResponse:
     """Always 200: no lyrics is an empty `lines`, not an error. From the lyrics table when it has them."""
     return await request.app.state.lyrics_cache(body)
+
+
+# ---- accounts (AUTH-1): sign up, sign in, who am I, sign out ----
+
+@app.post("/auth/signup", status_code=201)
+async def signup(body: SignUpRequest, request: Request) -> Session:
+    """A new account, signed in at once: the user and their first session on one connection, so both happen or
+    neither does. 409 when the name is taken, whatever its capitals."""
+    async with request.app.state.pool.connection() as conn:
+        try:
+            user = await auth.create_user(conn, body.username, body.password)
+        except auth.UsernameTaken:
+            raise HTTPException(status_code=409, detail="That username is taken")
+        token = await auth.create_session_token(conn, user.id, body.device_name)
+    return Session(token=token, user=user)
+
+
+@app.post("/auth/signin")
+async def signin(body: SignInRequest, request: Request) -> Session:
+    """A new session for this device. One answer for a wrong password and for a name that does not exist."""
+    async with request.app.state.pool.connection() as conn:
+        try:
+            user = await auth.check_password(conn, body.username, body.password)
+        except auth.WrongCredentials:
+            raise HTTPException(status_code=401, detail="Wrong username or password")
+        token = await auth.create_session_token(conn, user.id, body.device_name)
+    return Session(token=token, user=user)
+
+
+@app.get("/auth/me")
+async def me(user: User = Depends(auth.current_user)) -> User:
+    """Who this token belongs to: the app's "am I still signed in?"."""
+    return user
+
+
+@app.post("/auth/signout", status_code=204)
+async def signout(request: Request, user: User = Depends(auth.current_user),
+                  authorization: str | None = Header(default=None)) -> None:
+    """Ends this device's session only. current_user has already checked the token is valid (else 401)."""
+    token = (authorization or "").partition(" ")[2]
+    async with request.app.state.pool.connection() as conn:
+        await auth.delete_session(conn, token)

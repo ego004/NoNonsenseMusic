@@ -112,3 +112,36 @@ CREATE TABLE IF NOT EXISTS lyrics (
     fetched_at    timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (song_name, artist_name, song_duration, youtube_id)
 );
+
+-- AUTH-1: accounts and sessions. A session is one signed-in device: sign-in makes one, sign-out deletes it, and
+-- AUTH-4's device list is these rows. Sessions, not JWTs, so a device can be signed out at once (a JWT stays valid
+-- until it expires).
+CREATE TABLE IF NOT EXISTS users (
+    id            uuid        PRIMARY KEY DEFAULT uuidv7(),
+    -- 3 to 32 characters: a default, change it (username rules are your decision in AUTH-1)
+    username      text        NOT NULL CHECK (length(username) BETWEEN 3 AND 32),
+    -- Argon2id's own string: the algorithm, its settings, the salt and the hash in one ("$argon2id$v=19$m=…").
+    -- Never the password, in any form
+    password_hash text        NOT NULL,
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- one name regardless of capitals: a plain UNIQUE (username) would let "Alex" and "alex" be two accounts.
+-- An index on an expression: the uniqueness is checked on lower(username), and sign-in looks names up the same way
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (lower(username));
+
+CREATE TABLE IF NOT EXISTS sessions (
+    -- the SHA-256 of the token (32 bytes), never the token: a leaked table lets no one in. SHA-256 is enough
+    -- because the token is 256 random bits, impossible to guess; slow hashing is for passwords, which people choose
+    token_hash   bytea       PRIMARY KEY,
+    -- a deleted user's sessions go with them (as a deleted song takes its listings)
+    user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    device_name  text        NOT NULL DEFAULT '',
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    last_used_at timestamptz NOT NULL DEFAULT now(),
+    expires_at   timestamptz NOT NULL
+);
+
+-- every request finds its session by token_hash (the primary key: indexed already); "my devices" and "sign out
+-- everywhere" ask by user, which without this would read the whole table
+CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id);

@@ -36,5 +36,11 @@ class Settings(BaseSettings):
     # days: plain or empty lyrics are asked for again after this long (timed lyrics are kept for good)
     lyrics_recheck_days: float = 7
 
+    # days: a session (one signed-in device) not used for this long ends; each use pushes the end forward (AUTH-1)
+    session_days: int = 30
+    # minutes: a session's end is pushed forward at most this often, so most requests only read their session
+    # instead of writing it (a write on every request was the cost; a 30-day window does not care about an hour)
+    session_slide_minutes: int = 60
+
 
 settings = Settings()
