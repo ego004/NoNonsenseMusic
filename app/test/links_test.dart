@@ -8,6 +8,7 @@ void main() {
     expect(PlaylistLinks.playlistId(Uri.parse('nononsense://playlist/$id')), id);
     expect(PlaylistLinks.playlistId(Uri.parse('http://127.0.0.1:8765/p/$id')), id, reason: 'the web address shared');
     expect(PlaylistLinks.playlistId(Uri.parse('nononsense://playlist/${id.toUpperCase()}')), id);
+    expect(PlaylistLinks.playlistId(Uri.parse('nononsense-flutter://playlist/$id')), id, reason: "the macOS build's own scheme");
     expect(PlaylistLinks.playlistId(Uri.parse('nononsense://playlist/not-an-id')), isNull);
     expect(PlaylistLinks.playlistId(Uri.parse('https://example.com/somewhere/$id')), isNull);
   });

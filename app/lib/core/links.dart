@@ -6,7 +6,8 @@ import 'package:flutter/foundation.dart';
 
 /// Playlist links (8 Oct), as in the Mac app (mac/NoNonsense/Services/PlaylistLink.swift). What you share is the web
 /// address, `<server>/p/<id>`; the server's page there hands over to `nononsense://playlist/<id>`, which opens here.
-/// Registered: macOS Info.plist, Android's manifest, Windows' registry (`registerOnWindows`, at launch).
+/// Registered: macOS Info.plist (as `nononsense-flutter`: on a Mac, `nononsense` is the Swift app's), Android's
+/// manifest, Windows' registry (`registerOnWindows`, at launch).
 /// The app opens the playlist named in `pending` (Shell), once signed in; one you may not see closes, saying so.
 class PlaylistLinks {
   /// The playlist a link asked for, not yet shown.
@@ -17,7 +18,8 @@ class PlaylistLinks {
 
   /// The playlist a link names: `nononsense://playlist/<id>`, or the web address `.../p/<id>`; null for anything else.
   static String? playlistId(Uri uri) {
-    final parts = [if (uri.scheme == 'nononsense') uri.host, ...uri.pathSegments].where((p) => p.isNotEmpty).toList();
+    // nononsense:, or nononsense-flutter: (this app's macOS build, which leaves nononsense: to the Swift app)
+    final parts = [if (uri.scheme.startsWith('nononsense')) uri.host, ...uri.pathSegments].where((p) => p.isNotEmpty).toList();
     final i = parts.indexWhere((p) => p == 'playlist' || p == 'p');
     if (i < 0 || i + 1 >= parts.length || !_id.hasMatch(parts[i + 1])) return null;
     return parts[i + 1].toLowerCase();

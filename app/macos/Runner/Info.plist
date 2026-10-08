@@ -42,7 +42,9 @@
 			<string>dev.nononsense.links</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>nononsense</string>
+				<!-- not nononsense: on a Mac that is the Swift app's (the one released); macOS picks any app claiming a
+				     scheme, so this preview build answers its own (8 Oct) -->
+				<string>nononsense-flutter</string>
 			</array>
 		</dict>
 	</array>
