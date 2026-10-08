@@ -155,6 +155,7 @@ State the screens read: `queue`, `index`, `current`, `playingFrom` (the playlist
 | `position` | Changes only on events (play, pause, seek, a stall), never on a timer: the periodic time observer was the biggest steady cost (7 Oct). `livePosition` reads the exact time. |
 | `duration`, `audioLength` | How long the playing copy plays: its listed length until it loads, then the audio's own length, cut at the listing's length + 1 s (`load` sets `forwardPlaybackEndTime`). Some YouTube audio runs on in silence past its listing: *Redbone* (1:42) played silence past 1:48 with the bar stuck at -0:00 (7 Oct). AVPlayer stops at that end and posts the usual "played to the end", so the queue moves on. |
 | `itemEnded(item)` (private) | Reports `finish`, then the next song. |
+| `refreshBuffering()` (private) | The spinner: you want it playing (`isPlaying`) and no audio flows yet (the copy still `.unknown`, or AVPlayer waiting for data). AVPlayer's "playing" arrives the moment `play()` is called, before any audio, and used to clear it (8 Oct). A copy that fails while paused loads the next one paused (`load(start:)`). Checked with `NN_SELFTEST_SLOWPLAY`. |
 | `reportSkipIfNeeded()` (private) | Reports `skip` with the second, unless the song was in its last 3 s. |
 | `report(type, track, at:)` (private) | Sends `API.event` in the background; after a `play`, `library.refreshRecent()`. |
 | `publish()` (private) | Updates Control Center / media keys, and calls `Presence.update`. Runs on play, pause, seek. Not every 0.5 s. |
