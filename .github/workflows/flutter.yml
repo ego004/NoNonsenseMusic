@@ -1,0 +1,55 @@
+# The Flutter app (app/) on macOS and Android, on every push that touches app/ (Windows: windows.yml).
+# macOS: the release build, then the secure-store test on the real Keychain. Android: the APK.
+# The built apps are under "Artifacts" on the run's page.
+name: Flutter app (macOS, Android)
+
+on:
+  push:
+    paths: ["app/**", ".github/workflows/flutter.yml"]
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.6"
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - run: flutter test integration_test/secure_store_test.dart -d macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NoNonsense-macos
+          path: app/build/macos/Build/Products/Release/
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.6"
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NoNonsense-android
+          path: app/build/app/outputs/flutter-apk/app-release.apk
