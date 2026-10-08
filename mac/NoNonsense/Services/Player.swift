@@ -409,6 +409,13 @@ final class Player {
         publish()
         let mine = loads
         Task {
+            // played before: its file, from this Mac's cache; no link and no network (TICKETS 0b, 8 Oct)
+            if let cached = await AudioCache.shared.file(for: listing.key) {
+                guard mine == loads else { return }
+                resolving = false
+                attach(AVPlayerItem(url: cached), for: listing)
+                return
+            }
             let url: URL
             do {
                 url = try await API.audioURL(listing)
@@ -420,12 +427,13 @@ final class Player {
             }
             guard mine == loads else { return }
             resolving = false
-            // YouTube's audio in bounded ranges: open-ended, YouTube sends it at playback speed (TICKETS 0a, 8 Oct)
-            var youtube = url.host()?.hasSuffix("googlevideo.com") == true
+            // through the loader: bounded ranges (YouTube sends open-ended ones at playback speed), and the whole file
+            // kept in the cache once it is in (TICKETS 0a, 0b, 8 Oct)
+            var direct = false
             #if DEBUG
-            if ProcessInfo.processInfo.environment["NN_NO_LOADER"] != nil { youtube = false }   // the latency test's "before"
+            direct = ProcessInfo.processInfo.environment["NN_NO_LOADER"] != nil      // the latency test's "before"
             #endif
-            attach(youtube ? AVPlayerItem(asset: BoundedRangeLoader.shared.asset(for: url)) : AVPlayerItem(url: url), for: listing)
+            attach(direct ? AVPlayerItem(url: url) : AVPlayerItem(asset: BoundedRangeLoader.shared.asset(for: url, key: listing.key)), for: listing)
         }
     }
 
@@ -479,6 +487,7 @@ final class Player {
     private func copyFailed(_ failed: Listing, of track: Track) {
         // a YouTube link this Mac looked up and that would not play: never handed out again (the retry looks it up anew)
         let forgotten = failed.source == "ytmusic" ? Task { await YouTubeLookup.shared.forget(failed.id) } : nil
+        Task { await AudioCache.shared.remove(failed.key) }        // a cached file that would not play is fetched again
         // every copy but the one it started with: excluding `best` instead retried a broken downloaded copy that was not
         // `best`, and never tried `best` (audit, 7 Oct)
         let others = track.listings.filter { $0.key != (firstCopy ?? track.best.key) }

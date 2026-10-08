@@ -124,6 +124,7 @@ extension NoNonsenseApp {
         SelfTest.runGeniusCheckIfAsked(player: player, lyrics: lyrics)
         SelfTest.runYouTubeCheckIfAsked(player: player)
         SelfTest.runLatencyCheckIfAsked(player: player)
+        SelfTest.runCacheCheckIfAsked(player: player)
         SelfTest.runLoaderCheckIfAsked()
     }
 }

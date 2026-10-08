@@ -146,11 +146,12 @@ extension SelfTest {
             try? server.run()
             try? await Task.sleep(for: .seconds(1))
 
+            let toneKey = "selftest:tone-\(UUID().uuidString)"
             let probe = AVPlayer()
             probe.isMuted = true
             probe.automaticallyWaitsToMinimizeStalling = false
             let start = Date()
-            probe.replaceCurrentItem(with: AVPlayerItem(asset: BoundedRangeLoader.shared.asset(for: URL(string: "http://127.0.0.1:8798/tone.m4a")!)))
+            probe.replaceCurrentItem(with: AVPlayerItem(asset: BoundedRangeLoader.shared.asset(for: URL(string: "http://127.0.0.1:8798/tone.m4a")!, key: toneKey)))
             probe.play()
             var heard: Double?
             for _ in 0..<500 where heard == nil {
@@ -173,6 +174,7 @@ extension SelfTest {
             }
             check("every request was a bounded range of at most 1 MB (never open-ended)", !asked.isEmpty && bounded)
             try? FileManager.default.removeItem(at: dir)
+            await AudioCache.shared.remove(toneKey)                    // the test app shares your cache: leave nothing
             report("loader: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
             server.terminate(); server.waitUntilExit()
             NSApp.terminate(nil)

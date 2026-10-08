@@ -4,9 +4,11 @@ import UniformTypeIdentifiers
 /// YouTube audio for Apple's player, fetched in bounded ranges (8 Oct, TICKETS 0a). Apple's player asks for a file
 /// open-ended (`bytes=0-`), and YouTube sends that at about playback speed: 0.87–2 s from a link to the first sound
 /// (measured 8 Oct, NN_SELFTEST_LATENCY), where a bounded 256 KB range takes ~70 ms. So the player gets a private
-/// address (`nnyt://…`) and this delegate answers its byte requests by fetching the real link in ranges of at most
-/// 1 MB, the first one small, so sound starts as soon as the first range is in.
-/// Any link works (the self-test serves a local file); the player is told the audio is AAC in MP4 (YouTube's itag 140).
+/// address (`nnyt://…`) and this delegate answers its byte requests from the song's AudioDownload, which fetches the
+/// real link in ranges of at most 1 MB, the first one small, and keeps the whole file in the cache once it is in
+/// (TICKETS 0b). Measured 8 Oct: this does not start a song sooner (the player starts on YouTube's first burst, which is
+/// not throttled); it keeps the rest of the song and seeks at full speed, and it is what fills the cache.
+/// Every copy plays through it (JioSaavn too: so it is cached). The player is told the audio is AAC in MP4.
 nonisolated final class BoundedRangeLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked Sendable {
     static let shared = BoundedRangeLoader()
     static let scheme = "nnyt"
@@ -14,16 +16,14 @@ nonisolated final class BoundedRangeLoader: NSObject, AVAssetResourceLoaderDeleg
     static let range = 1024 * 1024                    // then 1 MB at a time
 
     private let queue = DispatchQueue(label: "app.nononsense.bounded-range-loader")
-    private let session = URLSession(configuration: .ephemeral)
     // touched on `queue` only
-    private var links: [String: URL] = [:]            // the private address's id → the real link
-    private var lengths: [String: Int] = [:]
+    private var songs: [String: (link: URL, key: String)] = [:]   // the private address's id → the song's link and key
     private var running: [ObjectIdentifier: Task<Void, Never>] = [:]
 
     /// An asset for Apple's player that plays `url` through this loader.
-    func asset(for url: URL) -> AVURLAsset {
+    func asset(for url: URL, key: String) -> AVURLAsset {
         let id = UUID().uuidString
-        queue.sync { links[id] = url }
+        queue.sync { songs[id] = (url, key) }
         let asset = AVURLAsset(url: URL(string: "\(Self.scheme)://audio/\(id).m4a")!)
         asset.resourceLoader.setDelegate(self, queue: queue)
         return asset
@@ -33,11 +33,11 @@ nonisolated final class BoundedRangeLoader: NSObject, AVAssetResourceLoaderDeleg
                         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         guard let address = loadingRequest.request.url, address.scheme == Self.scheme else { return false }
         let id = address.deletingPathExtension().lastPathComponent
-        guard let link = links[id] else { return false }
+        guard let song = songs[id] else { return false }
         let request = Request(loadingRequest)
         let key = ObjectIdentifier(loadingRequest)
         running[key] = Task { [weak self] in
-            await self?.serve(request, id: id, from: link)
+            await self?.serve(request, from: AudioDownloads.shared.download(song.key, link: song.link))
             self?.queue.async { self?.running[key] = nil }
         }
         return true
@@ -53,54 +53,28 @@ nonisolated final class BoundedRangeLoader: NSObject, AVAssetResourceLoaderDeleg
         init(_ r: AVAssetResourceLoadingRequest) { self.r = r }
     }
 
-    private func serve(_ request: Request, id: String, from link: URL) async {
+    private func serve(_ request: Request, from download: AudioDownload) async {
         let r = request.r
         do {
-            var length = queue.sync { lengths[id] }
+            let length = try await download.totalLength()
             if let info = r.contentInformationRequest {
-                // YouTube's links say the length (`clen`); anything else is asked with one tiny range
-                if length == nil { length = Self.declaredLength(link) }
-                if length == nil { length = try await fetch(link, from: 0, to: 0).total }
-                queue.sync { lengths[id] = length }
                 info.contentType = UTType.mpeg4Audio.identifier
-                info.contentLength = Int64(length ?? 0)
+                info.contentLength = Int64(length)
                 info.isByteRangeAccessSupported = true
             }
             guard let data = r.dataRequest else { r.finishLoading(); return }
             var at = Int(data.currentOffset != 0 ? data.currentOffset : data.requestedOffset)
             let end = data.requestsAllDataToEndOfResource || data.requestedLength == 0
-                ? (length ?? Int.max) : Int(data.requestedOffset) + data.requestedLength
-            var first = true
+                ? length : min(length, Int(data.requestedOffset) + data.requestedLength)
             while at < end, !Task.isCancelled {
-                let size = first ? Self.firstRange : Self.range
-                let piece = try await fetch(link, from: at, to: min(at + size, end) - 1)
-                if length == nil, let total = piece.total { length = total; queue.sync { lengths[id] = total } }
-                if piece.data.isEmpty { break }
-                data.respond(with: piece.data)
-                at += piece.data.count
-                first = false
-                if let length, at >= length { break }
+                let piece = try await download.bytes(at, min(at + Self.range, end) - 1)
+                if piece.isEmpty { break }
+                data.respond(with: piece)
+                at += piece.count
             }
             if !Task.isCancelled { r.finishLoading() }
         } catch {
             if !Task.isCancelled { r.finishLoading(with: error) }
         }
-    }
-
-    /// One bounded range: bytes `from` to `to`, both included. `total`: the whole file's length, from Content-Range.
-    private func fetch(_ link: URL, from: Int, to: Int) async throws -> (data: Data, total: Int?) {
-        var request = URLRequest(url: link, timeoutInterval: 15)
-        request.setValue("bytes=\(from)-\(to)", forHTTPHeaderField: "Range")
-        let (data, response) = try await session.data(for: request)
-        let http = response as? HTTPURLResponse
-        guard let status = http?.statusCode, status == 206 || status == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        let total = (http?.value(forHTTPHeaderField: "Content-Range")?.split(separator: "/").last).flatMap { Int($0) }
-        return (data, total)
-    }
-
-    private static func declaredLength(_ link: URL) -> Int? {
-        URLComponents(url: link, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "clen" }?.value.flatMap(Int.init)
     }
 }

@@ -649,6 +649,8 @@ private struct FootprintSettings: View {
     @AppStorage("animateBackdrop") private var animateBackdrop = Look.animateBackdrop
     @AppStorage("serverReload") private var reloads = false
     @AppStorage("searchPrefetch") private var searchPrefetch = Prefetcher.searchDefault
+    @AppStorage("audioCacheMB") private var cacheMB = AudioCache.defaultLimitMB
+    @State private var cacheUsed: Int?
 
     var body: some View {
         Form {
@@ -660,6 +662,31 @@ private struct FootprintSettings: View {
                 Text("CPU is a share of one core, as Activity Monitor shows it; memory is what Activity Monitor counts. Read once a second while this page is open. Postgres runs on its own and is not counted.")
                     .foregroundStyle(.secondary)
             }
+            // on by default (your choice, 8 Oct): a song played before starts from its file (~0.15 s against ~0.8 s)
+            Section {
+                Picker(selection: $cacheMB) {
+                    Text("Off").tag(0)
+                    Text("250 MB").tag(250)
+                    Text("500 MB").tag(500)
+                    Text("1 GB").tag(1000)
+                    Text("2 GB").tag(2000)
+                } label: {
+                    Text("Keep songs on this Mac")
+                    Text("A song played before starts from its file, with no network; the least recently played go first.")
+                }
+                .onChange(of: cacheMB) { Task { await AudioCache.shared.evict(); cacheUsed = await AudioCache.shared.size() } }
+                LabeledContent("Used") {
+                    HStack {
+                        Text(cacheUsed.map { formatBytes($0) } ?? "…").foregroundStyle(.secondary)
+                        Button("Clear") { Task { await AudioCache.shared.clear(); cacheUsed = 0 } }
+                            .disabled((cacheUsed ?? 0) == 0)
+                    }
+                }
+            } header: {
+                Text("Storage")
+            }
+            .task { cacheUsed = await AudioCache.shared.size() }
+
             Section {
                 Toggle(isOn: $animateBackdrop) {
                     Text("Moving background")
@@ -672,7 +699,7 @@ private struct FootprintSettings: View {
                     Text("The top 5").tag(5)
                 } label: {
                     Text("Get search results ready")
-                    Text("Each one is a YouTube lookup on your server (~2 s of its work) and one more request YouTube sees. The ones made ready start at once when clicked; others wait ~2 s.")
+                    Text("Each one is a lookup YouTube sees from this Mac (~0.2 s). The ones made ready start sooner when clicked.")
                         .foregroundStyle(.secondary)
                 }
                 Toggle(isOn: $reloads) {

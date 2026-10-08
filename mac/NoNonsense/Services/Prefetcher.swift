@@ -45,6 +45,11 @@ final class Prefetcher {
             let others = list.filter { $0.source != "ytmusic" }
             if !others.isEmpty { try? await API.prefetch(others) }   // a server without /prefetch answers 404: nothing breaks
             await YouTubeLookup.shared.warm(youtube)
+            // the next song itself, fetched whole ahead into the cache: ⏭ then starts from its file (TICKETS 0b, 8 Oct)
+            if AudioCache.limit > 0, let next = queuePart.first, await AudioCache.shared.file(for: next.key) == nil,
+               let link = try? await API.audioURL(next) {
+                await AudioDownloads.shared.download(next.key, link: link).start()
+            }
         }
     }
 }
