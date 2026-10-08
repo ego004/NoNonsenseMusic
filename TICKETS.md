@@ -55,7 +55,7 @@ Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress 
 - ✅ Discord: the application id built in, no field to fill (public by design; Discord's record shows only the name, no owner)
 - ✅ YouTube links looked up by the apps (visionOS client: whole songs, ~0.6 s), the server's /play as fallback; Mac self-test and Flutter integration test play one with no /play reaching the server. Also fixes YouTube failing (-1) in the Flutter Mac build
 - ☐ Explain YouTube old vs new
-- ☐ Genius lyrics, experimental (Settings), with its annotations shown elegantly; find the efficient way to get them
+- ❓ Genius, experimental (Settings): researched 8 Oct. Annotations and credits via the official API need a free token (yours: genius.com/api-clients, into backend/.env); the lyrics text is in no API (only the 590 KB web page, against Genius's terms) → your call on both
 - ✅ Flutter: "Finding lyrics" showed on opening the lyrics: Flutter asked only when the panel opened; now as each song starts, like the Mac (integration test checks the panel opens with them)
 - ☐ Rate limiting and recovery codes: built together with you
 - ☐ Deploy on Render (your choice, 8 Oct)
