@@ -82,7 +82,10 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                 const PopupMenuDivider(),
                                 const PopupMenuItem(value: 'delete', child: Text('Delete…')),
                               ]
-                            : const [PopupMenuItem(value: 'leave', child: Text('Leave…'))],
+                            : const [
+                                PopupMenuItem(value: 'share', child: Text('People…')), // the same dialog, to look at
+                                PopupMenuItem(value: 'leave', child: Text('Leave…')),
+                              ],
                         onSelected: (v) async {
                           switch (v) {
                             case 'rename':
@@ -185,53 +188,91 @@ Future<bool> confirm(BuildContext context, String title, String? detail, {String
     ) ??
     false;
 
-/// The owner shares a playlist: a username, and what they may do. Done: what to tell you ("Shared with Kai…"); null
-/// if cancelled. The server's reason stays in the sheet ("No account with that username"). Sharing again with the same
-/// person changes their role. There is no list of who it is shared with yet: the server has no route for it (8 Oct).
+/// Who is on a playlist, and (its owner) inviting someone: a username and what they may do. Sharing again with the
+/// same person changes their role; the owner removes people from the list. Someone it is shared with sees the list
+/// only. The dialog stays open after an invite, so the new person shows in the list; Done closes it (8 Oct). The
+/// server's reason stays in the dialog ("No account with that username"). Returns nothing to tell: it all shows here.
 Future<String?> share(BuildContext context, PlaylistSummary p) {
   final library = Scope.of(context).library;
   final name = TextEditingController();
   var role = 'viewer';
   String? error;
   var busy = false;
+  List<PlaylistMember>? members;
+  var asked = false;
   return showDialog<String>(
     context: context,
     builder: (c) => StatefulBuilder(
       builder: (c, set) {
+        Future<void> load() async {
+          final found = await Api.members(p.id).catchError((_) => <PlaylistMember>[]);
+          if (c.mounted) set(() => members = found);
+        }
+
+        if (!asked) {
+          asked = true;
+          load();
+        }
+
         Future<void> go() async {
           final who = name.text.trim();
           if (who.isEmpty || busy) return;
           set(() { busy = true; error = null; });
           final e = await library.share(p.id, who, role);
           if (!c.mounted) return;
+          set(() { busy = false; error = e; });
           if (e == null) {
-            Navigator.pop(c, 'Shared “${p.name}” with $who');
-          } else {
-            set(() { busy = false; error = e; });
+            name.clear();
+            await load();
           }
         }
 
+        Future<void> remove(PlaylistMember m) async {
+          try {
+            await Api.removeMember(p.id, m.userId);
+            await load();
+          } catch (e) {
+            if (c.mounted) set(() => error = e.toString());
+          }
+        }
+
+        final theme = Theme.of(c);
         return AlertDialog(
-          title: Text('Share “${p.name}”'),
+          title: Text(p.isOwner ? 'Share “${p.name}”' : 'People on “${p.name}”'),
           content: SizedBox(
             width: 340,
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              TextField(controller: name, autofocus: true, enabled: !busy, decoration: const InputDecoration(labelText: 'Username'), onSubmitted: (_) => go()),
-              const SizedBox(height: 14),
-              SegmentedButton<String>(
-                segments: const [ButtonSegment(value: 'viewer', label: Text('View only')), ButtonSegment(value: 'editor', label: Text('Can make changes'))],
-                selected: {role},
-                onSelectionChanged: busy ? null : (v) => set(() => role = v.first),
-              ),
+              for (final m in members ?? const <PlaylistMember>[])
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(children: [
+                    Icon(Icons.account_circle_outlined, size: 20, color: theme.colorScheme.onSurfaceVariant),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(m.username)),
+                    Text(m.roleName, style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                    if (p.isOwner && m.role != 'owner')
+                      IconButton(icon: const Icon(Icons.remove_circle_outline, size: 20), tooltip: 'Remove ${m.username}', onPressed: () => remove(m)),
+                  ]),
+                ),
+              if (p.isOwner) ...[
+                const SizedBox(height: 10),
+                TextField(controller: name, autofocus: true, enabled: !busy, decoration: const InputDecoration(labelText: 'Username'), onSubmitted: (_) => go()),
+                const SizedBox(height: 14),
+                SegmentedButton<String>(
+                  segments: const [ButtonSegment(value: 'viewer', label: Text('View only')), ButtonSegment(value: 'editor', label: Text('Can make changes'))],
+                  selected: {role},
+                  onSelectionChanged: busy ? null : (v) => set(() => role = v.first),
+                ),
+              ],
               if (error != null) ...[
                 const SizedBox(height: 10),
-                Text(error!, style: TextStyle(color: Theme.of(c).colorScheme.error)),
+                Text(error!, style: TextStyle(color: theme.colorScheme.error)),
               ],
             ]),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
-            FilledButton(onPressed: busy ? null : go, child: const Text('Share')),
+            TextButton(onPressed: () => Navigator.pop(c), child: const Text('Done')),
+            if (p.isOwner) FilledButton(onPressed: busy ? null : go, child: const Text('Share')),
           ],
         );
       },

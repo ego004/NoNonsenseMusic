@@ -97,6 +97,9 @@ extension SelfTest {
                   viewerAdd.status == 403 && API.detail(viewerAdd.body) == "Your role on this playlist does not allow that",
                   "\(viewerAdd.status) \(API.detail(viewerAdd.body) ?? "")")
             check("share again as an editor", await library.share(mine, with: friendName, role: "editor") == nil)
+            let people = (try? await API.members(of: mine.id)) ?? []
+            check("the members list: the owner, then the editor", people.map(\.role) == ["owner", "editor"] && people.last?.username == friendName,
+                  people.map { "\($0.username) \($0.role)" }.joined(separator: ", "))
             await library.setPublic(mine, true)
             check("make it public", library.ownPlaylists.first { $0.id == mine.id }?.isPublic == true)
             var code = await raw("POST", "playlists/\(id)/items", token: friend.token, body: listings(madeUp("Editor's song"))).status

@@ -49,8 +49,9 @@ Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress 
 
 **Apps**
 - ✅ Mac: the big "Liked Songs" title and the toolbar's small title overlapped → the toolbar title appears only once the big one has scrolled under it (`scrollTitle`; self-test checks it)
-- ☐ Mac: a faint sign-in screen showed behind the library after signing in (the window holds no sign-in views: checked) → does it stay after a resize?
-- ❓ Flutter: the Settings screen could not be seen → it draws fine in the macOS build (integration test, 8 Oct): which build, and what showed?
+- ✅ Mac: a faint sign-in screen behind the library: it was a self-test window behind yours (you, 8 Oct)
+- ☐ Flutter: Settings with everything the Mac app has (appearance, text size, lyrics, Discord, footprint…), not only account, server and playback
+- ☐ Both apps: the server's address set on the sign-in screen, and changed later in Settings
 - ☐ Flutter: every Mac fix of 8 Oct, checked one by one, and the app run for real
 - ✅ Discord: the application id built in, no field to fill (public by design; Discord's record shows only the name, no owner)
 - ✅ YouTube links looked up by the apps (visionOS client: whole songs, ~0.6 s), the server's /play as fallback; Mac self-test and Flutter integration test play one with no /play reaching the server. Also fixes YouTube failing (-1) in the Flutter Mac build
@@ -60,9 +61,9 @@ Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress 
 - ☐ Rate limiting and recovery codes: built together with you
 - ☐ Deploy on Render (your choice, 8 Oct)
 - ❓ Keychain prompt on every build (ad-hoc signing): A, a certificate made on this Mac, or B, the token in a file only your account reads
-- ❓ Footprint at 11%: measure it with you (play a song, say "ready")
+- ☐ Footprint at 11%: measure it with you, not a priority (you, 8 Oct)
 - ☐ Public playlists open by **link** (your choice, 8 Oct)
-- ❓ Members list: `GET /playlists/{id}/members` so an owner sees and removes people (backend)
+- ✅ Members list: `GET /playlists/{id}/members`; the share sheet lists people, the owner removes them, members see it under People… (both apps)
 
 **Server, then deploy on the web**
 - ❓ Recovery codes instead of email (your design, reviewed 8 Oct): you write it, or Claude?

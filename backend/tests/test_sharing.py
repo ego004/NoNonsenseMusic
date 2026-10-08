@@ -150,3 +150,19 @@ def test_deleting_the_playlist_removes_it_for_members_too(people):
     assert alex("DELETE", f"/playlists/{trip}").status_code == 204
     assert sam("GET", "/playlists").json()["playlists"] == []
     assert sam("GET", f"/playlists/{trip}").status_code == 404
+
+
+def test_the_owner_and_members_see_who_is_on_it_and_a_public_viewer_does_not(people):
+    alex, sam, kai, trip, _ = people
+    share(alex, trip, sam, "editor")
+    share(alex, trip, kai, "viewer")
+    expected = [(alex.username, "owner"), (sam.username, "editor"), (kai.username, "viewer")]
+    for person in (alex, sam, kai):                                  # the owner first, then in the order invited
+        r = person("GET", f"/playlists/{trip}/members")
+        assert r.status_code == 200 and [(m["username"], m["role"]) for m in r.json()] == expected
+    alex("DELETE", f"/playlists/{trip}/members/{kai.id}")
+    alex("PATCH", f"/playlists/{trip}", json={"public": True})
+    assert kai("GET", f"/playlists/{trip}").status_code == 200     # still opens it: it is public
+    assert kai("GET", f"/playlists/{trip}/members").status_code == 403
+    alex("PATCH", f"/playlists/{trip}", json={"public": False})
+    assert kai("GET", f"/playlists/{trip}/members").status_code == 404

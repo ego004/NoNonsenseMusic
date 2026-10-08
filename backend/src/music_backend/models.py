@@ -88,6 +88,12 @@ class ShareRequest(BaseModel):
     username : str = Field(max_length=USERNAME_MAX)
     role : Literal["viewer", "editor"]
 
+class Member(BaseModel):
+    """GET /playlists/{id}/members: one person on a playlist: its owner, or someone it is shared with."""
+    user_id : UUID
+    username : str
+    role : Literal["owner", "editor", "viewer"]
+
 class PlaylistMetadata(BaseModel):
     id : UUID
     name : str

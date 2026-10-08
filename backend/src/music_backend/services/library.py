@@ -12,7 +12,7 @@ from fractional_indexing import FIError, generate_key_between, generate_n_keys_b
 from psycopg import AsyncConnection
 
 from music_backend.services.matching import normalise, pick_best, same_recording
-from music_backend.models import EventType, LibrarySong, Listing, PlaylistMetadata, PlaylistItem
+from music_backend.models import EventType, LibrarySong, Listing, Member, PlaylistMetadata, PlaylistItem
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +294,25 @@ async def share_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUI
         """INSERT INTO playlist_members (playlist_id, user_id, role) VALUES (%s, %s, %s)
            ON CONFLICT (playlist_id, user_id) DO UPDATE SET role = EXCLUDED.role""",
         [playlist_id, row["id"], role])
+
+async def playlist_members(conn: AsyncConnection, user_id: UUID, playlist_id : UUID) -> list[Member]:
+    """Who is on the playlist: its owner first, then the people it is shared with, oldest invite first. For the owner
+    and the members; someone who sees it only because it is public gets NotAllowed (who it is shared with is not
+    theirs to know). One query for everyone, after the access check."""
+    role = await _require(conn, user_id, playlist_id, "viewer")
+    rows = await (await conn.execute(
+        """SELECT u.id AS user_id, u.username, 'owner' AS role, 0 AS place, NULL::timestamptz AS added_at
+             FROM playlists pl JOIN users u ON u.id = pl.user_id
+            WHERE pl.id = %(playlist)s
+           UNION ALL
+           SELECT u.id, u.username, m.role, 1, m.added_at
+             FROM playlist_members m JOIN users u ON u.id = m.user_id
+            WHERE m.playlist_id = %(playlist)s
+            ORDER BY place, added_at, username""",
+        {"playlist": playlist_id})).fetchall()
+    if role != "owner" and all(r["user_id"] != user_id for r in rows):
+        raise NotAllowed("only its owner and its members see who it is shared with")
+    return [Member(user_id=r["user_id"], username=r["username"], role=r["role"]) for r in rows]
 
 async def unshare_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, member_id: UUID) -> bool:
     """The owner removes someone; anyone may remove themselves (leave). False when they were not a member."""

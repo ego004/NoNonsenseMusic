@@ -217,6 +217,11 @@ enum API {
         try await sendNoContent("PUT", path: "playlists/\(id.path)/members", body: ShareBody(username: username, role: role))
     }
 
+    /// `GET /playlists/{id}/members`: its owner first, then who it is shared with (for the owner and the members).
+    static func members(of id: UUID) async throws -> [PlaylistMember] {
+        try await get(baseURL.appending(path: "playlists/\(id.path)/members"))
+    }
+
     static func removeMember(_ user: UUID, from id: UUID) async throws {
         try await sendNoContent("DELETE", path: "playlists/\(id.path)/members/\(user.path)")
     }

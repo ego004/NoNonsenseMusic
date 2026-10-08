@@ -118,6 +118,18 @@ nonisolated struct Lyrics: Codable, Hashable, Sendable {
 // ---- playlists (MUS-2). Server names in brackets: these decode exactly what the backend sends ----
 
 /// One playlist without its songs: the sidebar, the list, the header [PlaylistMetadata].
+/// Someone on a playlist (GET /playlists/{id}/members): its owner, or someone it is shared with.
+nonisolated struct PlaylistMember: Decodable, Hashable, Identifiable, Sendable {
+    let userID: UUID
+    let username: String
+    let role: String                  // "owner", "editor" or "viewer"
+    var id: UUID { userID }
+    enum CodingKeys: String, CodingKey { case username, role; case userID = "user_id" }
+
+    /// As the share sheet's picker says it.
+    var roleName: String { role == "owner" ? "Owner" : role == "editor" ? "Can make changes" : "View only" }
+}
+
 nonisolated struct PlaylistSummary: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     let name: String

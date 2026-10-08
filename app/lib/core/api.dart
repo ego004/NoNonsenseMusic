@@ -178,6 +178,9 @@ class Api {
   static Future<void> setPublic(String id, bool public) => _send('PATCH', 'playlists/$id', {'public': public});
   static Future<void> share(String id, String username, String role) =>
       _send('PUT', 'playlists/$id/members', {'username': username, 'role': role});
+  /// Its owner first, then who it is shared with (for the owner and the members).
+  static Future<List<PlaylistMember>> members(String id) async =>
+      ((await _get('playlists/$id/members')) as List).map((m) => PlaylistMember.fromJson(m as Map<String, dynamic>)).toList();
   static Future<void> removeMember(String id, String userId) => _send('DELETE', 'playlists/$id/members/$userId', const {});
   static Future<void> delete(String id) => _send('DELETE', 'playlists/$id', const {});
   static Future<void> add(List<Listing> listings, String to) =>
@@ -202,6 +205,17 @@ class Api {
 }
 
 // MARK: playlists (MUS-2) and lyrics (MUS-12)
+
+/// Someone on a playlist (GET /playlists/{id}/members): its owner, or someone it is shared with.
+class PlaylistMember {
+  final String userId, username, role; // role: owner, editor or viewer
+  const PlaylistMember(this.userId, this.username, this.role);
+  factory PlaylistMember.fromJson(Map<String, dynamic> j) =>
+      PlaylistMember(j['user_id'] as String, j['username'] as String, j['role'] as String);
+
+  /// As the share dialog's choice says it.
+  String get roleName => role == 'owner' ? 'Owner' : role == 'editor' ? 'Can make changes' : 'View only';
+}
 
 class PlaylistSummary {
   final String id, name;

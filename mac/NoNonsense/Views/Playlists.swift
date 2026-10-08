@@ -312,19 +312,21 @@ struct PlaylistRoleActions: View {
             Divider()
             Button("Delete…", role: .destructive) { library.deleteRequest = playlist }
         } else {
+            Button("People…") { library.shareRequest = playlist }       // the same sheet, to look at (AUTH-3)
             Button("Leave…", role: .destructive) { library.leaveRequest = playlist }
         }
     }
 }
 
-/// Share a playlist: a username, and what they may do. Sharing again with the same person changes their role.
-/// The server's reason shows under the field ("No account with that username"). Who it is shared with cannot be
-/// listed yet: the server has no route for it (handoff 3.3).
+/// Who is on a playlist, and (its owner) inviting someone: a username and what they may do. Sharing again with the
+/// same person changes their role; the owner removes people from the list. Someone it is shared with sees the list
+/// only. The sheet stays open after an invite, so the new person shows in the list; Done closes it (8 Oct).
 struct SharePlaylistSheet: View {
     let playlist: PlaylistSummary
-    /// username, role → nil: it worked (the sheet closes); otherwise why not.
+    /// username, role → nil: it worked; otherwise why not.
     let submit: (String, String) async -> String?
     @Environment(\.dismiss) private var dismiss
+    @State private var members: [PlaylistMember] = []
     @State private var username = ""
     @State private var role = "viewer"
     @State private var problem: String?
@@ -335,17 +337,38 @@ struct SharePlaylistSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Share “\(playlist.name)”").font(.title3.weight(.semibold))
-            TextField("Username", text: $username, prompt: Text("Username"))
-                .textFieldStyle(.roundedBorder)
-                .font(.title3)
-                .focused($focused)
-                .onSubmit(go)
-            Picker("Permission", selection: $role) {
-                Text("View only").tag("viewer")
-                Text("Can make changes").tag("editor")
+            Text(playlist.isOwner ? "Share “\(playlist.name)”" : "People on “\(playlist.name)”").font(.title3.weight(.semibold))
+            if !members.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(members) { member in
+                        HStack {
+                            Image(systemName: "person.crop.circle").foregroundStyle(.secondary)
+                            Text(member.username)
+                            Spacer()
+                            Text(member.roleName).foregroundStyle(.secondary)
+                            if playlist.isOwner, member.role != "owner" {
+                                Button { remove(member) } label: { Image(systemName: "minus.circle") }
+                                    .buttonStyle(.borderless)
+                                    .help("Remove \(member.username)")
+                            }
+                        }
+                        .padding(.vertical, 6)
+                        if member.id != members.last?.id { Divider() }
+                    }
+                }
             }
-            .pickerStyle(.radioGroup)
+            if playlist.isOwner {
+                TextField("Username", text: $username, prompt: Text("Username"))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.title3)
+                    .focused($focused)
+                    .onSubmit(go)
+                Picker("Permission", selection: $role) {
+                    Text("View only").tag("viewer")
+                    Text("Can make changes").tag("editor")
+                }
+                .pickerStyle(.radioGroup)
+            }
             if let problem {
                 Label(problem, systemImage: "exclamationmark.circle.fill")
                     .font(.callout)
@@ -354,18 +377,26 @@ struct SharePlaylistSheet: View {
             }
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Done", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Share") { go() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(trimmed.isEmpty || working)
+                if playlist.isOwner {
+                    Button("Share") { go() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(trimmed.isEmpty || working)
+                }
             }
         }
         .padding(22)
         .frame(width: 380)
         .animation(.snappy(duration: 0.25), value: problem)
-        .onAppear { focused = true }
+        .animation(.snappy(duration: 0.25), value: members)
+        .task { await loadMembers() }
+        .onAppear { focused = playlist.isOwner }
         .onChange(of: username) { problem = nil }
+    }
+
+    private func loadMembers() async {
+        if let found = try? await API.members(of: playlist.id) { members = found }
     }
 
     private func go() {
@@ -374,7 +405,21 @@ struct SharePlaylistSheet: View {
         Task {
             problem = await submit(trimmed, role)
             working = false
-            if problem == nil { dismiss() }
+            if problem == nil {
+                username = ""
+                await loadMembers()
+            }
+        }
+    }
+
+    private func remove(_ member: PlaylistMember) {
+        Task {
+            do {
+                try await API.removeMember(member.userID, from: playlist.id)
+                await loadMembers()
+            } catch {
+                problem = error.localizedDescription
+            }
         }
     }
 }

@@ -73,6 +73,9 @@ void main() {
 
     Api.token = ownerToken;
     expect(await library.share(id, friend.user!.username, 'editor'), isNull, reason: 'sharing again changes the role');
+    final people = await Api.members(id);
+    expect(people.map((m) => m.role), ['owner', 'editor'], reason: 'the owner first, then who it is shared with');
+    expect(people.last.username, friend.user!.username);
     expect(await library.setPublic(id, true), isNull);
 
     Api.token = friendToken;

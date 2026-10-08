@@ -16,7 +16,7 @@ from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Li
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
                                   LyricsRequest, LyricsResponse, Session, SignInRequest, SignUpRequest, User,
-                                  PlaylistUpdate, ShareRequest, DeviceNameRequest)
+                                  PlaylistUpdate, ShareRequest, DeviceNameRequest, Member)
 from music_backend.core.settings import settings
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
@@ -287,6 +287,12 @@ async def share_playlist(playlist_id: UUID, body: ShareRequest, request: Request
     async with request.app.state.pool.connection() as conn:
         await library.share_playlist(conn, user.id, playlist_id, body.username, body.role)
     return Response(status_code = 204)
+
+@app.get("/playlists/{playlist_id}/members")
+async def playlist_members(playlist_id: UUID, request: Request, user: Signed) -> list[Member]:
+    """Its owner first, then who it is shared with: for the owner and the members (403 for a public viewer)."""
+    async with request.app.state.pool.connection() as conn:
+        return await library.playlist_members(conn, user.id, playlist_id)
 
 @app.delete("/playlists/{playlist_id}/members/{member_id}", status_code = 204)
 async def unshare_playlist(playlist_id: UUID, member_id: UUID, request: Request, user: Signed) -> Response:
