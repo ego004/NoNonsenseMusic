@@ -76,40 +76,43 @@ async def resolve_song(conn: AsyncConnection, listings: list[Listing]) -> UUID:
     return song_id
 
 
-async def like(conn: AsyncConnection, song_id: UUID) -> None:
-    # liking twice is a no-op: likes.song_id is the primary key
-    await conn.execute("INSERT INTO likes (song_id) VALUES (%s) ON CONFLICT DO NOTHING", [song_id])
+async def like(conn: AsyncConnection, user_id: UUID, song_id: UUID) -> None:
+    # liking twice is a no-op: (user_id, song_id) is the primary key
+    await conn.execute("INSERT INTO likes (user_id, song_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", [user_id, song_id])
 
 
-async def unlike(conn: AsyncConnection, song_id: UUID) -> bool:
-    """True if the song was liked (and now is not)."""
-    return (await conn.execute("DELETE FROM likes WHERE song_id = %s", [song_id])).rowcount > 0
+async def unlike(conn: AsyncConnection, user_id: UUID, song_id: UUID) -> bool:
+    """True if you had liked the song (and now have not)."""
+    return (await conn.execute("DELETE FROM likes WHERE user_id = %s AND song_id = %s", [user_id, song_id])).rowcount > 0
 
 
-async def record_event(conn: AsyncConnection, song_id: UUID, event_type: EventType, position: int) -> None:
+async def record_event(conn: AsyncConnection, user_id: UUID, song_id: UUID, event_type: EventType, position: int) -> None:
     await conn.execute(
-        "INSERT INTO events (song_id, type, position) VALUES (%s, %s, %s)", [song_id, event_type, position],
+        "INSERT INTO events (user_id, song_id, type, position) VALUES (%s, %s, %s, %s)",
+        [user_id, song_id, event_type, position],
     )
 
 
-async def liked_songs(conn: AsyncConnection) -> list[LibrarySong]:
+async def liked_songs(conn: AsyncConnection, user_id: UUID) -> list[LibrarySong]:
     rows = await (await conn.execute(
         """SELECT song_id as id, liked_at AS at, true AS liked
-             FROM likes ORDER BY liked_at DESC""",
+             FROM likes WHERE user_id = %s ORDER BY liked_at DESC""",
+        [user_id],
     )).fetchall()
     return await _with_listings(conn, rows)
 
 
-async def recent_songs(conn: AsyncConnection, limit: int = 50) -> list[LibrarySong]:
-    """Most recently played songs, each once, newest first."""
+async def recent_songs(conn: AsyncConnection, user_id: UUID, limit: int = 50) -> list[LibrarySong]:
+    """Your most recently played songs, each once, newest first. `liked` is YOUR like: the join matches the user too,
+    or a song someone else liked would show a filled heart."""
     rows = await (await conn.execute(
         """SELECT e.song_id AS id, max(e.at) AS at, bool_or(k.song_id IS NOT NULL) AS liked
-             FROM events e LEFT JOIN likes k ON k.song_id = e.song_id
-            WHERE e.type = 'play'
+             FROM events e LEFT JOIN likes k ON k.song_id = e.song_id AND k.user_id = e.user_id
+            WHERE e.user_id = %s AND e.type = 'play'
             GROUP BY e.song_id
             ORDER BY at DESC
             LIMIT %s""",
-        [limit],
+        [user_id, limit],
     )).fetchall()
     return await _with_listings(conn, rows)
 
@@ -139,26 +142,28 @@ async def _with_listings(conn: AsyncConnection, rows: list[dict]) -> list[Librar
         ))
     return songs
 
-async def create_playlist(conn: AsyncConnection, name : str) -> UUID:
-    """A new playlist at the bottom of your list. A name already in use raises psycopg's UniqueViolation."""
-    await _lock_playlist_list(conn)
+async def create_playlist(conn: AsyncConnection, user_id: UUID, name : str) -> UUID:
+    """A new playlist at the bottom of your list. A name you already use raises psycopg's UniqueViolation."""
+    await _lock_playlist_list(conn, user_id)
     # the bottom = after the largest position so far (None when there are no playlists: then the first key, "a0")
-    last = (await (await conn.execute("SELECT max(position) AS last FROM playlists")).fetchone())["last"]
+    last = (await (await conn.execute("SELECT max(position) AS last FROM playlists WHERE user_id = %s",
+                                      [user_id])).fetchone())["last"]
     row = await (await conn.execute(
-        "INSERT INTO playlists (name, position) VALUES (%s, %s) RETURNING id",
-        [name, generate_key_between(last, None)],
+        "INSERT INTO playlists (user_id, name, position) VALUES (%s, %s, %s) RETURNING id",
+        [user_id, name, generate_key_between(last, None)],
     )).fetchone()
     return row["id"]
 
-async def get_playlists(conn: AsyncConnection) -> list[PlaylistMetadata]:
-    """Every playlist with its totals, in one query. It used to be one query, then one more per playlist (7 Oct)."""
+async def get_playlists(conn: AsyncConnection, user_id: UUID) -> list[PlaylistMetadata]:
+    """Your playlists with their totals, in one query. It used to be one query, then one more per playlist (7 Oct)."""
     rows = await (await conn.execute(
         """SELECT pl.id, pl.name, COUNT(s.id) AS song_count, COALESCE(SUM(s.duration), 0) AS duration
              FROM playlists pl
              LEFT JOIN playlist_items p ON p.playlist_id = pl.id
              LEFT JOIN songs s ON s.id = p.song_id
+            WHERE pl.user_id = %s
             GROUP BY pl.id, pl.name, pl.position
-            ORDER BY pl.position, pl.id""")).fetchall()     # pl.id: two at one position keep their order (BUG-6)
+            ORDER BY pl.position, pl.id""", [user_id])).fetchall()     # pl.id: two at one position keep their order (BUG-6)
     return [PlaylistMetadata(**row) for row in rows]
 
 async def _totals(conn: AsyncConnection, playlist_id : UUID) -> Any | None:
@@ -169,47 +174,57 @@ async def _totals(conn: AsyncConnection, playlist_id : UUID) -> Any | None:
              FROM songs s JOIN playlist_items p ON s.id = p.song_id
             WHERE p.playlist_id = %s""", [playlist_id])).fetchone()
 
-async def get_playlist_metadata(conn: AsyncConnection, playlist_id : UUID) -> PlaylistMetadata | None:
-    """One playlist's metadata; None when there is no such playlist (the endpoint's 404)."""
-    row = await (await conn.execute("SELECT id, name FROM playlists WHERE id = %s", [playlist_id])).fetchone()
+async def get_playlist_metadata(conn: AsyncConnection, user_id: UUID, playlist_id : UUID) -> PlaylistMetadata | None:
+    """One of your playlists' metadata; None when you have no such playlist (the endpoint's 404). Someone else's is
+    None too: to you it does not exist."""
+    row = await (await conn.execute("SELECT id, name FROM playlists WHERE id = %s AND user_id = %s",
+                                    [playlist_id, user_id])).fetchone()
     if row is None:
         return None
     return PlaylistMetadata(id = row["id"], name = row["name"], **await _totals(conn, playlist_id))
 
-async def add_to_playlist(conn: AsyncConnection, playlist_id : UUID, song_id: UUID) -> UUID:
-    await _lock_playlist(conn, playlist_id)
+async def add_to_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, song_id: UUID) -> UUID:
+    """Raises NoSuchPlaylist when you have no such playlist (someone else's included)."""
+    await _lock_playlist(conn, user_id, playlist_id)
     # this playlist's last position: the (playlist_id, position) index answers it without reading other playlists
     last = (await (await conn.execute("SELECT max(position) AS last FROM playlist_items WHERE playlist_id = %s",
                                       [playlist_id])).fetchone())["last"]
     return (await (await conn.execute("INSERT INTO playlist_items (playlist_id, song_id, position) VALUES (%s, %s, %s) RETURNING id", [playlist_id, song_id, generate_key_between(last, None)])).fetchone())["id"]
 
-async def get_playlist_items(conn: AsyncConnection, playlist_id : UUID) -> list[PlaylistItem]:
-    """The playlist's songs in your order, each shown through its best listing (like Liked Songs)."""
+async def get_playlist_items(conn: AsyncConnection, user_id: UUID, playlist_id : UUID) -> list[PlaylistItem]:
+    """The playlist's songs in your order, each shown through its best listing (like Liked Songs). Only from your own
+    playlist, and `liked` is your like."""
     # one row per ITEM: the same song added twice is two rows. The columns are what _with_listings reads
     # (id = the song, at, liked); item_id rides along. i.id breaks ties: two adds at the same moment can get
     # the same position, and a UUIDv7 sorts by time
     rows = await (await conn.execute(
         """SELECT i.id AS item_id, i.song_id AS id, i.added_at AS at, (k.song_id IS NOT NULL) AS liked
              FROM playlist_items i
-             LEFT JOIN likes k ON k.song_id = i.song_id
+             JOIN playlists pl ON pl.id = i.playlist_id AND pl.user_id = %s
+             LEFT JOIN likes k ON k.song_id = i.song_id AND k.user_id = pl.user_id
             WHERE i.playlist_id = %s
-            ORDER BY i.position, i.id""", [playlist_id])).fetchall()
+            ORDER BY i.position, i.id""", [user_id, playlist_id])).fetchall()
     # _with_listings builds each song once; the dict hands the same song to every item that holds it
     songs = {song.id: song for song in await _with_listings(conn, rows)}
     return [PlaylistItem(item_id = r["item_id"], song = songs[r["id"]]) for r in rows if r["id"] in songs]
 
-async def rename_playlist(conn: AsyncConnection, playlist_id : UUID, name : str) -> bool:
-    """False when there is no such playlist. A name already in use raises psycopg's UniqueViolation."""
-    return (await conn.execute("UPDATE playlists SET name = %s WHERE id = %s", [name, playlist_id])).rowcount > 0
+async def rename_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, name : str) -> bool:
+    """False when you have no such playlist. A name you already use raises psycopg's UniqueViolation."""
+    return (await conn.execute("UPDATE playlists SET name = %s WHERE id = %s AND user_id = %s",
+                               [name, playlist_id, user_id])).rowcount > 0
 
-async def delete_playlist(conn: AsyncConnection, playlist_id : UUID) -> bool:
-    """False when there is no such playlist. Its items go with it (ON DELETE CASCADE); the songs stay."""
-    return (await conn.execute("DELETE FROM playlists WHERE id = %s", [playlist_id])).rowcount > 0
+async def delete_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID) -> bool:
+    """False when you have no such playlist. Its items go with it (ON DELETE CASCADE); the songs stay."""
+    return (await conn.execute("DELETE FROM playlists WHERE id = %s AND user_id = %s",
+                               [playlist_id, user_id])).rowcount > 0
 
-async def remove_from_playlist(conn: AsyncConnection, playlist_id : UUID, item_id : UUID) -> bool:
-    """False when this playlist has no such item. Both ids must match: an item of another playlist is not removed."""
-    return (await conn.execute("DELETE FROM playlist_items WHERE id = %s AND playlist_id = %s",
-                               [item_id, playlist_id])).rowcount > 0
+async def remove_from_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, item_id : UUID) -> bool:
+    """False when your playlist has no such item. The item, its playlist and you must all match: an item of another
+    playlist, or of someone else's, is not removed."""
+    return (await conn.execute(
+        """DELETE FROM playlist_items i USING playlists pl
+            WHERE i.id = %s AND i.playlist_id = %s AND pl.id = i.playlist_id AND pl.user_id = %s""",
+        [item_id, playlist_id, user_id])).rowcount > 0
 
 
 # ---------- taking turns (BUG-6) ----------
@@ -219,15 +234,22 @@ async def remove_from_playlist(conn: AsyncConnection, playlist_id : UUID, item_i
 # scripts (a lock in Python holds in one process only), and it is released when the transaction commits. Whoever comes
 # next reads the positions as the one before left them.
 
-async def _lock_playlist(conn: AsyncConnection, playlist_id: UUID) -> None:
-    """This playlist's turn: a second add or move in it waits here until the first has committed. Per playlist, so
-    work on different playlists never waits. Before any read of its positions."""
-    await conn.execute("SELECT 1 FROM playlists WHERE id = %s FOR UPDATE", [playlist_id])
+class NoSuchPlaylist(Exception):
+    """You have no playlist with this id: it never existed, was deleted, or is someone else's (the endpoint's 404)."""
 
-async def _lock_playlist_list(conn: AsyncConnection) -> None:
-    """The list of playlists' turn (create, move). It has no row of its own to lock, so a named lock for the list
-    (6001, a number nothing else uses). With accounts, each user's own row becomes the lock."""
-    await conn.execute("SELECT pg_advisory_xact_lock(6001)")
+async def _lock_playlist(conn: AsyncConnection, user_id: UUID, playlist_id: UUID) -> None:
+    """This playlist's turn: a second add or move in it waits here until the first has committed. Per playlist, so
+    work on different playlists never waits. Before any read of its positions. It also checks the playlist is yours:
+    the lock is the first thing every add and move does, and without the check a song could be added to a friend's
+    playlist (it exists, so the database would accept it)."""
+    if (await conn.execute("SELECT 1 FROM playlists WHERE id = %s AND user_id = %s FOR UPDATE",
+                           [playlist_id, user_id])).rowcount == 0:
+        raise NoSuchPlaylist(playlist_id)
+
+async def _lock_playlist_list(conn: AsyncConnection, user_id: UUID) -> None:
+    """Your list of playlists' turn (create, move). It has no row of its own to lock, so a named lock: 6001 (a number
+    nothing else uses) with your id's hash, so one person's reordering never waits for another's."""
+    await conn.execute("SELECT pg_advisory_xact_lock(6001, hashtext(%s::text))", [user_id])
 
 
 class NotInList(Exception):
@@ -236,17 +258,19 @@ class NotInList(Exception):
 class BadMove(ValueError):
     """Neighbours in the wrong order, or a row named as its own neighbour (the endpoint's 422)."""
 
-async def move_item(conn: AsyncConnection, playlist_id : UUID, item_id : UUID,
+async def move_item(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, item_id : UUID,
                     top_id : UUID | None, bottom_id : UUID | None) -> None:
-    """Moves one song of a playlist to between two of its songs. One row changes (the whole playlist only when it
-    held a tie: see `_move`)."""
-    await _lock_playlist(conn, playlist_id)
+    """Moves one song of your playlist to between two of its songs. One row changes (the whole playlist only when it
+    held a tie: see `_move`). NoSuchPlaylist when it is not yours."""
+    await _lock_playlist(conn, user_id, playlist_id)
     await _move(conn, "playlist_items", "playlist_id = %s", [playlist_id], item_id, top_id, bottom_id)
 
-async def move_playlist(conn: AsyncConnection, playlist_id : UUID, top_id : UUID | None, bottom_id : UUID | None) -> None:
-    """Moves one playlist to between two others in your list. One row changes (all of them only after a tie)."""
-    await _lock_playlist_list(conn)
-    await _move(conn, "playlists", "TRUE", [], playlist_id, top_id, bottom_id)
+async def move_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, top_id : UUID | None,
+                        bottom_id : UUID | None) -> None:
+    """Moves one of your playlists to between two others in your list. One row changes (all of them only after a tie).
+    Your list only: someone else's playlist, as the one moved or as a neighbour, is NotInList."""
+    await _lock_playlist_list(conn, user_id)
+    await _move(conn, "playlists", "user_id = %s", [user_id], playlist_id, top_id, bottom_id)
 
 async def _move(conn: AsyncConnection, table: str, where: str, args: list, row_id: UUID,
                 top_id: UUID | None, bottom_id: UUID | None) -> None:

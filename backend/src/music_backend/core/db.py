@@ -5,6 +5,7 @@ connection (slow: a handshake every time) for every request.
 """
 from pathlib import Path
 
+from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
@@ -22,7 +23,20 @@ def make_pool(url: str) -> AsyncConnectionPool:
                                min_size = 1, max_size = 8, max_idle = 60)
 
 
+async def needs_auth3(conn: AsyncConnection) -> bool:
+    """A database from before accounts: its likes table exists but has no owner column. schema.sql only creates what is
+    missing, so it cannot change those tables: scripts/migrate_auth3.py does, once."""
+    row = await (await conn.execute(
+        """SELECT to_regclass('likes') IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                   WHERE table_name = 'likes' AND column_name = 'user_id') AS needs""")).fetchone()
+    return row["needs"]
+
+
 async def apply_schema(pool: AsyncConnectionPool) -> None:
     """Create any missing tables. Every statement is IF NOT EXISTS, so this is safe on every start."""
     async with pool.connection() as conn:
+        if await needs_auth3(conn):
+            raise RuntimeError("This database is from before accounts. Run once, then start again:  "
+                               "cd ~/projects/music/backend && uv run python scripts/migrate_auth3.py --username <you>")
         await conn.execute(SCHEMA.read_text())
