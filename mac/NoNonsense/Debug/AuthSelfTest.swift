@@ -215,4 +215,94 @@ extension SelfTest {
         return descendants(of: frame).contains { $0 is NSSecureTextField }
     }
 }
+
+/// With `NN_SELFTEST_GENIUS=1`: Genius notes (experimental, 8 Oct) on made-up lyrics and notes, as if the server had
+/// answered (no Genius, no search: it runs anywhere). Which line each note lands on; the underlined lines; a real click
+/// on one opens its note (and does not play from it); About This Song is offered. Your settings are put back.
+extension SelfTest {
+    private static var startedGenius = false
+
+    static func runGeniusCheckIfAsked(player: Player, lyrics: LyricsStore) {
+        guard ProcessInfo.processInfo.environment["NN_SELFTEST_GENIUS"] != nil, !startedGenius else { return }
+        startedGenius = true
+        Task {
+            var failures = 0
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+                if !ok { failures += 1 }
+                report("genius \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
+            }
+            let lines = ["First made-up line of this song", "nothing to say about this one", "Don’t stop the made-up music",
+                         "oh oh", "the last made-up line"].enumerated().map { LyricLine(startMs: $0.offset * 4000 + 1000, text: $0.element) }
+            let notes = GeniusNotes(url: "https://genius.example/made-up", notes: [
+                GeniusNote(fragment: "first made-up line of this song", text: "A made-up note on the first line.", verified: true),
+                GeniusNote(fragment: "DONT stop the made up music\nand a line that is not here", text: "A note across two lines.", verified: false),
+                GeniusNote(fragment: "oh oh", text: "Too short to place.", verified: false),
+            ], about: GeniusAbout(description: "A song made up for this test.", producedBy: ["Alex"], samples: []))
+            let placed = notes.byLine(lines)
+            check("each note lands on its line: case, accents, apostrophes and punctuation ignored; short ones nowhere",
+                  placed.keys.sorted() == [0, 2], "\(placed.keys.sorted())")
+
+            borrowDefaults(["geniusNotes", "nowPlayingPanel"])
+            UserDefaults.standard.set(true, forKey: "geniusNotes")
+            UserDefaults.standard.set(NowPlayingPanel.lyrics.rawValue, forKey: "nowPlayingPanel")
+            if !player.isMuted { player.toggleMute() }
+            let listing = Listing(source: "jiosaavn", id: "selftest-genius-\(UInt32.random(in: 0 ... .max))", title: "Made-Up Song",
+                                  artists: ["Kai"], album: nil, duration: 200, popularity: nil, image: nil)
+            let track = Track(best: listing, listings: [listing])
+            lyrics.give(Lyrics(lyricsSource: "lrclib", synced: true, lines: lines), notes: notes, for: track)
+            player.play([track])                                   // a made-up song: it cannot play, and stays the song
+            player.showNowPlaying = true
+            try? await Task.sleep(for: .seconds(2))
+            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+                  let frame = window.contentView?.superview,
+                  let view = descendants(of: frame).compactMap({ $0 as? LyricLinesView }).first else {
+                check("Now Playing shows the lyrics", false); finish(failures); return
+            }
+            check("the lines with a note are underlined (the others not)", view.noted == [0, 2], "\(view.noted.sorted())")
+            check("About This Song is offered", frames["lyrics.about"] != nil)
+
+            NSApp.activate(); window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .seconds(0.5))
+            let before = player.position
+            if let row = frames["lyrics.line.0"], window.isKeyWindow {
+                let p = NSPoint(x: row.minX + 30, y: window.contentView!.frame.height - row.midY)
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    if let event = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                        NSApp.postEvent(event, atStart: false)
+                    }
+                }
+            } else {
+                report("genius: the window cannot become key now: opening line 0's note as its click would")
+                view.openNote(0, .zero)
+            }
+            try? await Task.sleep(for: .seconds(1))
+            let popover = NSApp.windows.contains { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }
+            check("a click on an underlined line opens its note", popover)
+            check("…and does not play from that line", abs(player.position - before) < 0.5,
+                  String(format: "%.1f s → %.1f s", before, player.position))
+            screenshot("genius-note")
+            finish(failures)
+        }
+    }
+
+    private static func finish(_ failures: Int) {
+        returnDefaults()
+        report("genius: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
+        NSApp.terminate(nil)
+    }
+
+    /// A real screenshot (popovers are windows of their own: the self-test pictures cannot draw them). Needs Screen
+    /// Recording; says so without it.
+    private static func screenshot(_ name: String) {
+        guard let folder = ProcessInfo.processInfo.environment["NN_SELFTEST_SNAP"] else { return }
+        let file = URL(filePath: folder).appending(path: "\(name)-screen.png")
+        let shot = Process()
+        shot.executableURL = URL(filePath: "/usr/sbin/screencapture")
+        shot.arguments = ["-x", "-m", file.path]
+        try? shot.run()
+        shot.waitUntilExit()
+        report(FileManager.default.fileExists(atPath: file.path) ? "wrote \(file.path)" : "no screenshot (Screen Recording not allowed?)")
+    }
+}
 #endif

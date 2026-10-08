@@ -123,6 +123,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
         ),
         _slider(context, 'Line movement', s.settings.lyricsMotion, 0.3, 1.5, 'Quick', 'Slow', s.settings.setLyricsMotion),
+        SwitchListTile(
+          value: s.settings.geniusNotes,
+          onChanged: s.settings.setGeniusNotes,
+          title: const Text('Genius notes (experimental)'),
+          subtitle: const Text('Underlined lines open what Genius says about them; ⓘ shows About This Song. One more lookup per song.'),
+        ),
       ]),
     );
   }

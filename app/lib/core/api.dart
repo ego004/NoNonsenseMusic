@@ -205,6 +205,13 @@ class Api {
     return Lyrics(j['lyrics_source'] as String?, j['synced'] as bool,
         [for (final l in j['lines'] as List) LyricLine((l['start_ms'] as num?)?.toInt(), l['text'] as String)]);
   }
+
+  /// Genius notes (experimental, 8 Oct; asked only with Settings › Lyrics › Genius notes on). The main artist alone:
+  /// Genius files a song under one. Throws when the server or Genius cannot be asked (502).
+  static Future<GeniusNotes> genius(Track t) async {
+    final j = await _send('POST', 'genius', {'song_name': t.title, 'artist_name': t.artists.firstOrNull ?? ''});
+    return GeniusNotes.fromJson(j as Map<String, dynamic>);
+  }
 }
 
 // MARK: playlists (MUS-2) and lyrics (MUS-12)
@@ -291,4 +298,69 @@ class ApiError implements Exception {
   ApiError(this.status, this.detail);
   @override
   String toString() => detail ?? 'The server answered $status.';
+}
+
+// ---- Genius notes (experimental, 8 Oct): POST /genius. Notes only, never Genius's lyrics ----
+
+class GeniusNote {
+  final String fragment; // the song's words it is about, as Genius quotes them
+  final String text;
+  final bool verified; // written or confirmed by the artist
+  const GeniusNote(this.fragment, this.text, {this.verified = false});
+}
+
+class GeniusAbout {
+  final String? description;
+  final List<String> producedBy;
+  final List<String> samples;
+  const GeniusAbout(this.description, this.producedBy, this.samples);
+  bool get isEmpty => description == null && producedBy.isEmpty && samples.isEmpty;
+}
+
+class GeniusNotes {
+  final String? url; // the song's page on Genius (the credit); null: Genius has no such song
+  final List<GeniusNote> notes;
+  final GeniusAbout? about;
+  const GeniusNotes(this.url, this.notes, this.about);
+
+  factory GeniusNotes.fromJson(Map<String, dynamic> j) {
+    final a = j['about'] as Map<String, dynamic>?;
+    return GeniusNotes(
+      j['url'] as String?,
+      [for (final n in j['notes'] as List) GeniusNote(n['fragment'] as String, n['text'] as String, verified: n['verified'] == true)],
+      a == null ? null : GeniusAbout(a['description'] as String?, [...(a['produced_by'] as List).cast<String>()], [...(a['samples'] as List).cast<String>()]),
+    );
+  }
+
+  /// Which lyric line each note is about: a line whose words are in the note's fragment, or that holds a line of the
+  /// fragment, case, accents and punctuation ignored. Short pieces (under 8 letters: "oh oh") match nothing, so a note
+  /// never lands on every chorus line by chance. A line takes the first note that fits. The Mac app's rule, the same.
+  Map<int, GeniusNote> byLine(List<LyricLine> lines) {
+    final found = <int, GeniusNote>{};
+    final plainLines = [for (final l in lines) plain(l.text)];
+    for (final note in notes) {
+      final whole = plain(note.fragment);
+      final pieces = note.fragment.split('\n').map(plain).where((p) => p.length >= 8).toList();
+      for (var i = 0; i < plainLines.length; i++) {
+        final line = plainLines[i];
+        if (found.containsKey(i) || line.length < 8) continue;
+        if (whole.contains(line) || pieces.any(line.contains)) found[i] = note;
+      }
+    }
+    return found;
+  }
+
+  static const _accents = {'à': 'a', 'á': 'a', 'â': 'a', 'ä': 'a', 'ã': 'a', 'å': 'a', 'ç': 'c', 'è': 'e', 'é': 'e', 'ê': 'e',
+      'ë': 'e', 'ì': 'i', 'í': 'i', 'î': 'i', 'ï': 'i', 'ñ': 'n', 'ò': 'o', 'ó': 'o', 'ô': 'o', 'ö': 'o', 'õ': 'o',
+      'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u', 'ý': 'y', 'ÿ': 'y'};
+
+  /// Lowercase letters and digits, single spaces: "Don’t—stop!" and "dont stop" read the same.
+  static String plain(String text) {
+    final out = StringBuffer();
+    for (final ch in text.toLowerCase().replaceAll(RegExp("['’]"), '').split('')) {
+      final c = _accents[ch] ?? ch;
+      out.write(RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(c) ? c : ' ');
+    }
+    return out.toString().split(' ').where((w) => w.isNotEmpty).join(' ');
+  }
 }
