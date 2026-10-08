@@ -70,7 +70,8 @@ struct SignInView: View {
             .textFieldStyle(.roundedBorder)
             .font(.title3)
             .disabled(working)
-            .keyframeAnimator(initialValue: 0.0, trigger: shakes) { fields, x in
+            // [reduceMotion]: the animator's closure is Sendable; it takes the value, not the view's main-actor property
+            .keyframeAnimator(initialValue: 0.0, trigger: shakes) { [reduceMotion] fields, x in
                 fields.offset(x: reduceMotion ? 0 : x)
             } keyframes: { _ in
                 KeyframeTrack {
