@@ -76,6 +76,10 @@ class PlaylistMetadata(BaseModel):
     song_count : int
     thumbnail : str | None = None
     duration : int
+    # sharing (AUTH-3): anyone signed in can view a public one; your role says what the app may offer you
+    # (owner: everything; editor: add, remove, reorder songs; viewer: look and play)
+    public : bool = False
+    role : Literal["owner", "editor", "viewer"] = "owner"
 
 class PlaylistsResponse(BaseModel):
     playlists : list[PlaylistMetadata]

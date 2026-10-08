@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS likes (
     -- the key IS the "each person likes a song at most once" rule; led by user_id, it also serves "my likes"
     PRIMARY KEY (user_id, song_id)
 );
+-- Liked Songs: one user's likes, newest first, read in order from the index (no sort)
+CREATE INDEX IF NOT EXISTS likes_user_liked_at_idx ON likes (user_id, liked_at DESC);
 
 
 CREATE TABLE IF NOT EXISTS events (
@@ -135,6 +137,23 @@ CREATE TABLE IF NOT EXISTS playlist_items (
 
 -- "one playlist's items, in order"
 CREATE INDEX IF NOT EXISTS playlist_items_order_idx ON playlist_items (playlist_id, position);
+
+-- sharing (AUTH-3). The owner is playlists.user_id; everyone else's access is a row here. Public: anyone signed in
+-- can view it (with its id, e.g. from a link). Roles: viewer (see, play), editor (also add, remove, reorder songs);
+-- only the owner renames, deletes, changes public, or invites
+ALTER TABLE playlists ADD COLUMN IF NOT EXISTS public boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS playlist_members (
+    playlist_id uuid        NOT NULL REFERENCES playlists (id) ON DELETE CASCADE,
+    user_id     uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    role        text        NOT NULL CHECK (role IN ('viewer', 'editor')),
+    added_at    timestamptz NOT NULL DEFAULT now(),
+    -- one role per person per playlist; led by playlist_id, it also serves "who is in this playlist"
+    PRIMARY KEY (playlist_id, user_id)
+);
+-- "playlists shared with me"
+CREATE INDEX IF NOT EXISTS playlist_members_user_idx ON playlist_members (user_id);
+-- who added each song (a shared playlist shows it); kept when they leave or are deleted: the song stays, unnamed
+ALTER TABLE playlist_items ADD COLUMN IF NOT EXISTS added_by uuid REFERENCES users (id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS listing_urls (
     source     text        NOT NULL,
