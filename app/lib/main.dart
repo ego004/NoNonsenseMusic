@@ -7,6 +7,7 @@ import 'package:flutter_acrylic/flutter_acrylic.dart';
 
 import 'core/api.dart';
 import 'core/auth.dart';
+import 'core/discord.dart';
 import 'core/library.dart';
 import 'core/lyrics.dart';
 import 'core/media_controls.dart';
@@ -35,6 +36,8 @@ Future<void> main() async {
   final player = Player();
   player.currentId.addListener(() => accent.follow(player.current?.image));
   final library = Library()..playlistChanged = player.playlistChanged;
+  await Presence.shared.load(); // Discord status (off by default): follows the player from here
+  Presence.shared.follow(player, library);
   // a session that ends stops the music and empties the library: nothing of one account shows to the next
   final auth = Auth()..onEnded = () { player.stop(); library.clear(); };
   final started = auth.start(); // the stored token, checked with the server: the sign-in screen or the app
