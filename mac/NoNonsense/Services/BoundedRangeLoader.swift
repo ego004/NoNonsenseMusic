@@ -59,7 +59,8 @@ nonisolated final class BoundedRangeLoader: NSObject, AVAssetResourceLoaderDeleg
             var length = queue.sync { lengths[id] }
             if let info = r.contentInformationRequest {
                 // YouTube's links say the length (`clen`); anything else is asked with one tiny range
-                if length == nil { length = try await Self.declaredLength(link) ?? fetch(link, from: 0, to: 0).total }
+                if length == nil { length = Self.declaredLength(link) }
+                if length == nil { length = try await fetch(link, from: 0, to: 0).total }
                 queue.sync { lengths[id] = length }
                 info.contentType = UTType.mpeg4Audio.identifier
                 info.contentLength = Int64(length ?? 0)

@@ -28,9 +28,21 @@ extension SelfTest {
 
             for copy in copies {
                 let name = "\(copy.source == "ytmusic" ? "YouTube " : "JioSaavn") \(copy.title.prefix(18))"
-                // 1. the link, as the app gets it: cold (YouTube: forgotten first; JioSaavn: the server's cache as it is)
+                // 0. what you feel: a click on a song never played this session, through the app's player (link looked up,
+                // then the audio), before anything else here has touched that song or its audio server
                 await YouTubeLookup.shared.forget(copy.id)
                 var t = Date()
+                player.play([Track(best: copy, listings: [copy])])
+                var clickToSound = "   –   "
+                for _ in 0..<400 {
+                    if player.livePosition > 0.05 { clickToSound = ms(t); break }
+                    try? await Task.sleep(for: .milliseconds(10))
+                }
+                player.togglePlayPause()
+                report("latency \(name) | CLICK → SOUND, cold: \(clickToSound)")
+                // 1. the link, as the app gets it: cold (YouTube: forgotten first; JioSaavn: the server's cache as it is)
+                await YouTubeLookup.shared.forget(copy.id)
+                t = Date()
                 guard let url = try? await API.audioURL(copy) else { report("latency \(name): NO LINK"); continue }
                 let cold = ms(t)
                 t = Date()
@@ -79,7 +91,7 @@ extension SelfTest {
         startedLoader = true
         Task { @MainActor in
             var failures = 0
-            func check(_ rule: String, _ ok: Bool, _ got: String = "") {
+            @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
                 if !ok { failures += 1 }
                 report("loader \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
             }
@@ -127,9 +139,12 @@ extension SelfTest {
                 def log_message(self, *a): pass
             http.server.ThreadingHTTPServer(('127.0.0.1', 8798), H).serve_forever()
             """]
+            // its output nowhere: holding the app's output pipe, a server left running kept the test from ever ending
+            // (8 Oct). Stopped before the app quits, below: NSApp.terminate skips a `defer`
+            server.standardOutput = FileHandle.nullDevice
+            server.standardError = FileHandle.nullDevice
             try? server.run()
             try? await Task.sleep(for: .seconds(1))
-            defer { server.terminate() }
 
             let probe = AVPlayer()
             probe.isMuted = true
@@ -159,6 +174,7 @@ extension SelfTest {
             check("every request was a bounded range of at most 1 MB (never open-ended)", !asked.isEmpty && bounded)
             try? FileManager.default.removeItem(at: dir)
             report("loader: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
+            server.terminate(); server.waitUntilExit()
             NSApp.terminate(nil)
         }
     }

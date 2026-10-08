@@ -421,7 +421,10 @@ final class Player {
             guard mine == loads else { return }
             resolving = false
             // YouTube's audio in bounded ranges: open-ended, YouTube sends it at playback speed (TICKETS 0a, 8 Oct)
-            let youtube = url.host()?.hasSuffix("googlevideo.com") == true
+            var youtube = url.host()?.hasSuffix("googlevideo.com") == true
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["NN_NO_LOADER"] != nil { youtube = false }   // the latency test's "before"
+            #endif
             attach(youtube ? AVPlayerItem(asset: BoundedRangeLoader.shared.asset(for: url)) : AVPlayerItem(url: url), for: listing)
         }
     }
