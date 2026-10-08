@@ -78,6 +78,22 @@ final class Account {
         }
     }
 
+    /// Settings › Account › Device Name: renames this Mac on the server, and remembers it for the next sign-in. nil
+    /// when it worked; else why not.
+    func renameDevice(_ name: String) async -> String? {
+        let typed = String(name.trimmingCharacters(in: .whitespaces).prefix(64))
+        guard !typed.isEmpty else { return "A device needs a name." }
+        do {
+            try await API.renameDevice(typed)
+            Self.deviceName = typed
+            return nil
+        } catch let failure as API.Failure {
+            return failure.localizedDescription
+        } catch {
+            return "Can't connect to the server."
+        }
+    }
+
     /// Settings › Sign Out: this Mac's session ends on the server and the token is deleted here. If the server cannot
     /// be reached you are signed out here anyway (the session then ends on its own after 30 days unused).
     func signOut() async {

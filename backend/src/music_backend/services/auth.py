@@ -125,3 +125,7 @@ async def clean_sessions_forever(pool) -> None:
         await asyncio.sleep(settings.session_cleanup_hours * 3600)
         async with pool.connection() as conn:
             await delete_expired_sessions(conn)
+
+async def rename_session(conn: AsyncConnection, token: str, device_name: str) -> None:
+    """Renames the device this token belongs to (the user chooses it at sign-in, and may change it later)."""
+    await conn.execute("UPDATE sessions SET device_name = %s WHERE token_hash = %s", [device_name, hash_token(token)])

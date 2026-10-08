@@ -533,6 +533,8 @@ private struct ServerSettings: View {
     @Environment(LibraryStore.self) private var library
     @Environment(Account.self) private var account
     @State private var signingOut = false
+    @State private var deviceDraft = Account.deviceName      // saved on Return, like the address below
+    @State private var deviceProblem: String?
     @State private var serverOK: Bool?
     // drafts, saved on Return: a field bound to the setting saved whatever it showed, even a test window's
     // launch-argument address, when its window closed (that is how 8765 became your saved address, 7 Oct)
@@ -546,6 +548,14 @@ private struct ServerSettings: View {
                 LabeledContent("Signed in as") {
                     Text(account.user?.username ?? (account.state == .signedIn ? "Your account" : "Not signed in"))
                         .foregroundStyle(.secondary)
+                }
+                // what this Mac is called in your list of devices: chosen at sign-in, changed here
+                TextField("Device Name", text: $deviceDraft)
+                    .onSubmit { Task { deviceProblem = await account.renameDevice(deviceDraft) } }
+                    .onChange(of: deviceDraft) { deviceProblem = nil }
+                    .disabled(account.state != .signedIn)
+                if let deviceProblem {
+                    Text(deviceProblem).foregroundStyle(.red)
                 }
                 Button(signingOut ? "Signing Out…" : "Sign Out") {
                     signingOut = true

@@ -41,6 +41,11 @@ extension SelfTest {
             // signed in
             check("GET /auth/me knows the account", (try? await API.me())?.username == owner.username)
             check("the device name starts as this Mac's name, 1 to 64 characters", (1...64).contains(Account.computerName.count))
+            // renaming this device; your own saved name is put back after (the test app shares your preferences)
+            let savedName = UserDefaults.standard.string(forKey: "deviceName")
+            check("rename this device", await account.renameDevice("Self-test Mac") == nil && Account.deviceName == "Self-test Mac")
+            check("…an empty name is refused here, before the server", await account.renameDevice("  ") != nil)
+            UserDefaults.standard.set(savedName, forKey: "deviceName")
             await library.refresh()
             check("a new account starts with an empty library", library.liked.isEmpty && library.recent.isEmpty && library.playlists.isEmpty)
             try? await Task.sleep(for: .seconds(1))

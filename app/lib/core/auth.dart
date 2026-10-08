@@ -111,6 +111,22 @@ class Auth extends ChangeNotifier {
 
   /// Settings › Sign Out: this device's session ends on the server, and the token is deleted here. If the server
   /// cannot be reached, you are signed out here anyway (the session then ends on its own after 30 days unused).
+  /// Settings › Account › Device Name: renames this device on the server. null when it worked; else why not. The
+  /// caller remembers the name (Settings.setDeviceName) for the next sign-in.
+  Future<String?> renameDevice(String name) async {
+    var typed = name.trim();
+    if (typed.isEmpty) return 'A device needs a name.';
+    if (typed.length > 64) typed = typed.substring(0, 64);
+    try {
+      await Api.renameDevice(typed);
+      return null;
+    } on ApiError catch (e) {
+      return e.toString();
+    } catch (_) {
+      return "Can't connect to the server.";
+    }
+  }
+
   Future<void> signOut() async {
     try {
       await Api.signOut();

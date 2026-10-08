@@ -88,4 +88,10 @@ void main() {
     expect(jsonEncode([for (final p in library.playlists) p.id]), jsonEncode([id]), reason: "the owner's stays");
     await library.deletePlaylist(id);
   }, skip: skip, timeout: const Timeout(Duration(minutes: 1)));
+
+  test('rename this device: the server takes a name, an empty one is refused before it is sent', () async {
+    await signUpTestAccount();
+    expect(await Auth(store: MemoryTokenStore()).renameDevice('Test phone'), isNull);
+    expect(await Auth(store: MemoryTokenStore()).renameDevice('   '), 'A device needs a name.');
+  }, skip: skip);
 }

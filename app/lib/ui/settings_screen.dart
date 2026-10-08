@@ -14,12 +14,16 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   TextEditingController? _field;
+  TextEditingController? _deviceField;
+  String? _deviceProblem;
   // made once: a new one on every dependency change lost what you were typing
   TextEditingController get _server => _field ??= TextEditingController(text: Scope.of(context).settings.server);
+  TextEditingController get _device => _deviceField ??= TextEditingController(text: Scope.of(context).settings.deviceName);
 
   @override
   void dispose() {
     _field?.dispose();
+    _deviceField?.dispose();
     super.dispose();
   }
 
@@ -38,6 +42,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // this device only: your other devices stay signed in
           OutlinedButton(onPressed: s.auth.signOut, child: const Text('Sign Out')),
         ]),
+        const SizedBox(height: 12),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: TextField(
+            controller: _device,
+            // what this device is called in your list of devices: chosen at sign-in, changed here (saved on Enter)
+            decoration: InputDecoration(labelText: 'Device Name', errorText: _deviceProblem),
+            onChanged: (_) { if (_deviceProblem != null) setState(() => _deviceProblem = null); },
+            onSubmitted: (v) async {
+              final problem = await s.auth.renameDevice(v);
+              if (problem == null) await s.settings.setDeviceName(v.trim());
+              if (mounted) setState(() => _deviceProblem = problem);
+            },
+          ),
+        ),
         heading('Server'),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),

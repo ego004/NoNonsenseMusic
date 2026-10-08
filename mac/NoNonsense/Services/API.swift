@@ -233,6 +233,16 @@ enum API {
         try await session("auth/signin", Credentials(username: username, password: password, deviceName: device))
     }
 
+    private struct DeviceBody: Encodable {
+        let deviceName: String
+        enum CodingKeys: String, CodingKey { case deviceName = "device_name" }
+    }
+
+    /// `PATCH /auth/me/device`: renames this device (the session the token belongs to) in your list of devices.
+    static func renameDevice(_ name: String) async throws {
+        try await sendNoContent("PATCH", path: "auth/me/device", body: DeviceBody(deviceName: name))
+    }
+
     private static func session(_ path: String, _ body: Credentials) async throws -> SessionReply {
         var request = URLRequest(url: baseURL.appending(path: path), timeoutInterval: 20)
         request.httpMethod = "POST"

@@ -93,6 +93,9 @@ class Api {
   /// Ends this device's session on the server (other devices stay signed in).
   static Future<void> signOut() => _send('POST', 'auth/signout', const {});
 
+  /// Renames this device (the session the token belongs to) in your list of devices.
+  static Future<void> renameDevice(String name) => _send('PATCH', 'auth/me/device', {'device_name': name});
+
   static Future<List<Track>> search(String q) async {
     final j = await _get('search', {'q': q}) as Map<String, dynamic>;
     return (j['songs'] as List).map((s) => Track.fromSong(s as Map<String, dynamic>)).toList();

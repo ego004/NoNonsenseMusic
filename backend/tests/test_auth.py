@@ -175,3 +175,16 @@ def test_expired_sessions_are_deleted_at_startup_and_live_ones_kept(monkeypatch)
         assert sql("SELECT 1 FROM sessions WHERE token_hash = %s", [gone_hash]) == []
         assert len(sql("SELECT 1 FROM sessions WHERE token_hash = %s", [kept_hash])) == 1
     assert app.state.session_cleanup.done()                      # and stops with the server
+
+
+def test_a_device_renames_its_own_session_only(client):
+    name = new_username()
+    phone = sign_up(client, name)["token"]
+    laptop = sign_in(client, name).json()["token"]
+    assert client.patch("/auth/me/device", json={"device_name": "Kai's phone"}, headers=bearer(phone)).status_code == 204
+    names = dict(sql("SELECT token_hash, device_name FROM sessions WHERE token_hash = ANY(%s)",
+                     [[hashlib.sha256(t.encode()).digest() for t in (phone, laptop)]]))
+    assert names[hashlib.sha256(phone.encode()).digest()] == "Kai's phone"
+    assert names[hashlib.sha256(laptop.encode()).digest()] == "Unknown Device"
+    assert client.patch("/auth/me/device", json={"device_name": ""}, headers=bearer(phone)).status_code == 422
+    assert client.patch("/auth/me/device", json={"device_name": "x"}, headers={"Authorization": ""}).status_code == 401

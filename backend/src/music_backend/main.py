@@ -16,7 +16,7 @@ from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Li
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
                                   LyricsRequest, LyricsResponse, Session, SignInRequest, SignUpRequest, User,
-                                  PlaylistUpdate, ShareRequest)
+                                  PlaylistUpdate, ShareRequest, DeviceNameRequest)
 from music_backend.core.settings import settings
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
@@ -335,6 +335,15 @@ async def signin(body: SignInRequest, request: Request) -> Session:
 async def me(user: Signed) -> User:
     """Who this token belongs to: the app's "am I still signed in?"."""
     return user
+
+
+@app.patch("/auth/me/device", status_code=204)
+async def rename_device(body: DeviceNameRequest, request: Request, user: Signed,
+                        authorization: str | None = Header(default=None)) -> None:
+    """Renames THIS device (the session the token belongs to). current_user has already checked the token."""
+    token = (authorization or "").partition(" ")[2]
+    async with request.app.state.pool.connection() as conn:
+        await auth.rename_session(conn, token, body.device_name.strip() or "Unknown Device")
 
 
 @app.post("/auth/signout", status_code=204)

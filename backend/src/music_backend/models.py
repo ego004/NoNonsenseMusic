@@ -159,6 +159,10 @@ class User(BaseModel):
     id : UUID
     username : str
 
+class DeviceNameRequest(BaseModel):
+    """PATCH /auth/me/device: what this device is called in your list of devices."""
+    device_name : str = Field(min_length=1, max_length=DEVICE_NAME_MAX)
+
 class Session(BaseModel):
     """The reply to sign-up and sign-in: the only time the token itself is sent."""
     token : str
