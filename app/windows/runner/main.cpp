@@ -27,7 +27,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1180, 760);   // the Mac app's default window
-  if (!window.Create(L"nononsense", origin, size)) {
+  if (!window.Create(L"NoNonsenseMusic", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

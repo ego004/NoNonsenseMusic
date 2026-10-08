@@ -7,7 +7,7 @@ import SwiftUI
 /// clicks the second row, then quits. Lets layout and click problems be checked without screen recording permission
 /// (the app draws its own window; nothing else on screen is captured).
 ///
-///     NN_SELFTEST=/tmp/nn mac/build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense
+///     NN_SELFTEST=/tmp/nn mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic
 enum SelfTest {
     private static var started = false
     /// Any NN_SELFTEST… variable set: the window shows a "Self-test" label, so it cannot pass for your app.

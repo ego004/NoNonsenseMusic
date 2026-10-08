@@ -402,7 +402,7 @@ What changed, from profiles (`sample`):
 ## Debug/SelfTest.swift
 
 ### `SelfTest` (debug builds only)
-- **Run:** `NN_SELFTEST=<folder> mac/build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense`
+- **Run:** `NN_SELFTEST=<folder> mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic`
 - **Does:** draws the window into `<folder>/window.png` and `after-click.png`. Prints which view a click on each sidebar row reaches. Clicks the second row, prints the selection before and after, then quits.
 - **Why:** checks layout and clicks without screen-recording permission. The app draws only its own window.
 - **Limit:** glass (the sidebar, glass buttons) draws as blank in the PNG.
@@ -450,13 +450,13 @@ What changed, from profiles (`sample`):
 Self-test windows share your settings file. Tests that touch a setting (shuffle, the Now Playing layout) put it back before quitting; checked 6 Oct: shuffle, repeat, nowPlayingPanel, textScale and cardSize all still unset after every scenario.
 
 ### Playback scenario (`NN_SELFTEST_PLAY=1`)
-- **Run:** `NN_SELFTEST_PLAY=1 DATABASE_URL=postgresql:///music_test mac/build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense -serverURL http://127.0.0.1:8765`. The launch argument overrides the server address for this run only; the app starts a test server there, on `music_test`, so your library stays clean.
+- **Run:** `NN_SELFTEST_PLAY=1 DATABASE_URL=postgresql:///music_test mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic -serverURL http://127.0.0.1:8765`. The launch argument overrides the server address for this run only; the app starts a test server there, on `music_test`, so your library stays clean.
 - **Does:** plays a song whose only copy fails, then a song whose best copy fails but whose second works. Prints the player every second for 10 s, then quits. At 2 s it also prints `centre: … off by N pt`: how far ⏮ ▶ ⏭ sit from the bar's centre (0 expected).
 - **Check:** `~/Library/Logs/NoNonsense/server.log` shows the `serve_fresh` retry for song 1, the background `serve_fresh` for song 2's bad copy, and a 307 for its good copy.
 
 ### Search scenario (`NN_SELFTEST_SEARCH="<query>"`)
 - Also checks recent searches: the rules (newest first, capitals, at most 12, remove), then plays the first result as a double-click does and checks the search became recent. Your list is put back after.
-- **Run:** `NN_SELFTEST_SEARCH="arijit" DATABASE_URL=postgresql:///music_test mac/build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense -serverURL http://127.0.0.1:8765`
+- **Run:** `NN_SELFTEST_SEARCH="arijit" DATABASE_URL=postgresql:///music_test mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic -serverURL http://127.0.0.1:8765`
 - **Does:** types the query into the search bar one letter every 120 ms, samples every 50 ms until 3 s after the last letter, then quits. One real search goes out (the debounce cancels the partial ones). It reads what SearchView decides to draw (`SelfTest.noResultsShowing`, set in debug builds), not the screen: the accessibility tree came back empty without a screen reader attached.
 - **Check:** `"No Results" showed in 0 of N samples` and a result count above 0. Before the 6 Oct fix: 16 of 72.
 

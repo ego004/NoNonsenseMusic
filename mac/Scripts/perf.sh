@@ -13,10 +13,10 @@ busy=$(lsof -nP -tiTCP:$port -sTCP:LISTEN 2>/dev/null | head -1)
 if [ -n "$busy" ]; then echo "REFUSING: something already listens on $port (pid $busy, $(ps -o comm= -p $busy | xargs basename)). Quit it first; it may be your app's server."; exit 1; fi
 log=${TMPDIR:-/tmp}/nononsense-perf.log; : > $log
 env ${PHASES:+NN_SELFTEST_PERF_PHASES=$PHASES} ${MOTION:+NN_FORCE_MOTION=1} NN_SELFTEST_PERF="${SONG:-Les Childish Gambino}" NN_SELFTEST_PERF_HOLD=12 \
-  DATABASE_URL=postgresql:///music_test perl -e 'alarm 300; exec @ARGV' build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense \
+  DATABASE_URL=postgresql:///music_test perl -e 'alarm 300; exec @ARGV' build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
   -serverURL http://127.0.0.1:$port -discordEnabled NO -ApplePersistenceIgnoreState YES "$@" > $log 2>&1 &
 for i in $(seq 1 90); do grep -q "perf: phase" $log && break; sleep 1; done
-pid=$(pgrep -nx NoNonsense); seen=0
+pid=$(pgrep -nx NoNonsenseMusic); seen=0
 while true; do
   n=$(grep -c "perf: phase" $log); if grep -q "perf: done\|refusing\|needed" $log && [ $n -le $seen ]; then break; fi
   if [ $n -gt $seen ]; then

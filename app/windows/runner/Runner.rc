@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "dev.nononsense" "\0"
-            VALUE "FileDescription", "nononsense" "\0"
+            VALUE "FileDescription", "NoNonsenseMusic" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "nononsense" "\0"
+            VALUE "InternalName", "NoNonsenseMusic" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 dev.nononsense. All rights reserved." "\0"
-            VALUE "OriginalFilename", "nononsense.exe" "\0"
-            VALUE "ProductName", "nononsense" "\0"
+            VALUE "OriginalFilename", "NoNonsenseMusic.exe" "\0"
+            VALUE "ProductName", "NoNonsenseMusic" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -41,6 +41,10 @@ jobs:
           grep -E "error:" release.log | sort -u | head -40
           grep -E "\*\* BUILD" release.log
           grep -q "BUILD SUCCEEDED" release.log
+          # the names macOS shows (menu bar and About: CFBundleName; Finder and Dock: the bundle's file name)
+          app=build/Build/Products/Release/NoNonsenseMusic.app
+          echo "$app: CFBundleName=$(/usr/libexec/PlistBuddy -c 'Print CFBundleName' $app/Contents/Info.plist)," \
+               "CFBundleDisplayName=$(/usr/libexec/PlistBuddy -c 'Print CFBundleDisplayName' $app/Contents/Info.plist)"
       - name: Test database (PostgreSQL 18, music_test) and the server's packages
         run: |
           brew install postgresql@18 uv
@@ -53,7 +57,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/snaps"
           env NN_SELFTEST_AUTH=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
-            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
             -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
             -discordEnabled NO -ApplePersistenceIgnoreState YES > selftest.log 2>&1 || true
           grep SELFTEST selftest.log

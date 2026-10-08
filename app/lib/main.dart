@@ -95,7 +95,7 @@ class NoNonsenseApp extends StatelessWidget {
         child: ValueListenableBuilder<Color?>(
           valueListenable: accent,
           builder: (context, song, _) => ListenableBuilder(listenable: settings, builder: (context, _) => MaterialApp(
-            title: 'NoNonsense',
+            title: 'NoNonsenseMusic',
             debugShowCheckedModeBanner: false,
             theme: buildTheme(Brightness.light, song),
             darkTheme: buildTheme(Brightness.dark, song),
