@@ -42,7 +42,7 @@ struct NoNonsenseApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("NoNonsense") {
+        WindowGroup("NoNonsenseMusic") {
             AccountGate {
                 RootView()
                     #if DEBUG

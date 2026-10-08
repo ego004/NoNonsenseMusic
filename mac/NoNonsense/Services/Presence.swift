@@ -213,7 +213,7 @@ final class Presence {
 
     /// Settings' "Send a test status": the last song, or a sample, so the setup can be checked without playing anything.
     func sendTest() {
-        let sample = lastTrack ?? Track(best: Listing(source: "jiosaavn", id: "test", title: "Test from NoNonsense", artists: ["NoNonsense"],
+        let sample = lastTrack ?? Track(best: Listing(source: "jiosaavn", id: "test", title: "Test from NoNonsenseMusic", artists: ["NoNonsenseMusic"],
                                                       album: nil, duration: 200, popularity: nil, image: nil), listings: [])
         send(activity(for: sample, isPlaying: true, position: 0, playlist: lastPlaylist), title: sample.title)
     }
@@ -226,7 +226,7 @@ final class Presence {
             case "message":
                 let text = pausedMessage.trimmingCharacters(in: .whitespaces)
                 return .init(details: text.isEmpty ? "Nothing playing" : text, state: nil,
-                             image: shareLogo ? Self.logoAsset : nil, imageText: shareLogo ? "NoNonsense" : nil,
+                             image: shareLogo ? Self.logoAsset : nil, imageText: shareLogo ? "NoNonsenseMusic" : nil,
                              smallImage: nil, smallText: nil,
                              start: nil, end: nil, statusLine: 2)       // the member list shows your message
             default: break                                           // "keep": the song below, without the time bar
@@ -241,9 +241,9 @@ final class Presence {
         return .init(details: shareSong ? track.title : nil,
                      state: [byLine, from].compactMap { $0 }.joined(separator: " · ").nilIfEmpty,
                      image: cover ?? (shareLogo ? Self.logoAsset : nil),            // no cover: the logo is the picture
-                     imageText: cover != nil ? track.best.album : (shareLogo ? "NoNonsense" : nil),
+                     imageText: cover != nil ? track.best.album : (shareLogo ? "NoNonsenseMusic" : nil),
                      smallImage: badge ? Self.logoAsset : nil,
-                     smallText: badge ? "NoNonsense" : nil,
+                     smallText: badge ? "NoNonsenseMusic" : nil,
                      start: timed ? start : nil,
                      end: timed ? start + track.duration : nil,
                      statusLine: statusLine)

@@ -424,7 +424,7 @@ private struct DiscordSettings: View {
                 Toggle("The song", isOn: $presence.shareSong)
                 Toggle("The artist", isOn: $presence.shareArtist)
                 Toggle("The cover", isOn: $presence.shareArt)
-                Toggle("The NoNonsense logo", isOn: $presence.shareLogo)
+                Toggle("The NoNonsenseMusic logo", isOn: $presence.shareLogo)
                 Toggle(isOn: $presence.sharePlaylist) {
                     Text("The playlist's name")
                     Text("Adds “from Gym” after the artist when a song plays from a playlist").foregroundStyle(.secondary)

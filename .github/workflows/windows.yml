@@ -1,5 +1,5 @@
 # The Windows app: built and tested on a real Windows machine on every push that touches app/ (a Windows app can only
-# be built on Windows). The zip under "Artifacts" on the run's page is the app: unzip, run nononsense.exe.
+# be built on Windows). The zip under "Artifacts" on the run's page is the app: unzip, run NoNonsenseMusic.exe.
 name: Windows app
 
 on:
@@ -26,5 +26,5 @@ jobs:
       - run: flutter build windows --release
       - uses: actions/upload-artifact@v4
         with:
-          name: NoNonsense-windows
+          name: NoNonsenseMusic-windows
           path: app/build/windows/x64/runner/Release/

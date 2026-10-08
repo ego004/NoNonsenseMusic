@@ -18,7 +18,7 @@ targets:
     info:
       path: NoNonsense/Info.plist
       properties:
-        CFBundleDisplayName: NoNonsense
+        CFBundleDisplayName: NoNonsenseMusic
         LSApplicationCategoryType: public.app-category.music
         # nononsense://playlist/<id> opens a playlist here (a shared link; the server's /p/<id> page hands over to it)
         CFBundleURLTypes:
@@ -30,6 +30,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.nononsense.music
+        # the name in the menu bar, the Dock, About and Finder (8 Oct). The bundle id, the preferences domain and the
+        # Keychain item stay app.nononsense.music: your settings and session carry over
+        PRODUCT_NAME: NoNonsenseMusic
         # no sandbox: the app must reach Discord's local socket and your local server
         ENABLE_APP_SANDBOX: NO
         ENABLE_HARDENED_RUNTIME: NO

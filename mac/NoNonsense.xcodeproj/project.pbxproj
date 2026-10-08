@@ -366,6 +366,7 @@
 				MARKETING_VERSION = 0.1;
 				NN_URL_SCHEME = "nononsense-debug";
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music;
+				PRODUCT_NAME = NoNonsenseMusic;
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -453,6 +454,7 @@
 				MARKETING_VERSION = 0.1;
 				NN_URL_SCHEME = nononsense;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music;
+				PRODUCT_NAME = NoNonsenseMusic;
 				SDKROOT = macosx;
 			};
 			name = Release;

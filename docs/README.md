@@ -74,7 +74,7 @@ flowchart LR
    ```bash
    cd ~/projects/music/mac
    xcodebuild -project NoNonsense.xcodeproj -scheme NoNonsense -configuration Release -derivedDataPath build build 2>&1 | grep -E "error:|BUILD"
-   open build/Build/Products/Release/NoNonsense.app
+   open build/Build/Products/Release/NoNonsenseMusic.app
    ```
    (or open `mac/NoNonsense.xcodeproj` in Xcode and press ⌘R for a Debug run)
 5. The database needs PostgreSQL 18: `schema.sql` uses `uuidv7()`, which older versions do not have.

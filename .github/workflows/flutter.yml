@@ -27,7 +27,7 @@ jobs:
       - run: flutter test integration_test/secure_store_test.dart -d macos
       - uses: actions/upload-artifact@v4
         with:
-          name: NoNonsense-macos
+          name: NoNonsenseMusic-macos
           path: app/build/macos/Build/Products/Release/
 
   android:
@@ -51,5 +51,5 @@ jobs:
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
-          name: NoNonsense-android
+          name: NoNonsenseMusic-android
           path: app/build/app/outputs/flutter-apk/app-release.apk

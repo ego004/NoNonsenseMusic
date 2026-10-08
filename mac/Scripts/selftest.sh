@@ -19,7 +19,7 @@ out=$(xcodebuild -project NoNonsense.xcodeproj -scheme NoNonsense -configuration
 if ! print -r -- "$out" | grep -q "BUILD SUCCEEDED"; then print -r -- "$out" | grep -E "error:" | head -8; echo "BUILD FAILED"; exit 1; fi
 echo "BUILD SUCCEEDED"
 env "$@" NN_SELFTEST_SNAP=$snaps DATABASE_URL=postgresql:///music_test \
-  perl -e 'alarm shift; exec @ARGV' 180 $dd/Build/Products/Debug/NoNonsense.app/Contents/MacOS/NoNonsense \
+  perl -e 'alarm shift; exec @ARGV' 180 $dd/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
   -serverURL http://127.0.0.1:$port -discordEnabled NO -ApplePersistenceIgnoreState YES 2>/dev/null | grep "SELFTEST"
 rc=${pipestatus[1]}
 leftover=$(lsof -nP -iTCP:$port -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $2}' | sort -u; ps -axo pid,command | grep -E "[f]astapi (dev|run).*--port $port" | awk '{print $1}')
