@@ -117,7 +117,7 @@ class _TimedState extends State<_Timed> {
     }
     final view = _scroll.position.viewportDimension;
     final target = (line.clamp(0, widget.lyrics.lines.length) * lineHeight - view / 2 + lineHeight / 2).clamp(0.0, _scroll.position.maxScrollExtent);
-    jump ? _scroll.jumpTo(target) : _scroll.animateTo(target, duration: const Duration(milliseconds: 600), curve: Curves.easeInOut);
+    jump ? _scroll.jumpTo(target) : _scroll.animateTo(target, duration: Duration(milliseconds: (Scope.of(context).settings.lyricsMotion * 1000).round()), curve: Curves.easeInOut);
   }
 
   @override

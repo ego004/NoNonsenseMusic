@@ -50,7 +50,8 @@ Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress 
 **Apps**
 - ✅ Mac: the big "Liked Songs" title and the toolbar's small title overlapped → the toolbar title appears only once the big one has scrolled under it (`scrollTitle`; self-test checks it)
 - ✅ Mac: a faint sign-in screen behind the library: it was a self-test window behind yours (you, 8 Oct)
-- ☐ Flutter: Settings with everything the Mac app has (appearance, text size, lyrics, Discord, footprint…), not only account, server and playback
+- ◐ Flutter: Settings with everything the Mac app has → ✅ Appearance (theme, text size), Lyrics (when to fetch, line movement), Server status; ☐ Discord (the feature itself is missing in Flutter: Rich Presence over Discord's local pipe/socket), ☐ Footprint (CPU and memory), ☐ card size. Trackpad and the glass controls are Mac only
+- ✅ Flutter Mac build: a YouTube song showed twice its length (Apple's player misreads YouTube's AAC); capped at the listed length + 1 s, and ends there, as on the Mac
 - ✅ Both apps: the server's address set on the sign-in screen ("Server: …", a click to change), and changed later in Settings › Server
 - ☐ Flutter: every Mac fix of 8 Oct, checked one by one, and the app run for real
 - ✅ Discord: the application id built in, no field to fill (public by design; Discord's record shows only the name, no owner)
@@ -62,7 +63,7 @@ Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress 
 - ☐ Deploy on Render (your choice, 8 Oct)
 - ❓ Keychain prompt on every build (ad-hoc signing): A, a certificate made on this Mac, or B, the token in a file only your account reads
 - ☐ Footprint at 11%: measure it with you, not a priority (you, 8 Oct)
-- ☐ Public playlists open by **link** (your choice, 8 Oct)
+- ☐ Public playlists open by **link** (your choice, 8 Oct). How: each app registers a URL scheme, `nononsense://playlist/<id>` (Mac: Info.plist `CFBundleURLTypes`; Windows: a registry key the installer writes; Android: an intent filter), and the server serves `https://<server>/p/<id>`, a tiny page that opens that link (and says "get the app" when nothing opens it). Share… gets "Copy Link"
 - ✅ Members list: `GET /playlists/{id}/members`; the share sheet lists people, the owner removes them, members see it under People… (both apps)
 
 **Server, then deploy on the web**

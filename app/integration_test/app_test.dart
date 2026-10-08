@@ -17,6 +17,7 @@ import 'package:nononsense/core/models.dart';
 import 'package:nononsense/core/settings.dart';
 import 'package:nononsense/core/player.dart';
 import 'package:nononsense/main.dart';
+import 'package:nononsense/ui/settings_screen.dart';
 import 'package:nononsense/ui/song_row.dart';
 
 final shot = GlobalKey();
@@ -156,18 +157,31 @@ void main() {
     await until(tester, () => player.position > 3, seconds: 20);
     expect(player.position, greaterThan(3), reason: 'a YouTube song plays in the app');
     expect(player.current?.title, 'Blinding Lights', reason: 'the YouTube copy itself, not a fallback song');
+    expect(player.duration, inInclusiveRange(195, 201), reason: 'its length as listed (200 s), not the doubled one Apple reports');
     player.togglePlayPause();
 
     // Settings, from the sidebar's bottom item: its sections are on screen, inside the window (8 Oct: "couldn't see")
     await tester.tap(find.text('Settings').last);
     await tester.pumpAndSettle();
     final window = tester.getRect(find.byKey(shot));
-    for (final label in ['Account', 'Device Name', 'Server']) {
+    final settingsList = find.descendant(of: find.byType(SettingsScreen), matching: find.byType(Scrollable)).first;
+    // every section the Mac app has that applies here (8 Oct), each scrolled to and on screen
+    for (final label in ['Account', 'Device Name', 'Server', 'Connected', 'Appearance', 'Text size', 'Playback', 'Lyrics', 'Line movement']) {
       final found = find.text(label);
-      expect(found, findsWidgets, reason: '"$label" in Settings');
+      await tester.scrollUntilVisible(found.first, 120, scrollable: settingsList);
+      await tester.pumpAndSettle();
       final r = tester.getRect(found.first);
       expect(window.contains(r.center), isTrue, reason: '"$label" at $r, inside the window $window');
     }
+    // dark, and larger text: the whole app follows at once
+    await settings.setTheme(ThemeMode.dark);
+    await settings.setTextScale(1.25);
+    await tester.pumpAndSettle();
+    expect(Theme.of(tester.element(find.text('Lyrics').first)).brightness, Brightness.dark);
+    expect(MediaQuery.textScalerOf(tester.element(find.text('Lyrics').first)).scale(10), closeTo(12.5, 0.01));
+    await tester.scrollUntilVisible(find.text('Account'), -300, scrollable: settingsList);
     await snap(tester, 'settings');
+    await settings.setTheme(ThemeMode.system);
+    await settings.setTextScale(1);
   });
 }

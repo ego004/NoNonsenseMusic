@@ -15,15 +15,20 @@ class LyricsStore extends ChangeNotifier {
   bool isLoading(Track t) => _asking.contains(t.id);
 
   Player? _following;
+  /// Settings › Lyrics: asked for when a song starts (true, the default) or only when the panel opens.
+  static bool early = true;
 
-  /// Asks for each song's lyrics as it starts, as the Mac app does by default: asked only when the panel opened, it
+  /// Asks for each song's lyrics (and the next one's) as it starts, as the Mac app does by default: asked only when the panel opened, it
   /// showed "Finding lyrics…" first (8 Oct). One request per song; the server answers repeats from its cache.
   void follow(Player player) {
     if (identical(_following, player)) return;
     _following = player;
     player.currentId.addListener(() {
+      if (!early) return;
       final t = player.current;
       if (t != null) fetch(t);
+      final next = player.queue.upNext.firstOrNull; // and the next song's, as the Mac app does
+      if (next != null) fetch(next);
     });
   }
 

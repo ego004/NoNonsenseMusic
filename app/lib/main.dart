@@ -94,13 +94,19 @@ class NoNonsenseApp extends StatelessWidget {
         // the accent follows the playing cover: the theme is rebuilt once per song, never per second
         child: ValueListenableBuilder<Color?>(
           valueListenable: accent,
-          builder: (context, song, _) => MaterialApp(
+          builder: (context, song, _) => ListenableBuilder(listenable: settings, builder: (context, _) => MaterialApp(
             title: 'NoNonsense',
             debugShowCheckedModeBanner: false,
             theme: buildTheme(Brightness.light, song),
             darkTheme: buildTheme(Brightness.dark, song),
             home: AuthGate(auth: auth, settings: settings, signedIn: (_) => const Shell()),
-          ),
+            // Settings › Appearance: light, dark or the system's; and the size of all text
+            themeMode: settings.theme,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(settings.textScale)),
+              child: child!,
+            ),
+          )),
         ),
       );
   }

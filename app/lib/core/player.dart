@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io' show Platform;
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart' as ja;
@@ -62,9 +64,15 @@ class Player extends ChangeNotifier {
 
   Track? get current => queue.current;
   double get position => _audio.position.inMilliseconds / 1000;
+  /// The playing copy's length: its audio's, but never past its listed length + 1 s. Apple's player reports YouTube's
+  /// AAC files at about twice their length (Blinding Lights, 3:20, showed 6:42 left, 8 Oct), as the Mac app found on
+  /// 7 Oct; the listing's length is the song's.
   double get duration {
-    final d = (_audio.duration?.inMilliseconds ?? 0) / 1000;
-    return d > 0 ? d : (current?.duration.toDouble() ?? 0);
+    final audio = (_audio.duration?.inMilliseconds ?? 0) / 1000;
+    final t = current;
+    final listed = t == null ? 0.0 : t.listings[_copy.clamp(0, t.listings.length - 1)].duration.toDouble();
+    if (audio <= 0) return listed;
+    return listed > 0 ? math.min(audio, listed + 1) : audio;
   }
 
 
@@ -217,7 +225,14 @@ class Player extends ChangeNotifier {
       // the audio's own address, asked with the token; the player never sees the token (Api.audioUrl)
       final url = await Api.audioUrl(l, fresh: fresh);
       if (mine != _loads) return; // replaced while asking
-      await _audio.setUrl(url);
+      if (Platform.isMacOS || Platform.isIOS) {
+        // Apple's player: the song ends at its listed length + 1 s, as in the Mac app (a misread length played on in
+        // silence there); the clip is AVPlayer's own end time, nothing measured per second
+        await _audio.setAudioSource(ja.ClippingAudioSource(
+            child: ja.AudioSource.uri(Uri.parse(url)), end: l.duration > 0 ? Duration(seconds: l.duration + 1) : null));
+      } else {
+        await _audio.setUrl(url);
+      }
       if (mine == _loads) _audio.play();
     } catch (e) {
       // why a copy did not load (on the Mac preview, YouTube copies fail with -1 "unknown error": TICKETS WIN)
