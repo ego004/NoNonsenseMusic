@@ -122,6 +122,7 @@ extension NoNonsenseApp {
         SelfTest.runAuthCheckIfAsked(account: account, library: library, player: player)
         SelfTest.runFullScreenCheckIfAsked()
         SelfTest.runYouTubeCheckIfAsked(player: player)
+        SelfTest.runLatencyCheckIfAsked(player: player)
     }
 }
 #endif
