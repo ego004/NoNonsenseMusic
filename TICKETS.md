@@ -364,6 +364,14 @@ From the same audit. The server idles at ~0.2% of a core (uvicorn's own 10-a-sec
 
 ---
 
+## AUTH · Accounts (release 1), planning notes (8 Oct)
+
+Decided so far: `user_id` on likes, events and playlists (Jam and shared playlists cross users); sign-up with a username and password, then sign in; playlists shareable later; Jam: everyone controls, joined via a friend list or a link. To decide: forgotten passwords (you reset, or recovery codes); open sign-up or invite codes; release 1 without live control.
+
+Rate limiting, after auth: per account and session (several devices, or a household, share one IP); per IP only for sign-in attempts, where there is no session yet.
+
+---
+
 ## MUS-15 · Links that survive an IP change
 
 **Problem:** songs often take seconds to start, even cached ones. Measured 7 Oct in your library: 24 cached YouTube links were made for **5 different IP addresses**; 14 were valid by time, but only 7 for your current IP. YouTube ties each link to the IP that fetched it, and the cache checks only `expire=`, so it hands out links for an old IP: they fail, the app asks `serve_fresh`, and the song starts after a failed try plus a fresh lookup (~2 s). Your log has 65 such retries.
