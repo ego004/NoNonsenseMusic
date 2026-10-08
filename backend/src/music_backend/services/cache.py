@@ -6,8 +6,8 @@ import time
 
 from psycopg.types.json import Jsonb
 
-from music_backend.services import lyrics
-from music_backend.models import LyricsRequest, LyricsResponse
+from music_backend.services import genius, lyrics
+from music_backend.models import GeniusRequest, GeniusResponse, LyricsRequest, LyricsResponse
 from music_backend.core.settings import settings
 from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable
 
@@ -285,6 +285,43 @@ class LyricsCache:
                        reply = EXCLUDED.reply, fetched_at = now()""",
                 [*key(song), Jsonb(reply.model_dump())],
             )
+
+
+class GeniusCache:
+    """Genius notes per song, in the genius table, for everyone: asked once, then again after
+    settings.genius_recheck_days. Single-flight as the others. A failure (Genius unreachable) is never kept.
+
+    Call it:   reply = await genius_cache(song)        # GeniusUnavailable when Genius cannot be asked
+    """
+
+    def __init__(self, pool):
+        self.pool = pool
+        self.running: dict[tuple, asyncio.Task] = {}
+
+    async def __call__(self, song: GeniusRequest) -> GeniusResponse:
+        reply = await self.get(song)
+        if reply is None:
+            key = (song.song_name, song.artist_name)
+            reply = await asyncio.shield(single_flight(self.running, key, lambda: self._lookup(song)))
+        return reply
+
+    async def _lookup(self, song: GeniusRequest) -> GeniusResponse:
+        reply = await genius.find_notes(song)
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                """INSERT INTO genius (song_name, artist_name, reply) VALUES (%s, %s, %s)
+                   ON CONFLICT (song_name, artist_name) DO UPDATE SET reply = EXCLUDED.reply, fetched_at = now()""",
+                [song.song_name, song.artist_name, Jsonb(reply.model_dump())])
+        return reply
+
+    async def get(self, song: GeniusRequest) -> GeniusResponse | None:
+        async with self.pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT reply, fetched_at FROM genius WHERE song_name = %s AND artist_name = %s",
+                [song.song_name, song.artist_name])).fetchone()
+        if row is None or datetime.now(timezone.utc) > row["fetched_at"] + timedelta(days=settings.genius_recheck_days):
+            return None
+        return GeniusResponse.model_validate(row["reply"])
 
 
 def key(song: LyricsRequest) -> tuple[str, str, int, str]:

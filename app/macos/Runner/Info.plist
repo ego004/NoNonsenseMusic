@@ -34,5 +34,19 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!-- nononsense://playlist/<id> opens a playlist here (a shared link: the server's /p/<id> page hands over to it) -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.nononsense.links</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- not nononsense: on a Mac that is the Swift app's (the one released); macOS picks any app claiming a
+				     scheme, so this preview build answers its own (8 Oct) -->
+				<string>nononsense-flutter</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -269,3 +269,50 @@ func formatTime(_ seconds: Double) -> String {
     let s = Int(seconds.rounded(.down))
     return String(format: "%d:%02d", s / 60, s % 60)
 }
+
+// ---- Genius notes (experimental, 8 Oct): POST /genius. Notes only, never Genius's lyrics ----
+
+nonisolated struct GeniusNote: Codable, Hashable, Sendable {
+    let fragment: String         // the song's words it is about, as Genius quotes them
+    let text: String
+    let verified: Bool           // written or confirmed by the artist
+}
+
+nonisolated struct GeniusAbout: Codable, Hashable, Sendable {
+    let description: String?
+    let producedBy: [String]
+    let samples: [String]
+    enum CodingKeys: String, CodingKey { case description, samples; case producedBy = "produced_by" }
+
+    var isEmpty: Bool { description == nil && producedBy.isEmpty && samples.isEmpty }
+}
+
+nonisolated struct GeniusNotes: Codable, Hashable, Sendable {
+    let url: String?             // the song's page on Genius (the credit); nil: Genius has no such song
+    let notes: [GeniusNote]
+    let about: GeniusAbout?
+
+    /// Which lyric line each note is about: a line whose words are in the note's fragment, or that holds a line of
+    /// the fragment, case, accents and punctuation ignored. Short pieces (under 8 letters: "oh oh") match nothing,
+    /// so a note never lands on every chorus line by chance. A line takes the first note that fits it.
+    func byLine(_ lines: [LyricLine]) -> [Int: GeniusNote] {
+        var found: [Int: GeniusNote] = [:]
+        let plainLines = lines.map { Self.plain($0.text) }
+        for note in notes {
+            let whole = Self.plain(note.fragment)
+            let pieces = note.fragment.split(whereSeparator: \.isNewline).map { Self.plain(String($0)) }.filter { $0.count >= 8 }
+            for (i, line) in plainLines.enumerated() where found[i] == nil && line.count >= 8 {
+                if whole.contains(line) || pieces.contains(where: { line.contains($0) }) { found[i] = note }
+            }
+        }
+        return found
+    }
+
+    /// Lowercase letters and digits, single spaces: "Don't—stop!" and "dont stop" read the same.
+    static func plain(_ text: String) -> String {
+        let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "\u{2019}", with: "")   // don't, don’t: dont
+        let kept = folded.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? Character($0) : " " }
+        return String(kept).split(separator: " ").joined(separator: " ")
+    }
+}

@@ -121,6 +121,7 @@ extension NoNonsenseApp {
         SelfTest.runSlowPlayCheckIfAsked(player: player)
         SelfTest.runAuthCheckIfAsked(account: account, library: library, player: player)
         SelfTest.runFullScreenCheckIfAsked()
+        SelfTest.runGeniusCheckIfAsked(player: player, lyrics: lyrics)
         SelfTest.runYouTubeCheckIfAsked(player: player)
         SelfTest.runLatencyCheckIfAsked(player: player)
         SelfTest.runLoaderCheckIfAsked()

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../core/api.dart';
+import '../core/discord.dart';
 import '../core/settings.dart';
 import 'scope.dart';
 
@@ -123,6 +124,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
         ),
         _slider(context, 'Line movement', s.settings.lyricsMotion, 0.3, 1.5, 'Quick', 'Slow', s.settings.setLyricsMotion),
+        SwitchListTile(
+          value: s.settings.geniusNotes,
+          onChanged: s.settings.setGeniusNotes,
+          title: const Text('Genius notes (experimental)'),
+          subtitle: const Text('Underlined lines open what Genius says about them; ⓘ shows About This Song. One more lookup per song.'),
+        ),
+        heading('Discord'),
+        const _DiscordSettings(),
       ]),
     );
   }
@@ -168,4 +177,65 @@ class _SlideState extends State<_Slide> {
           if (mounted) setState(() => _dragging = null);
         },
       );
+}
+
+
+/// Discord status (8 Oct), as the Mac app's Settings › Discord: what is shared, and how it shows. Off by default.
+class _DiscordSettings extends StatelessWidget {
+  const _DiscordSettings();
+  @override
+  Widget build(BuildContext context) {
+    final d = Presence.shared;
+    return ListenableBuilder(listenable: d, builder: (context, _) {
+      Widget share(String label, String key, bool value, void Function(bool) assign) =>
+          SwitchListTile(value: value, onChanged: d.enabled ? (v) => d.set(key, v, () => assign(v)) : null, title: Text(label));
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SwitchListTile(value: d.enabled, onChanged: d.setEnabled, title: const Text('Show what I play on Discord'), subtitle: Text(d.status)),
+        share('The song', 'discordShareSong', d.shareSong, (v) => d.shareSong = v),
+        share('The artist', 'discordShareArtist', d.shareArtist, (v) => d.shareArtist = v),
+        share('The cover', 'discordShareArt', d.shareArt, (v) => d.shareArt = v),
+        share('The time bar', 'discordShareTime', d.shareTime, (v) => d.shareTime = v),
+        share('The NoNonsenseMusic logo', 'discordShareLogo', d.shareLogo, (v) => d.shareLogo = v),
+        share('The playlist it plays from', 'discordSharePlaylist', d.sharePlaylist, (v) => d.sharePlaylist = v),
+        ListTile(
+          title: const Text('In the member list'),
+          trailing: DropdownButton<int>(
+            value: d.statusLine,
+            onChanged: d.enabled ? (v) { if (v != null) d.set('discordStatusLine', v, () => d.statusLine = v); } : null,
+            items: const [
+              DropdownMenuItem(value: 2, child: Text('The song')),
+              DropdownMenuItem(value: 1, child: Text('The artist')),
+              DropdownMenuItem(value: 0, child: Text('NoNonsenseMusic')),
+            ],
+          ),
+        ),
+        ListTile(
+          title: const Text('When paused'),
+          trailing: DropdownButton<String>(
+            value: d.whenPaused,
+            onChanged: d.enabled ? (v) { if (v != null) d.set('discordWhenPaused', v, () => d.whenPaused = v); } : null,
+            items: const [
+              DropdownMenuItem(value: 'message', child: Text('Show my message')),
+              DropdownMenuItem(value: 'keep', child: Text('Keep the song')),
+              DropdownMenuItem(value: 'clear', child: Text('Show nothing')),
+            ],
+          ),
+        ),
+        if (d.whenPaused == 'message')
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextFormField(
+              initialValue: d.pausedMessage,
+              enabled: d.enabled,
+              decoration: const InputDecoration(labelText: 'Message'),
+              onFieldSubmitted: (v) => d.set('discordPausedMessage', v, () => d.pausedMessage = v),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: OutlinedButton(onPressed: d.enabled ? d.sendTest : null, child: const Text('Send a Test Status')),
+        ),
+      ]);
+    });
+  }
 }

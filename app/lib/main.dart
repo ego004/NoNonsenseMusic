@@ -7,7 +7,9 @@ import 'package:flutter_acrylic/flutter_acrylic.dart';
 
 import 'core/api.dart';
 import 'core/auth.dart';
+import 'core/discord.dart';
 import 'core/library.dart';
+import 'core/links.dart';
 import 'core/lyrics.dart';
 import 'core/media_controls.dart';
 import 'core/player.dart';
@@ -26,6 +28,7 @@ final accent = Accent();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  PlaylistLinks.start(); // early: the link that opened the app is not missed
   final settings = Settings();
   await settings.load();
   if (Platform.isWindows) {
@@ -35,6 +38,8 @@ Future<void> main() async {
   final player = Player();
   player.currentId.addListener(() => accent.follow(player.current?.image));
   final library = Library()..playlistChanged = player.playlistChanged;
+  await Presence.shared.load(); // Discord status (off by default): follows the player from here
+  Presence.shared.follow(player, library);
   // a session that ends stops the music and empties the library: nothing of one account shows to the next
   final auth = Auth()..onEnded = () { player.stop(); library.clear(); };
   final started = auth.start(); // the stored token, checked with the server: the sign-in screen or the app

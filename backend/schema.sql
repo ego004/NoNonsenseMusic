@@ -180,3 +180,14 @@ CREATE TABLE IF NOT EXISTS lyrics (
     fetched_at    timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (song_name, artist_name, song_duration, youtube_id)
 );
+
+
+-- Genius notes (experimental, 8 Oct): one reply per song as the app asks for it (GeniusCache in cache.py), for every
+-- user. Asked again after GENIUS_RECHECK_DAYS: people keep adding notes. Notes only: Genius's lyrics are never kept.
+CREATE TABLE IF NOT EXISTS genius (
+    song_name   text        NOT NULL,
+    artist_name text        NOT NULL,
+    reply       jsonb       NOT NULL,                -- the GeniusResponse, exactly as the app gets it
+    fetched_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (song_name, artist_name)
+);
