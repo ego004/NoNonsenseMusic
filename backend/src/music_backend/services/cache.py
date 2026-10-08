@@ -1,4 +1,4 @@
-from collections import OrderedDict
+from collections import deque, OrderedDict
 from datetime import datetime, timedelta, timezone
 import asyncio
 import logging
@@ -53,7 +53,11 @@ class ListingURLCache:
         self.blocked_until: dict[str, float] = {}   # source -> Unix time before which we do not ask it
         self.strikes: dict[str, int] = {}           # source -> blocking episodes in a row; each one doubles the pause
         # MUS-1 step 3, prefetch: (source, source_id) pairs waiting for a worker; a new list replaces what waits
-        self.prefetch_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+        # what each user's app said comes next, by user, in the order they arrived: workers take one listing from the
+        # user at the front, then send that user to the back, so two people's prefetches take turns (AUTH-3: one shared
+        # queue let anyone's new list wipe out everyone else's)
+        self.waiting: dict[object, deque[tuple[str, str]]] = {}
+        self._something_waits = asyncio.Event()
 
     async def _db_hit(self, source: str, song_id: str) -> None:
         # the table's own "recently used" mark: the trim in _set_db drops the oldest hit_at first
@@ -191,19 +195,32 @@ class ListingURLCache:
             url = await self._get_db(source, song_id)
         return url is not None and not self.sources[source].is_expired(url)
 
-    def prefetch(self, listings) -> None:
-        """The newest list of listings coming next: replaces whatever still waits (lookups already running finish)."""
-        while not self.prefetch_queue.empty():
-            self.prefetch_queue.get_nowait()
-        for listing in listings:
-            self.prefetch_queue.put_nowait((listing.source, listing.source_id))   # each put wakes one free worker
+    def prefetch(self, user_id, listings) -> None:
+        """This user's newest list of what comes next: replaces what still waits FOR THEM (lookups already running
+        finish), and puts them at the back of the line. Other users' lists are untouched."""
+        self.waiting.pop(user_id, None)
+        if listings:
+            self.waiting[user_id] = deque((listing.source, listing.source_id) for listing in listings)
+            self._something_waits.set()                                  # wakes the free workers
+
+    def _next_waiting(self) -> tuple[str, str]:
+        """One listing from the user at the front; that user goes to the back (or leaves, when their list is done)."""
+        user_id, listings = next(iter(self.waiting.items()))
+        listing = listings.popleft()
+        del self.waiting[user_id]
+        if listings:
+            self.waiting[user_id] = listings
+        return listing
 
     async def prefetch_worker(self) -> None:
         """One prefetch worker (main.py's lifespan starts several): forever, take the next waiting listing and look
         it up, unless it is cached or already being looked up. One lookup at a time per worker, so N workers mean
         at most N prefetch lookups at once: yt-dlp shares its threads with your clicks."""
         while True:
-            source, song_id = await self.prefetch_queue.get()           # free: asleep here until a list arrives
+            while not self.waiting:                                      # free: asleep here until a list arrives
+                self._something_waits.clear()
+                await self._something_waits.wait()
+            source, song_id = self._next_waiting()
             try:
                 if (source, song_id) in self.running or await self._has_fresh(source, song_id):
                     continue                                             # running (it fills the cache anyway) or cached

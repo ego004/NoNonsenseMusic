@@ -70,6 +70,24 @@ class SongRef(BaseModel):
 class PlaylistRequest(BaseModel):
     name : str = Field(min_length=1)
 
+# AUTH-1: the limits, in one place. schema.sql's CHECK on users.username repeats the 3 and 32 as a last guard
+USERNAME_MIN, USERNAME_MAX = 3, 32
+PASSWORD_MIN = 8
+# a maximum too: Argon2 hashes any length, slowly, so a 10 MB "password" per sign-up would burn the server's CPU.
+# 64 is the least NIST asks a service to allow
+PASSWORD_MAX = 64
+DEVICE_NAME_MAX = 64
+
+class PlaylistUpdate(BaseModel):
+    """PATCH /playlists/{id}: change the name, the public flag, or both (the owner only). Missing = unchanged."""
+    name : str | None = Field(default=None, min_length=1)
+    public : bool | None = None
+
+class ShareRequest(BaseModel):
+    """PUT /playlists/{id}/members: invite someone by username, or change their role."""
+    username : str = Field(max_length=USERNAME_MAX)
+    role : Literal["viewer", "editor"]
+
 class PlaylistMetadata(BaseModel):
     id : UUID
     name : str
@@ -122,13 +140,6 @@ class LyricsResponse(BaseModel):
     synced : bool
     lines : list[LyricLine]
 
-# AUTH-1: the limits, in one place. schema.sql's CHECK on users.username repeats the 3 and 32 as a last guard
-USERNAME_MIN, USERNAME_MAX = 3, 32
-PASSWORD_MIN = 8
-# a maximum too: Argon2 hashes any length, slowly, so a 10 MB "password" per sign-up would burn the server's CPU.
-# 64 is the least NIST asks a service to allow
-PASSWORD_MAX = 64
-DEVICE_NAME_MAX = 64
 
 class SignUpRequest(BaseModel):
     username : str = Field(min_length=USERNAME_MIN, max_length=USERNAME_MAX)

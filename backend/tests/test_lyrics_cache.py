@@ -12,6 +12,7 @@ from music_backend.services.cache import LyricsCache
 from music_backend.services.lyrics import LyricsNotFound
 from music_backend.models import LyricLine, LyricsRequest, LyricsResponse
 from music_backend.core.settings import settings
+from conftest import sign_up
 
 TEST_URL = "postgresql:///music_test"
 
@@ -180,6 +181,7 @@ def test_post_lyrics_twice_asks_the_sources_once(monkeypatch):
     from music_backend.main import app
     body = {"song_name": f"cache-test-{uuid4().hex[:8]}", "artist_name": "Artist", "song_duration": 200}
     with TestClient(app) as client:
+        sign_up(client)
         first = client.post("/lyrics", json=body)
         second = client.post("/lyrics", json=body)
         assert first.status_code == second.status_code == 200
