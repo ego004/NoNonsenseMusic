@@ -642,17 +642,27 @@ struct WindowSurface<Wash: View>: View {
     @ViewBuilder var wash: () -> Wash
 
     var body: some View {
+        // full screen: solid. A full-screen Space has no desktop behind the window, so see-through showed black (8 Oct)
+        let fullScreen = WindowMode.shared.fullScreen
         ZStack {
             ClearWindow()                                   // the window itself see-through, so the blur can be thinned
-            WindowBlur(amount: windowBlur)
+            if !fullScreen { WindowBlur(amount: windowBlur) }
             ZStack {
                 Color(nsColor: .windowBackgroundColor)
                 wash()
             }
-            .opacity(max(windowOpacity, Look.minWindowOpacity))   // a value saved before the floor existed may be lower
+            .opacity(fullScreen ? 1 : max(windowOpacity, Look.minWindowOpacity))   // a value saved before the floor existed may be lower
         }
         .ignoresSafeArea()
     }
+}
+
+/// Whether the main window is in full screen, for what must differ there (WindowSurface, the toolbar's background).
+/// Set by ClearWindow from its window's own notifications: it changes twice per full screen, so reading it costs nothing.
+@Observable
+final class WindowMode {
+    static let shared = WindowMode()
+    var fullScreen = false
 }
 
 extension WindowSurface where Wash == EmptyView {
@@ -686,16 +696,37 @@ struct ClearWindow: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {}
 
     final class Finder: NSView {
+        private var observers: [NSObjectProtocol] = []
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
             guard let window else { return }
-            window.isOpaque = false
-            window.backgroundColor = .clear
+            // full screen: the window opaque, in its own colour. A full-screen Space has no desktop behind the window:
+            // every see-through pixel showed black, the toolbar's strip most of all (8 Oct). Switched as full screen
+            // begins and back once it has ended, so neither animation shows black either
+            let changes: [(Notification.Name, Bool)] = [(NSWindow.willEnterFullScreenNotification, true),
+                                                        (NSWindow.didFailToEnterFullScreenNotification, false),
+                                                        (NSWindow.didExitFullScreenNotification, false)]
+            observers = changes.map { name, full in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.show(fullScreen: full) }
+                }
+            }
+            show(fullScreen: window.styleMask.contains(.fullScreen))
             // No "restore windows" snapshots: AppKit kept compressing (zlib) and encrypting an image of the window to
             // disk, the biggest steady CPU cost while playing (profiled 7 Oct). Its size and place are still kept,
             // by frame autosave (a few numbers in the app's settings).
             window.isRestorable = false
             window.setFrameAutosaveName("NoNonsense main window")
+        }
+
+        private func show(fullScreen: Bool) {
+            guard let window else { return }
+            window.isOpaque = fullScreen
+            window.backgroundColor = fullScreen ? .windowBackgroundColor : .clear
+            if WindowMode.shared.fullScreen != fullScreen { WindowMode.shared.fullScreen = fullScreen }
         }
     }
 }

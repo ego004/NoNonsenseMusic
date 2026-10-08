@@ -75,8 +75,10 @@ struct RootView: View {
                 // playing a song changes the wash's colour, never how see-through the window is
                 WindowSurface { IsolatedBackdrop(track: player.current, strength: artStrength, underNowPlaying: true) }
             }
-            // see-through title bar: the backdrop shows under it, and lists fade softly as they scroll beneath it
-            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+            // see-through title bar: the backdrop shows under it, and lists fade softly as they scroll beneath it. In
+            // full screen macOS draws the toolbar in a window of its own, over nothing: it gets its own background
+            // there, as in Apple's apps (black before, 8 Oct)
+            .toolbarBackgroundVisibility(WindowMode.shared.fullScreen ? .visible : .hidden, for: .windowToolbar)
             // Now Playing covers the window: the toolbar (the sidebar button, the title) went on showing over it, and
             // its buttons answered clicks that did nothing there. The traffic lights stay
             .toolbarVisibility(player.showNowPlaying && player.current != nil ? .hidden : .visible, for: .windowToolbar)
