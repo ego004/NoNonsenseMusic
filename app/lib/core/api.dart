@@ -8,33 +8,90 @@ import 'models.dart';
 class Api {
   /// `--dart-define=SERVER=http://…` for another server; your Mac's by default.
   static String base = const String.fromEnvironment('SERVER', defaultValue: 'http://127.0.0.1:8000');
-  static final _client = http.Client(); // one kept connection, not one per request
+  /// One kept connection, not one per request. Replaceable in tests (a MockClient).
+  static http.Client client = http.Client();
+
+  /// The signed-in session's token (AUTH-1, set by Auth), sent on every request as `Authorization: Bearer …`.
+  static String? token;
+
+  /// Called when the server answers 401 to a request that carried the current token: the session ended (it expired,
+  /// or you signed out on another device). Auth drops the token and shows the sign-in screen.
+  static void Function()? onSignedOut;
 
   static Uri _u(String path, [Map<String, String>? q]) => Uri.parse('$base/$path').replace(queryParameters: q);
 
+  static Map<String, String> _auth(String? t) => t == null ? const {} : {'authorization': 'Bearer $t'};
+
   static Future<dynamic> _get(String path, [Map<String, String>? q]) async {
-    final r = await _client.get(_u(path, q)).timeout(const Duration(seconds: 20));
-    if (r.statusCode != 200) throw ApiError(r.statusCode, _detail(r));
+    final sent = token;
+    final r = await client.get(_u(path, q), headers: _auth(sent)).timeout(const Duration(seconds: 20));
+    if (r.statusCode != 200) _fail(r, sent);
     return jsonDecode(utf8.decode(r.bodyBytes));
   }
 
   static Future<dynamic> _send(String method, String path, Object body) async {
+    final sent = token;
     final req = http.Request(method, _u(path))
       ..headers['content-type'] = 'application/json'
+      ..headers.addAll(_auth(sent))
       ..body = jsonEncode(body);
-    final r = await http.Response.fromStream(await _client.send(req).timeout(const Duration(seconds: 20)));
-    if (r.statusCode >= 300) throw ApiError(r.statusCode, _detail(r));
+    final r = await http.Response.fromStream(await client.send(req).timeout(const Duration(seconds: 20)));
+    if (r.statusCode >= 300) _fail(r, sent);
     return r.body.isEmpty ? null : jsonDecode(utf8.decode(r.bodyBytes));
   }
 
-  static String? _detail(http.Response r) {
+  /// Throws the server's answer as an ApiError. A 401 to a request sent with the token still in use means the session
+  /// ended: Auth is told. Only then: an older request answering 401 after you signed in again must not sign you out.
+  static Never _fail(http.Response r, String? sent) {
+    if (r.statusCode == 401 && sent != null && sent == token) onSignedOut?.call();
+    throw ApiError(r.statusCode, _detail(r.body));
+  }
+
+  /// The server's own words, written to be shown. A 422 lists what was wrong with each field:
+  /// `[{"loc": ["body", "password"], "msg": "String should have at least 8 characters"}]` →
+  /// "Password should have at least 8 characters".
+  static String? _detail(String body) {
     try {
-      final d = jsonDecode(r.body)['detail'];
-      return d is String ? d : null;
+      final d = jsonDecode(body)['detail'];
+      if (d is String) return d;
+      if (d is List && d.isNotEmpty && d.first is Map) {
+        final first = d.first as Map;
+        final loc = first['loc'];
+        final field = loc is List && loc.isNotEmpty ? '${loc.last}' : '';
+        final name = field.isEmpty ? '' : '${field[0].toUpperCase()}${field.substring(1).replaceAll('_', ' ')}';
+        final msg = '${first['msg'] ?? ''}';
+        if (name.isEmpty) return msg;
+        return msg.startsWith('String should') ? '$name ${msg.substring('String '.length)}' : '$name: $msg';
+      }
+      return null;
     } catch (_) {
       return null;
     }
   }
+
+  // MARK: accounts (AUTH-1). Sign-up and sign-in send no token; their 401 means "wrong username or password", not a
+  // session that ended
+
+  static Future<(String token, AuthUser user)> signUp(String username, String password, String device) =>
+      _session('auth/signup', username, password, device);
+  static Future<(String token, AuthUser user)> signIn(String username, String password, String device) =>
+      _session('auth/signin', username, password, device);
+
+  static Future<(String, AuthUser)> _session(String path, String username, String password, String device) async {
+    final r = await client
+        .post(_u(path), headers: const {'content-type': 'application/json'},
+            body: jsonEncode({'username': username, 'password': password, 'device_name': device}))
+        .timeout(const Duration(seconds: 20));
+    if (r.statusCode != 200 && r.statusCode != 201) throw ApiError(r.statusCode, _detail(r.body));
+    final j = jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
+    return (j['token'] as String, AuthUser.fromJson(j['user'] as Map<String, dynamic>));
+  }
+
+  /// Who the stored token belongs to: the launch check. 401 (through onSignedOut): sign in again.
+  static Future<AuthUser> me() async => AuthUser.fromJson(await _get('auth/me') as Map<String, dynamic>);
+
+  /// Ends this device's session on the server (other devices stay signed in).
+  static Future<void> signOut() => _send('POST', 'auth/signout', const {});
 
   static Future<List<Track>> search(String q) async {
     final j = await _get('search', {'q': q}) as Map<String, dynamic>;
@@ -49,22 +106,38 @@ class Api {
   /// True only for a 200 within 3 s.
   static Future<bool> health() async {
     try {
-      return (await _client.get(_u('health')).timeout(const Duration(seconds: 3))).statusCode == 200;
+      return (await client.get(_u('health')).timeout(const Duration(seconds: 3))).statusCode == 200;
     } catch (_) {
       return false;
     }
   }
 
-  /// The address the player opens: the server answers with a redirect to the audio. `fresh`: the cached link failed.
+  /// The server's address for a copy: it answers with a redirect to the audio. `fresh`: the cached link failed.
   static String playUrl(Listing l, {bool fresh = false}) =>
       '$base/play/${l.source}/${Uri.encodeComponent(l.id)}${fresh ? '?serve_fresh=true' : ''}';
+
+  /// The audio's own address, for the player. /play needs the token; the player is never given it: an HTTP stack that
+  /// follows the redirect may carry `Authorization` on to the audio host (YouTube, JioSaavn). So the app asks /play
+  /// itself, does not follow the redirect, and hands the player the `Location` (handoff 3.2, 8 Oct). The same two
+  /// requests as before: following the redirect was two already.
+  static Future<String> audioUrl(Listing l, {bool fresh = false}) async {
+    final sent = token;
+    final req = http.Request('GET', Uri.parse(playUrl(l, fresh: fresh)))
+      ..followRedirects = false
+      ..headers.addAll(_auth(sent));
+    final r = await http.Response.fromStream(await client.send(req).timeout(const Duration(seconds: 20)));
+    final to = r.headers['location'];
+    if (r.statusCode >= 300 && r.statusCode < 400 && to != null) return Uri.parse(playUrl(l)).resolve(to).toString();
+    _fail(r, sent);
+  }
 
   static Future<String> like(List<Listing> listings) async =>
       (await _send('POST', 'liked', {'listings': listings.map((l) => l.toJson()).toList()}))['song_id'] as String;
 
   static Future<void> unlike(String songId) async {
-    final r = await _client.delete(_u('liked/$songId'));
-    if (r.statusCode != 204 && r.statusCode != 404) throw ApiError(r.statusCode, _detail(r));
+    final sent = token;
+    final r = await client.delete(_u('liked/$songId'), headers: _auth(sent));
+    if (r.statusCode != 204 && r.statusCode != 404) _fail(r, sent);
   }
 
   /// type: play | skip | finish; position: seconds into the song.
@@ -83,6 +156,13 @@ class Api {
   static Future<PlaylistDetail> playlist(String id) async => PlaylistDetail.fromJson(await _get('playlists/$id') as Map<String, dynamic>);
   static Future<PlaylistSummary> create(String name) async => PlaylistSummary.fromJson(await _send('POST', 'playlists', {'name': name}));
   static Future<void> rename(String id, String name) => _send('PATCH', 'playlists/$id', {'name': name});
+
+  // sharing (AUTH-3): the owner shares by username, as a viewer or an editor (the same call again changes the role),
+  // and makes a playlist public; a member leaves by removing themselves
+  static Future<void> setPublic(String id, bool public) => _send('PATCH', 'playlists/$id', {'public': public});
+  static Future<void> share(String id, String username, String role) =>
+      _send('PUT', 'playlists/$id/members', {'username': username, 'role': role});
+  static Future<void> removeMember(String id, String userId) => _send('DELETE', 'playlists/$id/members/$userId', const {});
   static Future<void> delete(String id) => _send('DELETE', 'playlists/$id', const {});
   static Future<void> add(List<Listing> listings, String to) =>
       _send('POST', 'playlists/$to/items', {'listings': listings.map((l) => l.toJson()).toList()});
@@ -110,9 +190,26 @@ class Api {
 class PlaylistSummary {
   final String id, name;
   final int songCount, duration;
-  PlaylistSummary(this.id, this.name, this.songCount, this.duration);
-  factory PlaylistSummary.fromJson(Map<String, dynamic> j) =>
-      PlaylistSummary(j['id'] as String, j['name'] as String, (j['song_count'] as num).toInt(), (j['duration'] as num).toInt());
+  /// Anyone signed in can open it by its id (AUTH-3).
+  final bool public;
+  /// Yours: 'owner'. Shared with you: 'editor' (add, remove, reorder) or 'viewer' (look and play).
+  final String role;
+  PlaylistSummary(this.id, this.name, this.songCount, this.duration, {this.public = false, this.role = 'owner'});
+  factory PlaylistSummary.fromJson(Map<String, dynamic> j) => PlaylistSummary(
+      j['id'] as String, j['name'] as String, (j['song_count'] as num).toInt(), (j['duration'] as num).toInt(),
+      public: j['public'] as bool? ?? false, role: j['role'] as String? ?? 'owner');
+
+  bool get isOwner => role == 'owner';
+  /// May change its songs: the owner or an editor. The server refuses the rest (403); the app does not offer it.
+  bool get canEdit => role != 'viewer';
+}
+
+/// Who is signed in.
+class AuthUser {
+  final String id, username;
+  const AuthUser(this.id, this.username);
+  factory AuthUser.fromJson(Map<String, dynamic> j) => AuthUser(j['id'] as String, j['username'] as String);
+  Map<String, String> toJson() => {'id': id, 'username': username};
 }
 
 /// One playlist's rows, in order. `itemId` names a row: a song added twice is two rows.

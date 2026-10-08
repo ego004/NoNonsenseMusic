@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
+import '../core/api.dart';
+
 import 'home.dart';
 import 'scope.dart';
 import 'song_row.dart';
 import 'waiting.dart';
 
-/// One playlist: cover, name, count, Play, Shuffle, ⋯ (Rename, Delete), the songs. Drag a song by its grip to move
-/// it; double-click plays; right-click has Remove from the playlist.
+/// One playlist: cover, name, count, Play, Shuffle, ⋯, the songs. What you may do follows your role (AUTH-3): yours
+/// (owner): rename, share, public, delete, and edit the songs; shared with you as an editor: edit the songs, leave; as
+/// a viewer: play, leave. Drag a song by its grip to move it; double-click plays; right-click has Remove.
 class PlaylistScreen extends StatefulWidget {
   final String id;
   final VoidCallback onDeleted;
@@ -17,8 +20,6 @@ class PlaylistScreen extends StatefulWidget {
 }
 
 class _PlaylistScreenState extends State<PlaylistScreen> {
-  bool gone = false;
-
   // once per opening (the shell gives each playlist its own key), not on every theme or size change
   @override
   void initState() {
@@ -26,16 +27,18 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       Scope.of(context).library.loadPlaylist(widget.id).then((ok) {
-        if (mounted && !ok) setState(() => gone = true);
+        // 404: deleted, or no longer shared with you. It closes (the list has dropped it already)
+        if (mounted && !ok) widget.onDeleted();
       });
     });
   }
+
+  void _say(String text) => ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text)));
 
   @override
   Widget build(BuildContext context) {
     final s = Scope.of(context);
     final theme = Theme.of(context);
-    if (gone) return const Center(child: Text('This playlist is gone. It was deleted, maybe on another device.'));
     return ListenableBuilder(
       listenable: s.library,
       builder: (context, _) {
@@ -44,6 +47,9 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         final tracks = d.tracks;
         final covers = tracks.map((t) => t.image).whereType<String>().toSet().take(4).toList();
         final minutes = (d.items.fold<int>(0, (a, i) => a + i.$2.duration) / 60).round();
+        final p = d.summary;
+        // who you are here, under the title: nothing for your own private playlist
+        final standing = p.isOwner ? (p.public ? 'Public' : null) : 'Shared with you · ${p.canEdit ? 'You can edit' : 'You can view'}';
         return CustomScrollView(slivers: [
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(32, 36, 32, 24),
@@ -56,6 +62,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                     Text('PLAYLIST', style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600)),
                     Text(d.summary.name, maxLines: 2, style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
                     Text('${d.items.length} songs · $minutes min', style: theme.textTheme.bodyMedium),
+                    if (standing != null) Text(standing, style: theme.textTheme.bodySmall),
                     const SizedBox(height: 12),
                     Row(children: [
                       FilledButton.icon(onPressed: tracks.isEmpty ? null : () => s.player.play(tracks, keys: d.keys, source: d.queueSource),
@@ -66,14 +73,43 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       const SizedBox(width: 4),
                       PopupMenuButton<String>(
                         icon: const Icon(FluentIcons.more_horizontal_24_regular),
-                        itemBuilder: (_) => const [PopupMenuItem(value: 'rename', child: Text('Rename…')), PopupMenuItem(value: 'delete', child: Text('Delete…'))],
+                        // only what your role allows: the server refuses the rest (403), so it is not offered
+                        itemBuilder: (_) => p.isOwner
+                            ? [
+                                const PopupMenuItem(value: 'rename', child: Text('Rename…')),
+                                const PopupMenuItem(value: 'share', child: Text('Share…')),
+                                PopupMenuItem(value: 'public', child: Text(p.public ? 'Make Private' : 'Make Public')),
+                                const PopupMenuDivider(),
+                                const PopupMenuItem(value: 'delete', child: Text('Delete…')),
+                              ]
+                            : const [PopupMenuItem(value: 'leave', child: Text('Leave…'))],
                         onSelected: (v) async {
-                          if (v == 'rename') {
-                            final name = await askName(context, title: 'Rename Playlist', initial: d.summary.name);
-                            if (name != null) await s.library.renamePlaylist(d.summary.id, name);
-                          } else if (await confirm(context, 'Delete “${d.summary.name}”?', 'Its songs stay in your library.')) {
-                            await s.library.deletePlaylist(d.summary.id);
-                            widget.onDeleted();
+                          switch (v) {
+                            case 'rename':
+                              final name = await askName(context, title: 'Rename Playlist', initial: p.name);
+                              if (name != null) await s.library.renamePlaylist(p.id, name);
+                            case 'share':
+                              final done = await share(context, p);
+                              if (done != null) _say(done);
+                            case 'public':
+                              final error = await s.library.setPublic(p.id, !p.public);
+                              _say(error ?? (p.public ? '“${p.name}” is private: only the people it is shared with can open it.'
+                                  : '“${p.name}” is public: anyone signed in can open it by its link.'));
+                            case 'delete':
+                              if (await confirm(context, 'Delete “${p.name}”?', 'Its songs stay in your library.')) {
+                                await s.library.deletePlaylist(p.id);
+                                widget.onDeleted();
+                              }
+                            case 'leave':
+                              final me = s.auth.user;
+                              if (me != null && await confirm(context, 'Leave “${p.name}”?', 'It leaves your list. Its owner can share it with you again.', action: 'Leave')) {
+                                final error = await s.library.leave(p.id, me.id);
+                                if (error == null) {
+                                  widget.onDeleted();
+                                } else {
+                                  _say(error);
+                                }
+                              }
                           }
                         },
                       ),
@@ -85,6 +121,18 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
           ),
           if (tracks.isEmpty)
             const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(40), child: Center(child: Text('No songs yet. Right-click any song › Add to Playlist.'))))
+          else if (!p.canEdit)
+            // a viewer: the songs to play, no grips and no Remove (the server would refuse both)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 22, 120),
+              sliver: SliverList.builder(
+                itemCount: d.items.length,
+                itemBuilder: (_, i) => Padding(
+                  padding: const EdgeInsets.only(left: 28),
+                  child: SizedBox(height: 58, child: SongRow(queue: tracks, index: i, keys: d.keys, source: d.queueSource)),
+                ),
+              ),
+            )
           else
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 0, 22, 120),
@@ -128,12 +176,69 @@ Future<String?> askName(BuildContext context, {required String title, String ini
   );
 }
 
-Future<bool> confirm(BuildContext context, String title, String detail) async =>
+Future<bool> confirm(BuildContext context, String title, String detail, {String action = 'Delete'}) async =>
     await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(title: Text(title), content: Text(detail), actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Delete')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(action)),
       ]),
     ) ??
     false;
+
+/// The owner shares a playlist: a username, and what they may do. Done: what to tell you ("Shared with Kai…"); null
+/// if cancelled. The server's reason stays in the sheet ("No account with that username"). Sharing again with the same
+/// person changes their role. There is no list of who it is shared with yet: the server has no route for it (8 Oct).
+Future<String?> share(BuildContext context, PlaylistSummary p) {
+  final library = Scope.of(context).library;
+  final name = TextEditingController();
+  var role = 'viewer';
+  String? error;
+  var busy = false;
+  return showDialog<String>(
+    context: context,
+    builder: (c) => StatefulBuilder(
+      builder: (c, set) {
+        Future<void> go() async {
+          final who = name.text.trim();
+          if (who.isEmpty || busy) return;
+          set(() { busy = true; error = null; });
+          final e = await library.share(p.id, who, role);
+          if (!c.mounted) return;
+          if (e == null) {
+            Navigator.pop(c, 'Shared “${p.name}” with $who: they can ${role == 'editor' ? 'edit' : 'view'} it.');
+          } else {
+            set(() { busy = false; error = e; });
+          }
+        }
+
+        return AlertDialog(
+          title: Text('Share “${p.name}”'),
+          content: SizedBox(
+            width: 340,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              TextField(controller: name, autofocus: true, enabled: !busy, decoration: const InputDecoration(labelText: 'Username'), onSubmitted: (_) => go()),
+              const SizedBox(height: 14),
+              SegmentedButton<String>(
+                segments: const [ButtonSegment(value: 'viewer', label: Text('Can view')), ButtonSegment(value: 'editor', label: Text('Can edit'))],
+                selected: {role},
+                onSelectionChanged: busy ? null : (v) => set(() => role = v.first),
+              ),
+              const SizedBox(height: 10),
+              Text('It shows under “Shared with you” for them. Sharing again with the same person changes what they can do.',
+                  style: Theme.of(c).textTheme.bodySmall),
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(error!, style: TextStyle(color: Theme.of(c).colorScheme.error)),
+              ],
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
+            FilledButton(onPressed: busy ? null : go, child: const Text('Share')),
+          ],
+        );
+      },
+    ),
+  );
+}

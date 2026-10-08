@@ -6,10 +6,14 @@ import 'package:nononsense/core/api.dart';
 import 'package:nononsense/core/library.dart';
 import 'package:nononsense/core/play_queue.dart';
 
+import 'test_account.dart';
+
 const server = String.fromEnvironment('SERVER');
 
 void main() {
   final skip = server.isEmpty || server.contains(':8000') ? 'needs --dart-define=SERVER=<a test server>' : null;
+  // every route needs a signed-in account (AUTH-1): one fresh test account for these tests
+  setUpAll(() async { if (skip == null) await signUpTestAccount(); });
 
   test('playlists: create, add, open in order, move (the server agrees, a playing queue follows), remove, delete', () async {
     final songs = await Api.search('arijit singh');
@@ -21,7 +25,7 @@ void main() {
 
     final name = 'Dart test ${DateTime.now().millisecondsSinceEpoch % 100000}';
     expect(await library.createPlaylist(name), isNull);
-    expect(await library.createPlaylist(name), contains('already exists'), reason: "the server's own reason comes back");
+    expect(await library.createPlaylist(name), contains('already have'), reason: "the server's own reason comes back");
     final id = library.playlists.firstWhere((p) => p.name == name).id;
     for (final t in three) {
       await library.add(t, id);

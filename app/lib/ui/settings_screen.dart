@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/settings.dart';
 import 'scope.dart';
 
-/// Settings: the server's address, the window's material (Windows), which version of a song plays.
+/// Settings: your account (sign out), the server's address, the window's material (Windows), which version plays.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
@@ -32,6 +32,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       listenable: s.settings,
       builder: (context, _) => ListView(padding: const EdgeInsets.fromLTRB(32, 28, 32, 120), children: [
         Text('Settings', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+        heading('Account'),
+        Row(children: [
+          Expanded(child: Text(s.auth.user == null ? 'Signed in' : 'Signed in as ${s.auth.user!.username}')),
+          // this device only: your other devices stay signed in
+          OutlinedButton(onPressed: s.auth.signOut, child: const Text('Sign Out')),
+        ]),
         heading('Server'),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),

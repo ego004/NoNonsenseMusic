@@ -78,13 +78,18 @@ class _ShellState extends State<Shell> {
                   const SideHeading('Playlists'),
                   Expanded(
                     child: ListView(children: [
-                      for (final p in s.library.playlists)
+                      for (final p in s.library.ownPlaylists)
                         SideItem(icon: FluentIcons.music_note_2_24_regular, label: p.name, selected: section == Section.playlist && playlistId == p.id,
                             onTap: () => _open(Section.playlist, playlist: p.id)),
                       SideItem(icon: FluentIcons.add_24_regular, label: 'New Playlist', selected: false, onTap: () async {
                         final name = await askName(context, title: 'New Playlist');
                         if (name != null) await s.library.createPlaylist(name);
                       }),
+                      // shared with you, under your own (AUTH-3): someone else's, you a viewer or an editor
+                      if (s.library.sharedPlaylists.isNotEmpty) const SideHeading('Shared with you'),
+                      for (final p in s.library.sharedPlaylists)
+                        SideItem(icon: FluentIcons.people_24_regular, label: p.name, selected: section == Section.playlist && playlistId == p.id,
+                            onTap: () => _open(Section.playlist, playlist: p.id)),
                     ]),
                   ),
                   SideItem(icon: FluentIcons.settings_24_regular, label: 'Settings', selected: section == Section.settings, onTap: () => _open(Section.settings)),

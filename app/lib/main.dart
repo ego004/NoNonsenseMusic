@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 
 import 'core/api.dart';
+import 'core/auth.dart';
 import 'core/library.dart';
 import 'core/lyrics.dart';
 import 'core/media_controls.dart';
@@ -16,6 +17,7 @@ import 'ui/in_front.dart';
 import 'ui/theme.dart';
 import 'ui/scope.dart';
 import 'ui/shell.dart';
+import 'ui/sign_in.dart';
 
 /// NoNonsense Music for Windows (and, from the same code, Android; a Mac build is for previewing here).
 /// The Mac app (mac/) is the reference: same layout, behaviour and rules; Windows' own materials, icons and font.
@@ -33,16 +35,20 @@ Future<void> main() async {
   final player = Player();
   player.currentId.addListener(() => accent.follow(player.current?.image));
   final library = Library()..playlistChanged = player.playlistChanged;
+  // a session that ends stops the music and empties the library: nothing of one account shows to the next
+  final auth = Auth()..onEnded = () { player.stop(); library.clear(); };
+  final started = auth.start(); // the stored token, checked with the server: the sign-in screen or the app
   MediaControls(player).start();
   settings.addListener(() => applyMaterial(settings.material));
   await applyMaterial(settings.material);
   watchInFront();
   if (const bool.fromEnvironment('BEHIND')) Timer(const Duration(seconds: 2), () => inFront.value = false); // measuring only
-  runApp(NoNonsenseApp(player: player, library: library, lyrics: LyricsStore(), settings: settings));
+  runApp(NoNonsenseApp(player: player, library: library, lyrics: LyricsStore(), settings: settings, auth: auth));
   // measuring only (--dart-define=AUTOPLAY=<search>, NOW_PLAYING=lyrics|upNext): plays the first result, muted, so
   // CPU can be read while a song plays without anyone touching the app. Not in normal builds.
   const autoplay = String.fromEnvironment('AUTOPLAY');
   if (autoplay.isNotEmpty) {
+    await started; // signed in already (a stored token): measuring never signs in by itself
     player.setVolume(0);
     var found = await Api.search(autoplay);
     const source = String.fromEnvironment('AUTOPLAY_SOURCE'); // a copy from this source only
@@ -73,7 +79,8 @@ class NoNonsenseApp extends StatelessWidget {
   final Library library;
   final LyricsStore lyrics;
   final Settings settings;
-  const NoNonsenseApp({super.key, required this.player, required this.library, required this.lyrics, required this.settings});
+  final Auth auth;
+  const NoNonsenseApp({super.key, required this.player, required this.library, required this.lyrics, required this.settings, required this.auth});
 
   @override
   Widget build(BuildContext context) => Scope(
@@ -81,6 +88,7 @@ class NoNonsenseApp extends StatelessWidget {
         library: library,
         lyrics: lyrics,
         settings: settings,
+        auth: auth,
         // the accent follows the playing cover: the theme is rebuilt once per song, never per second
         child: ValueListenableBuilder<Color?>(
           valueListenable: accent,
@@ -89,7 +97,7 @@ class NoNonsenseApp extends StatelessWidget {
             debugShowCheckedModeBanner: false,
             theme: buildTheme(Brightness.light, song),
             darkTheme: buildTheme(Brightness.dark, song),
-            home: const Shell(),
+            home: AuthGate(auth: auth, settings: settings, signedIn: (_) => const Shell()),
           ),
         ),
       );

@@ -21,6 +21,22 @@ class Library extends ChangeNotifier {
 
   bool isLiked(Track t) => t.listings.any((l) => _likedKeys.contains(l.key));
 
+  /// Yours, in your order; then the ones shared with you (the server sends them in that order, AUTH-3).
+  Iterable<PlaylistSummary> get ownPlaylists => playlists.where((p) => p.isOwner);
+  Iterable<PlaylistSummary> get sharedPlaylists => playlists.where((p) => !p.isOwner);
+
+  /// Signed out: nothing of that account stays on screen. The next account's library loads when it signs in.
+  void clear() {
+    liked = [];
+    recent = [];
+    playlists = [];
+    details.clear();
+    _songIds.clear();
+    _likedKeys = {};
+    _localEdits.clear();
+    notifyListeners();
+  }
+
   Future<void> refresh() async {
     try {
       final r = await Future.wait([Api.liked(), Api.recent()]);
@@ -82,8 +98,9 @@ class Library extends ChangeNotifier {
       return true;
     } on ApiError catch (e) {
       if (e.status == 404) {
+        // deleted, or no longer shared with you: it leaves the list too
         details.remove(id);
-        notifyListeners();
+        await _refreshPlaylists();
         return false;
       }
       return true;
@@ -123,6 +140,41 @@ class Library extends ChangeNotifier {
       await Api.rename(id, name);
       await _refreshPlaylists();
       await loadPlaylist(id);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Owner: share with someone by username, as 'viewer' or 'editor' (again: changes their role). null when it worked;
+  /// else the server's reason ("No account with that username").
+  Future<String?> share(String id, String username, String role) async {
+    try {
+      await Api.share(id, username, role);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Owner: anyone signed in may open it by its id, or only the people it is shared with.
+  Future<String?> setPublic(String id, bool public) async {
+    try {
+      await Api.setPublic(id, public);
+      await _refreshPlaylists();
+      await loadPlaylist(id);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// A member takes themselves off a playlist shared with them: it leaves their list.
+  Future<String?> leave(String id, String myUserId) async {
+    try {
+      await Api.removeMember(id, myUserId);
+      details.remove(id);
+      await _refreshPlaylists();
       return null;
     } catch (e) {
       return e.toString();

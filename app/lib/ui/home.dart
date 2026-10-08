@@ -45,10 +45,17 @@ class Home extends StatelessWidget {
             ),
             const SizedBox(height: 32),
           ],
-          if (lib.playlists.isNotEmpty) ...[
+          if (lib.ownPlaylists.isNotEmpty) ...[
             title('Your playlists'),
             Wrap(spacing: 22, runSpacing: 22, children: [
-              for (final p in lib.playlists) _PlaylistCard(playlist: p, onOpen: () => openPlaylist(p.id)),
+              for (final p in lib.ownPlaylists) _PlaylistCard(playlist: p, onOpen: () => openPlaylist(p.id)),
+            ]),
+            const SizedBox(height: 32),
+          ],
+          if (lib.sharedPlaylists.isNotEmpty) ...[
+            title('Shared with you'),
+            Wrap(spacing: 22, runSpacing: 22, children: [
+              for (final p in lib.sharedPlaylists) _PlaylistCard(playlist: p, onOpen: () => openPlaylist(p.id)),
             ]),
             const SizedBox(height: 32),
           ],
