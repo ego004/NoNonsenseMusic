@@ -6,11 +6,12 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from music_backend import db, lyrics
-from music_backend.cache import LyricsCache
-from music_backend.lyrics import LyricsNotFound
+from music_backend.core import db
+from music_backend.services import lyrics
+from music_backend.services.cache import LyricsCache
+from music_backend.services.lyrics import LyricsNotFound
 from music_backend.models import LyricLine, LyricsRequest, LyricsResponse
-from music_backend.settings import settings
+from music_backend.core.settings import settings
 
 TEST_URL = "postgresql:///music_test"
 

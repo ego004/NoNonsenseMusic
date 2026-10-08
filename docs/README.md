@@ -55,10 +55,10 @@ flowchart LR
 
 | I want to find… | File | Function |
 |---|---|---|
-| How search results are grouped and ranked | `backend/src/music_backend/matching.py` | `rank_songs` |
+| How search results are grouped and ranked | `backend/src/music_backend/services/matching.py` | `rank_songs` |
 | How two listings are judged "the same recording" | `matching.py` | `same_recording` |
 | How the best copy is chosen | `matching.py` | `pick_best` |
-| How a stored song is found or created | `backend/src/music_backend/library.py` | `resolve_song` |
+| How a stored song is found or created | `backend/src/music_backend/services/library.py` | `resolve_song` |
 | How JioSaavn's audio URL is decrypted | `backend/src/music_backend/sources/jiosaavn.py` | `decrypt_media_url` |
 | How YouTube audio is found | `backend/src/music_backend/sources/ytmusic.py` | `extract_audio_url` |
 | The table definitions | `backend/schema.sql` | — |

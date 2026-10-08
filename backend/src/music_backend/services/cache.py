@@ -6,9 +6,9 @@ import time
 
 from psycopg.types.json import Jsonb
 
-from music_backend import lyrics
+from music_backend.services import lyrics
 from music_backend.models import LyricsRequest, LyricsResponse
-from music_backend.settings import settings
+from music_backend.core.settings import settings
 from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable
 
 logger = logging.getLogger(__name__)

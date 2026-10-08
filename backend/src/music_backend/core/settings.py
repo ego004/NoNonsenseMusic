@@ -1,6 +1,6 @@
 """Settings, read once from backend/.env. A variable set in the real environment wins over the file.
 
-Use it anywhere:   from music_backend.settings import settings   ->   settings.cache_max_size
+Use it anywhere:   from music_backend.core.settings import settings   ->   settings.cache_max_size
 Add a setting:     a field here, plus the same name in UPPER_CASE in .env and .env.example.
 A key in .env that has no field here stops the server at startup (that catches typos).
 """
@@ -9,7 +9,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # an absolute path, so .env is found whichever folder the server is started from
-ENV_FILE = Path(__file__).resolve().parents[2] / ".env"   # backend/.env
+ENV_FILE = Path(__file__).resolve().parents[3] / ".env"   # backend/.env (this file: backend/src/music_backend/core/)
 
 
 class Settings(BaseSettings):

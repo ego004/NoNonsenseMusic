@@ -8,10 +8,10 @@ from pathlib import Path
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from music_backend.settings import settings
+from music_backend.core.settings import settings
 
 DATABASE_URL = settings.database_url        # from .env or the environment; see settings.py
-SCHEMA = Path(__file__).resolve().parents[2] / "schema.sql"   # backend/schema.sql
+SCHEMA = Path(__file__).resolve().parents[3] / "schema.sql"   # backend/schema.sql (this file: backend/src/music_backend/core/)
 
 
 def make_pool(url: str) -> AsyncConnectionPool:

@@ -9,13 +9,14 @@ from fastapi import FastAPI, HTTPException, Request, Response, Query
 from fastapi.responses import RedirectResponse
 from psycopg import errors
 
-from music_backend import db, library, cache, lyrics
-from music_backend.matching import rank_songs
+from music_backend.core import db
+from music_backend.services import library, cache, lyrics
+from music_backend.services.matching import rank_songs
 from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
                                   LyricsRequest, LyricsResponse)
-from music_backend.settings import settings
+from music_backend.core.settings import settings
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
 

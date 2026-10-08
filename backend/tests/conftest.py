@@ -6,7 +6,7 @@
 """
 import pytest
 
-from music_backend import db
+from music_backend.core import db
 
 TEST_URL = "postgresql:///music_test"      # never your library: tests write and delete
 

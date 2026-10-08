@@ -15,8 +15,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from music_backend import db
-from music_backend.cache import ListingURLCache
+from music_backend.core import db
+from music_backend.services.cache import ListingURLCache
 from music_backend.sources import SourceBlocked, SourceUnavailable, jiosaavn, ytmusic
 
 TEST_URL = "postgresql:///music_test"

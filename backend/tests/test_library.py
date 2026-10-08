@@ -2,7 +2,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from music_backend import db, library
+from music_backend.core import db
+from music_backend.services import library
 from music_backend.models import Listing
 
 TEST_URL = "postgresql:///music_test"

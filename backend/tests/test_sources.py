@@ -7,7 +7,7 @@ import pytest
 from yt_dlp.networking.exceptions import TransportError
 from yt_dlp.utils import DownloadError, ExtractorError
 
-from music_backend.http_client import SharedClient
+from music_backend.core.http_client import SharedClient
 from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable, jiosaavn, ytmusic
 
 

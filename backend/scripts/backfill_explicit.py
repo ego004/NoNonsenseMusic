@@ -8,7 +8,7 @@ JioSaavn: its song-details call, 20 listings per request. YouTube Music: one sea
 """
 import asyncio
 
-from music_backend import db
+from music_backend.core import db
 from music_backend.sources import jiosaavn, ytmusic
 
 

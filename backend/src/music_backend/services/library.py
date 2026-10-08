@@ -11,7 +11,7 @@ from uuid import UUID
 from fractional_indexing import FIError, generate_key_between, generate_n_keys_between
 from psycopg import AsyncConnection
 
-from music_backend.matching import normalise, pick_best, same_recording
+from music_backend.services.matching import normalise, pick_best, same_recording
 from music_backend.models import EventType, LibrarySong, Listing, PlaylistMetadata, PlaylistItem
 
 logger = logging.getLogger(__name__)
