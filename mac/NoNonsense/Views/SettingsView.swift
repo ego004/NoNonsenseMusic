@@ -375,6 +375,7 @@ enum LyricsFetch: String, CaseIterable, Identifiable {
 private struct LyricsSettings: View {
     @AppStorage("lyricsFetch") private var fetch = LyricsFetch.songStart
     @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion
+    @AppStorage("geniusNotes") private var genius = false                // experimental, off by default (8 Oct)
 
     var body: some View {
         Form {
@@ -392,6 +393,15 @@ private struct LyricsSettings: View {
             } footer: {
                 Text("The first time a song's lyrics are asked for, the server looks them up (about 1–2 seconds); after that it answers from its own store at once. Fetching when a song starts means Lyrics opens with them ready. Downloaded songs keep their lyrics, so they show offline.")
                     .foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle(isOn: $genius) {
+                    Text("Genius notes")
+                    Text("Underlined lines open what Genius says about them; ⓘ shows About This Song. One more lookup per song, about 3 seconds the first time, kept by the server for everyone.")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Experimental")
             }
         }
         .settingsPage()

@@ -147,6 +147,27 @@ class LyricsResponse(BaseModel):
     lines : list[LyricLine]
 
 
+class GeniusRequest(BaseModel):
+    song_name : str
+    artist_name : str
+
+class GeniusNote(BaseModel):
+    fragment : str                          # the words of the song it is about, as Genius quotes them
+    text : str                              # the note, plain text
+    verified : bool = False                 # written or confirmed by the artist
+
+class GeniusAbout(BaseModel):
+    description : str | None
+    produced_by : list[str]
+    samples : list[str]                     # "Song by Someone"
+
+class GeniusResponse(BaseModel):
+    """Always 200 when Genius was asked: no such song there is `url` None and no notes."""
+    url : str | None                        # the song's page on Genius: the notes are credited to it
+    notes : list[GeniusNote]
+    about : GeniusAbout | None
+
+
 class SignUpRequest(BaseModel):
     username : str = Field(min_length=USERNAME_MIN, max_length=USERNAME_MAX)
     password : str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)

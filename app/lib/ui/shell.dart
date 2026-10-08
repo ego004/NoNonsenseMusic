@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
+import '../core/links.dart';
+
 import 'home.dart';
 import 'now_playing.dart';
 import 'player_bar.dart';
@@ -39,6 +41,23 @@ class _ShellState extends State<Shell> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) Scope.of(context).library.refresh(); });
+    // a playlist link (PlaylistLinks): opens here, also one that arrived before you signed in
+    PlaylistLinks.pending.addListener(_openLink);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openLink());
+  }
+
+  void _openLink() {
+    final id = PlaylistLinks.pending.value;
+    if (id == null || !mounted) return;
+    PlaylistLinks.pending.value = null;
+    Scope.of(context).player.setShowNowPlaying(false);
+    _open(Section.playlist, playlist: id);
+  }
+
+  @override
+  void dispose() {
+    PlaylistLinks.pending.removeListener(_openLink);
+    super.dispose();
   }
 
   bool _typing() => FocusManager.instance.primaryFocus?.context?.widget is EditableText;

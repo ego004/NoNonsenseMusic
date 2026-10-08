@@ -73,6 +73,31 @@ jobs:
             -discordEnabled NO -ApplePersistenceIgnoreState YES > fullscreen.log 2>&1 || true
           grep SELFTEST fullscreen.log
           grep -q "fullscreen: all checks pass" fullscreen.log
+      - name: Self-test, Genius notes (NN_SELFTEST_GENIUS), on made-up lyrics and notes
+        run: |
+          env NN_SELFTEST_GENIUS=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > genius.log 2>&1 || true
+          grep SELFTEST genius.log
+          grep -q "genius: all checks pass" genius.log
+      - name: Genius, live (the server's lookup against genius.com; counts only, never the text)
+        continue-on-error: true            # Genius's website API is undocumented and may refuse a data centre
+        working-directory: backend
+        run: |
+          uv run python -c '
+          import asyncio, time
+          from music_backend.models import GeniusRequest
+          from music_backend.services import genius
+          async def main():
+              for name, artist in [("Bohemian Rhapsody", "Queen"), ("Blinding Lights", "The Weeknd")]:
+                  start = time.monotonic()
+                  reply = await genius.find_notes(GeniusRequest(song_name=name, artist_name=artist))
+                  about = reply.about
+                  print(f"{name}: found {reply.url is not None}, {len(reply.notes)} notes, about: description "
+                        f"{bool(about and about.description)}, {len(about.produced_by) if about else 0} producers, "
+                        f"{len(about.samples) if about else 0} samples, {time.monotonic() - start:.1f} s")
+          asyncio.run(main())'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

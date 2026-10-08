@@ -123,6 +123,18 @@ enum API {
                                                                        songDuration: track.duration, youtubeID: youtube))
     }
 
+    private struct GeniusBody: Encodable {
+        let songName: String
+        let artistName: String
+        enum CodingKeys: String, CodingKey { case songName = "song_name", artistName = "artist_name" }
+    }
+
+    /// Genius notes (experimental; asked only with Settings › Lyrics › Genius notes on). The main artist alone: Genius
+    /// files a song under one. Throws when the server or Genius cannot be asked (502).
+    static func genius(for track: Track) async throws -> GeniusNotes {
+        try await send("POST", path: "genius", body: GeniusBody(songName: track.title, artistName: track.artists.first ?? track.artistLine))
+    }
+
     private static let noRedirect = URLSession(configuration: .default, delegate: StopRedirects(), delegateQueue: nil)
 
     // ---- writes (IDs are lazy: send the listings, the server finds or creates the song) ----

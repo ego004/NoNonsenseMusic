@@ -410,17 +410,20 @@ struct LyricsPanel: View {
     var shown = true
     @Environment(Player.self) private var player
     @Environment(LyricsStore.self) private var lyrics
+    @AppStorage("geniusNotes") private var genius = false          // Settings › Lyrics › Genius notes (experimental)
+    @State private var aboutShown = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let track = player.current {
                 let state = lyrics.state(for: track)
-                header(state)
-                content(state, track: track)
+                let notes = genius ? lyrics.notes[track.id] : nil
+                header(state, notes: notes)
+                content(state, track: track, notes: notes)
                     // a no-op when the song start already asked. Only while this panel shows in an open Now Playing
                     // (both are kept, hidden, between uses), so Settings › Lyrics › "Only when I open Lyrics" still
                     // means that
-                    .task(id: [track.id, shown && player.showNowPlaying ? "open" : "closed"]) {
+                    .task(id: [track.id, shown && player.showNowPlaying ? "open" : "closed", genius ? "genius" : ""]) {
                         if shown && player.showNowPlaying { lyrics.fetch(track) }
                     }
             }
@@ -429,7 +432,7 @@ struct LyricsPanel: View {
         .selfTestFrame("lyrics.panel")              // the glass is Now Playing's, shared with Up Next
     }
 
-    private func header(_ state: LyricsStore.State?) -> some View {
+    private func header(_ state: LyricsStore.State?, notes: GeniusNotes?) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text("Lyrics").textStyle(.headline)
             Spacer()
@@ -437,11 +440,19 @@ struct LyricsPanel: View {
                 Text(found.synced ? "from \(source)" : "from \(source) · not timed")
                     .textStyle(.caption).foregroundStyle(.secondary)
             }
+            // Genius's About this song: a glass popover, as Apple's apps show more about a thing
+            if let about = notes?.about, !about.isEmpty {
+                Button { aboutShown.toggle() } label: { Image(systemName: "info.circle") }
+                    .buttonStyle(.quiet)
+                    .help("About This Song")
+                    .selfTestFrame("lyrics.about")
+                    .popover(isPresented: $aboutShown, arrowEdge: .bottom) { GeniusAboutCard(about: about, url: notes?.url) }
+            }
         }
         .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 6)
     }
 
-    @ViewBuilder private func content(_ state: LyricsStore.State?, track: Track) -> some View {
+    @ViewBuilder private func content(_ state: LyricsStore.State?, track: Track, notes: GeniusNotes?) -> some View {
         switch state {
         case .found(let found) where found.lines.isEmpty:
             message("Couldn't find lyrics", symbol: "quote.bubble", shown: "none")
@@ -449,10 +460,11 @@ struct LyricsPanel: View {
             // the playing line, known before the panel is drawn: it opens there instead of scrolling to it.
             // One view per song: with the next song's lyrics already fetched, the view was kept across the change, and
             // its running task went on lighting lines by the previous song's times (audit, 7 Oct)
-            TimedLyricsView(lyrics: found, startLine: found.line(at: player.livePosition + 0.1), active: shown)
+            TimedLyricsView(lyrics: found, startLine: found.line(at: player.livePosition + 0.1), active: shown,
+                            notes: notes?.byLine(found.lines) ?? [:], notesURL: notes?.url)
                 .id(track.id)
         case .found(let found):
-            PlainLyricsView(lyrics: found)
+            PlainLyricsView(lyrics: found, notes: notes?.byLine(found.lines) ?? [:], notesURL: notes?.url)
         case .unreachable:
             message("Couldn't reach the server", symbol: "wifi.exclamationmark", shown: "unreachable") {
                 Button("Try Again") { lyrics.fetch(track) }
@@ -492,17 +504,28 @@ private struct TimedLyricsView: View {
     @AppStorage("buttonFeedback") private var feedback = Look.buttonFeedback  // the highlight under the pointer
     @State private var current: Int?
     let active: Bool                                   // false while hidden behind Up Next: the lines ignore the mouse
+    let notes: [Int: GeniusNote]                       // Genius notes by line: those lines are underlined; a click opens one
+    let notesURL: String?
+    @State private var openNote: NoteAnchor?
 
-    init(lyrics: Lyrics, startLine: Int?, active: Bool = true) {
+    init(lyrics: Lyrics, startLine: Int?, active: Bool = true, notes: [Int: GeniusNote] = [:], notesURL: String? = nil) {
         self.lyrics = lyrics
         self.active = active
+        self.notes = notes
+        self.notesURL = notesURL
         _current = State(initialValue: startLine)
     }
 
     var body: some View {
         LyricLines(lines: lyrics.lines, current: current, motion: motion, fontSize: 21 * textScale, feedback: feedback,
-                   active: active) {
+                   active: active, noted: Set(notes.keys), openNote: { openNote = NoteAnchor(line: $0, rect: $1) }) {
             jump(to: $0)
+        }
+        // a noted line's click opens its note beside it instead of playing from it: Play from Here is in the note
+        .popover(item: $openNote, attachmentAnchor: .rect(.rect(openNote?.rect ?? .zero)), arrowEdge: .leading) { anchor in
+            if let note = notes[anchor.line] {
+                GeniusNoteCard(note: note, url: notesURL) { openNote = nil; jump(to: anchor.line) }
+            }
         }
         // starts again on play, pause, a stall and its end (`position` is re-anchored) and every seek: the sleep
         // below is never left counting from an old time
@@ -543,6 +566,13 @@ private struct TimedLyricsView: View {
     }
 }
 
+/// Where a Genius note opens: its line, in the lines' view (top-left origin, as SwiftUI counts).
+struct NoteAnchor: Identifiable {
+    let line: Int
+    let rect: CGRect
+    var id: Int { line }
+}
+
 /// The timed lines, as a view SwiftUI hands to AppKit.
 private struct LyricLines: NSViewRepresentable {
     let lines: [LyricLine]
@@ -551,13 +581,16 @@ private struct LyricLines: NSViewRepresentable {
     let fontSize: CGFloat
     let feedback: Bool
     let active: Bool
+    var noted: Set<Int> = []                                       // lines with a Genius note: underlined
+    var openNote: (Int, CGRect) -> Void = { _, _ in }
     let jump: (Int) -> Void
 
     func makeNSView(context: Context) -> LyricLinesView { LyricLinesView() }
 
     func updateNSView(_ view: LyricLinesView, context: Context) {
         view.active = active
-        view.update(lines: lines, current: current, motion: motion, fontSize: fontSize, feedback: feedback, jump: jump)
+        view.openNote = openNote
+        view.update(lines: lines, current: current, motion: motion, fontSize: fontSize, feedback: feedback, noted: noted, jump: jump)
     }
 }
 
@@ -573,6 +606,8 @@ final class LyricLinesView: NSView {
     private var tops: [CGFloat] = []               // each line's top, measured down from the strip's top
     private var heights: [CGFloat] = []
     private var lines: [LyricLine] = []
+    private(set) var noted: Set<Int> = []          // lines with a Genius note: a faint accent underline, a click opens it
+    var openNote: (Int, CGRect) -> Void = { _, _ in }
     private var current: Int?
     private var motion = Look.lyricsMotion
     private var fontSize: CGFloat = 21
@@ -603,12 +638,14 @@ final class LyricLinesView: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    func update(lines: [LyricLine], current: Int?, motion: Double, fontSize: CGFloat, feedback: Bool, jump: @escaping (Int) -> Void) {
+    func update(lines: [LyricLine], current: Int?, motion: Double, fontSize: CGFloat, feedback: Bool, noted: Set<Int> = [],
+                jump: @escaping (Int) -> Void) {
         self.motion = motion
         self.feedback = feedback
         self.jump = jump
-        if lines != self.lines || fontSize != self.fontSize {
+        if lines != self.lines || fontSize != self.fontSize || noted != self.noted {   // notes arrive after the lyrics
             self.lines = lines
+            self.noted = noted
             self.fontSize = fontSize
             self.current = current
             build()                                                 // other text: the layers again, placed at once
@@ -638,8 +675,13 @@ final class LyricLinesView: NSView {
         let colour = resolved(.labelColor)
         let scale = window?.backingScaleFactor ?? 2
         var y: CGFloat = 0
+        // a line with a Genius note: a faint accent underline, drawn with the text (no layer more)
+        let noteLine: [NSAttributedString.Key: Any] = [.underlineStyle: NSUnderlineStyle.single.rawValue,
+                                                       .underlineColor: resolved(.controlAccentColor).withAlphaComponent(0.6)]
         for (i, line) in lines.enumerated() {
-            let text = NSAttributedString(string: line.text.isEmpty ? "♪" : line.text, attributes: [.font: font, .foregroundColor: colour])
+            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: colour]
+            if noted.contains(i) { attributes.merge(noteLine) { $1 } }
+            let text = NSAttributedString(string: line.text.isEmpty ? "♪" : line.text, attributes: attributes)
             let height = ceil(text.boundingRect(with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
                                                 options: [.usesLineFragmentOrigin, .usesFontLeading]).height) + 2
             let layer = CATextLayer()
@@ -790,6 +832,10 @@ final class LyricLinesView: NSView {
     override func mouseUp(with event: NSEvent) {
         defer { pressed = nil }
         guard let i = line(at: convert(event.locationInWindow, from: nil)), i == pressed else { return }
+        if noted.contains(i) {                                      // its note opens beside it (Play from Here is in it)
+            openNote(i, CGRect(x: Self.inset, y: tops[i] - offset, width: strip.bounds.width, height: heights[i]))
+            return
+        }
         followAgainAt = .distantPast                                // follow from the clicked line at once
         jump(i)
     }
@@ -857,14 +903,20 @@ final class LyricLinesView: NSView {
 /// Plain lyrics: no times, so nothing to light; they scroll.
 private struct PlainLyricsView: View {
     let lyrics: Lyrics
+    var notes: [Int: GeniusNote] = [:]
+    var notesURL: String?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { _, line in
-                    Text(line.text.isEmpty ? " " : line.text)
-                        .textStyle(size: 17, weight: .semibold)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { i, line in
+                    if let note = notes[i] {
+                        NotedLine(text: line.text, note: note, url: notesURL)
+                    } else {
+                        Text(line.text.isEmpty ? " " : line.text)
+                            .textStyle(size: 17, weight: .semibold)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
@@ -970,5 +1022,93 @@ private struct UpNextRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("\(track.title). Double-click to play now; drag to move")
+    }
+}
+
+// MARK: - Genius notes (experimental, 8 Oct)
+
+/// A plain lyric line with a Genius note: underlined faintly in the accent colour; a click opens the note.
+private struct NotedLine: View {
+    let text: String
+    let note: GeniusNote
+    let url: String?
+    @State private var open = false
+
+    var body: some View {
+        Text(text)
+            .textStyle(size: 17, weight: .semibold)
+            .underline(color: Color(nsColor: .controlAccentColor).opacity(0.6))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+            .onTapGesture { open = true }
+            .popover(isPresented: $open, arrowEdge: .leading) { GeniusNoteCard(note: note, url: url) }
+    }
+}
+
+/// One Genius note, in a glass popover beside its line: the note, then the credit, and Play from Here for timed lyrics
+/// (the click that opened it did not play from the line).
+struct GeniusNoteCard: View {
+    let note: GeniusNote
+    let url: String?
+    var play: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(note.text)
+                .textStyle(.body)
+                .lineLimit(16)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                GeniusCredit(url: url, verified: note.verified)
+                Spacer()
+                if let play { Button("Play from Here", action: play) }
+            }
+        }
+        .padding(16)
+        .frame(width: 340)
+    }
+}
+
+/// Genius's About this song: its description, who produced it, what it samples.
+struct GeniusAboutCard: View {
+    let about: GeniusAbout
+    let url: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("About This Song").textStyle(.headline)
+            if let description = about.description {
+                Text(description).textStyle(.body).lineLimit(14).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !about.producedBy.isEmpty { fact("Produced by", about.producedBy.joined(separator: ", ")) }
+            if !about.samples.isEmpty { fact("Samples", about.samples.joined(separator: "\n")) }
+            GeniusCredit(url: url, verified: false)
+        }
+        .padding(16)
+        .frame(width: 340, alignment: .leading)
+    }
+
+    private func fact(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).textStyle(.caption, weight: .semibold).foregroundStyle(.secondary)
+            Text(value).textStyle(.callout)
+        }
+    }
+}
+
+/// "Genius", a link to the song's page there when there is one: the notes are theirs.
+private struct GeniusCredit: View {
+    let url: String?
+    let verified: Bool
+
+    var body: some View {
+        let label = verified ? "Genius · Verified by the artist" : "Genius"
+        if let url, let link = URL(string: url) {
+            Link(label, destination: link).textStyle(.caption)
+        } else {
+            Text(label).textStyle(.caption).foregroundStyle(.secondary)
+        }
     }
 }

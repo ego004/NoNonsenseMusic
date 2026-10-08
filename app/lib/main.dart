@@ -9,6 +9,7 @@ import 'core/api.dart';
 import 'core/auth.dart';
 import 'core/discord.dart';
 import 'core/library.dart';
+import 'core/links.dart';
 import 'core/lyrics.dart';
 import 'core/media_controls.dart';
 import 'core/player.dart';
@@ -27,6 +28,7 @@ final accent = Accent();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  PlaylistLinks.start(); // early: the link that opened the app is not missed
   final settings = Settings();
   await settings.load();
   if (Platform.isWindows) {
