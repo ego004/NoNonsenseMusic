@@ -19,11 +19,15 @@ class PlaylistScreen extends StatefulWidget {
 class _PlaylistScreenState extends State<PlaylistScreen> {
   bool gone = false;
 
+  // once per opening (the shell gives each playlist its own key), not on every theme or size change
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    Scope.of(context).library.loadPlaylist(widget.id).then((ok) {
-      if (mounted && !ok) setState(() => gone = true);
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Scope.of(context).library.loadPlaylist(widget.id).then((ok) {
+        if (mounted && !ok) setState(() => gone = true);
+      });
     });
   }
 

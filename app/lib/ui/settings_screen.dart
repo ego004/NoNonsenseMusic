@@ -13,17 +13,13 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _server;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _server = TextEditingController(text: Scope.of(context).settings.server);
-  }
+  TextEditingController? _field;
+  // made once: a new one on every dependency change lost what you were typing
+  TextEditingController get _server => _field ??= TextEditingController(text: Scope.of(context).settings.server);
 
   @override
   void dispose() {
-    _server.dispose();
+    _field?.dispose();
     super.dispose();
   }
 

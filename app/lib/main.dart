@@ -44,7 +44,10 @@ Future<void> main() async {
   const autoplay = String.fromEnvironment('AUTOPLAY');
   if (autoplay.isNotEmpty) {
     player.setVolume(0);
-    player.play(await Api.search(autoplay));
+    var found = await Api.search(autoplay);
+    const source = String.fromEnvironment('AUTOPLAY_SOURCE'); // a copy from this source only
+    if (source.isNotEmpty) found = [for (final t in found.take(1)) t.playing(t.listings.firstWhere((l) => l.source == source, orElse: () => t.best))];
+    player.play(found);
     // evidence that it plays: low CPU from a song that never started would mean nothing
     for (final at in [8, 20, 38]) {
       Timer(Duration(seconds: at), () => stdout.writeln('AUTOPLAY ${at}s: playing ${player.isPlaying}, buffering ${player.isBuffering}, at ${player.position.toStringAsFixed(1)} of ${player.duration.toStringAsFixed(0)} s, ${player.current?.title}, window in front ${inFront.value}, message ${player.message}'));

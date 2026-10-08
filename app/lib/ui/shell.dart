@@ -32,10 +32,13 @@ class _ShellState extends State<Shell> {
     if (sec == Section.liked || sec == Section.recent || sec == Section.home) Scope.of(context).library.refresh();
   }
 
+  // once, when the window opens. It was in didChangeDependencies, which runs again whenever anything the shell reads
+  // changes (the theme, once per song since the accent follows the cover; the window's size): 266 /playlists in an
+  // evening (8 Oct)
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    Scope.of(context).library.refresh();
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) Scope.of(context).library.refresh(); });
   }
 
   bool _typing() => FocusManager.instance.primaryFocus?.context?.widget is EditableText;

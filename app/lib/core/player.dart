@@ -199,7 +199,9 @@ class Player extends ChangeNotifier {
     try {
       await _audio.setUrl(Api.playUrl(l, fresh: fresh));
       if (mine == _loads) _audio.play();
-    } catch (_) {
+    } catch (e) {
+      // why a copy did not load (on the Mac preview, YouTube copies fail with -1 "unknown error": TICKETS WIN)
+      debugPrint('copy did not load (${l.source}): ${e is ja.PlayerException ? 'code ${e.code}, ${e.message}' : e}');
       if (mine == _loads) _failed(); // a copy that will not load; an older load's failure says nothing now
     } finally {
       if (mine == _loads) _loading = false;
