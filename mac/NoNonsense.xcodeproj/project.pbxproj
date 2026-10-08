@@ -364,6 +364,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
+				NN_URL_SCHEME = "nononsense-debug";
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music;
 				SDKROOT = macosx;
 			};
@@ -450,6 +451,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
+				NN_URL_SCHEME = nononsense;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music;
 				SDKROOT = macosx;
 			};

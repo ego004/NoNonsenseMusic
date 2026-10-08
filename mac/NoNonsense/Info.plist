@@ -25,7 +25,7 @@
 			<string>app.nononsense.music</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>nononsense</string>
+				<string>$(NN_URL_SCHEME)</string>
 			</array>
 		</dict>
 	</array>

@@ -23,7 +23,7 @@ targets:
         # nononsense://playlist/<id> opens a playlist here (a shared link; the server's /p/<id> page hands over to it)
         CFBundleURLTypes:
           - CFBundleURLName: app.nononsense.music
-            CFBundleURLSchemes: [nononsense]
+            CFBundleURLSchemes: [$(NN_URL_SCHEME)]   # nononsense; the Debug build answers nononsense-debug only
         NSAppTransportSecurity:
           # the backend runs on this Mac over plain http; everything else (audio CDNs) is https
           NSAllowsLocalNetworking: true
@@ -39,3 +39,8 @@ targets:
         # the app icon: NoNonsense/Assets.xcassets/AppIcon (drawn by Icon/make_icon.swift)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CURRENT_PROJECT_VERSION: "1"
+        NN_URL_SCHEME: nononsense
+      configs:
+        Debug:
+          # self-test builds must not answer your links: macOS would pick any copy that claims the scheme
+          NN_URL_SCHEME: nononsense-debug
