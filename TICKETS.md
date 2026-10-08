@@ -41,6 +41,37 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 ---
 
+## NOW · Release 1, the open list (8 Oct 2026)
+
+Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress · ☐ to do · ❓ waits on your decision.
+
+**Done today:** ✅ accounts merged (AUTH-1, AUTH-3, both apps sign in) · ✅ your library migrated to `ego` · ✅ sign-in screens rewritten (see-through, short text) · ✅ device name chosen at sign-in, renamed in Settings (`PATCH /auth/me/device`) · ✅ expired sessions cleaned every 6 h · ✅ the computer-name leak looked at (the name is shown before it is sent, and yours to change)
+
+**Apps**
+- ✅ Mac: the big "Liked Songs" title and the toolbar's small title overlapped → the toolbar title appears only once the big one has scrolled under it (`scrollTitle`; self-test checks it)
+- ☐ Mac: a faint sign-in screen showed behind the library after signing in (the window holds no sign-in views: checked) → does it stay after a resize?
+- ❓ Flutter: the Settings screen could not be seen → it draws fine in the macOS build (integration test, 8 Oct): which build, and what showed?
+- ☐ Flutter: every Mac fix of 8 Oct, checked one by one, and the app run for real
+- ✅ Discord: the application id built in, no field to fill (public by design; Discord's record shows only the name, no owner)
+- ☐ YouTube links looked up by the apps (visionOS client, tested 8 Oct: whole songs, ~0.8 s), the server as fallback; then explain old vs new
+- ❓ Keychain prompt on every build (ad-hoc signing): A, a certificate made on this Mac, or B, the token in a file only your account reads
+- ❓ Footprint at 11%: measure it with you (play a song, say "ready")
+- ☐ Public playlists open by **link** (your choice, 8 Oct)
+- ❓ Members list: `GET /playlists/{id}/members` so an owner sees and removes people (backend)
+
+**Server, then deploy on the web**
+- ❓ Recovery codes instead of email (your design, reviewed 8 Oct): you write it, or Claude?
+- ☐ Rate limit sign-in, sign-up and recovery per IP
+- ☐ The hosted server starts with the access log off (it records every IP and song played)
+- ☐ Deploy: where, the domain, HTTPS, backups
+- ❓ Saving someone else's public playlist (`playlist_saves`): undecided
+
+**Owed explanations:** `_taken`, `_rekey`, `_move` · YouTube old vs new
+
+**Later:** AUTH-4 the device list · LIVE-1…3 · FRIENDS-1, JAM-1 · releases (.dmg, Windows, .apk) · delete the `backup-before-rewrite` tag and `~/projects/music-backups` when you are happy · BUG-5, BUG-7 · MUS-15 onwards
+
+---
+
 ## MUS-1 · Fast playback: cache and prefetch ✅ (6 Oct 2026)
 
 **Problem:** a YouTube song takes 2.8 s to start, every time. Most of what you play is YouTube-only (6 of your 9 plays, 5 Oct). Do the 2.8 s **once** per listing (cache), and **before** the click (prefetch).

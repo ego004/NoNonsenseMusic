@@ -142,5 +142,17 @@ void main() {
     expect(library.playlists.any((p) => p.id == id), isFalse);
     player.togglePlayPause();
     await tester.pump(const Duration(milliseconds: 500));
+
+    // Settings, from the sidebar's bottom item: its sections are on screen, inside the window (8 Oct: "couldn't see")
+    await tester.tap(find.text('Settings').last);
+    await tester.pumpAndSettle();
+    final window = tester.getRect(find.byKey(shot));
+    for (final label in ['Account', 'Device Name', 'Server']) {
+      final found = find.text(label);
+      expect(found, findsWidgets, reason: '"$label" in Settings');
+      final r = tester.getRect(found.first);
+      expect(window.contains(r.center), isTrue, reason: '"$label" at $r, inside the window $window');
+    }
+    await snap(tester, 'settings');
   });
 }

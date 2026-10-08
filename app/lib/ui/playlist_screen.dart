@@ -49,7 +49,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         final minutes = (d.items.fold<int>(0, (a, i) => a + i.$2.duration) / 60).round();
         final p = d.summary;
         // who you are here, under the title: nothing for your own private playlist
-        final standing = p.isOwner ? (p.public ? 'Public' : null) : 'Shared with you · ${p.canEdit ? 'You can edit' : 'You can view'}';
+        final standing = p.isOwner ? (p.public ? 'Public' : null) : 'Shared · ${p.canEdit ? 'Can make changes' : 'View only'}';
         return CustomScrollView(slivers: [
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(32, 36, 32, 24),
@@ -93,8 +93,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                               if (done != null) _say(done);
                             case 'public':
                               final error = await s.library.setPublic(p.id, !p.public);
-                              _say(error ?? (p.public ? '“${p.name}” is private: only the people it is shared with can open it.'
-                                  : '“${p.name}” is public: anyone signed in can open it by its link.'));
+                              _say(error ?? (p.public ? '“${p.name}” is private' : '“${p.name}” is public'));
                             case 'delete':
                               if (await confirm(context, 'Delete “${p.name}”?', 'Its songs stay in your library.')) {
                                 await s.library.deletePlaylist(p.id);
@@ -102,7 +101,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                               }
                             case 'leave':
                               final me = s.auth.user;
-                              if (me != null && await confirm(context, 'Leave “${p.name}”?', 'It leaves your list. Its owner can share it with you again.', action: 'Leave')) {
+                              if (me != null && await confirm(context, 'Leave “${p.name}”?', null, action: 'Leave')) {
                                 final error = await s.library.leave(p.id, me.id);
                                 if (error == null) {
                                   widget.onDeleted();
@@ -176,10 +175,10 @@ Future<String?> askName(BuildContext context, {required String title, String ini
   );
 }
 
-Future<bool> confirm(BuildContext context, String title, String detail, {String action = 'Delete'}) async =>
+Future<bool> confirm(BuildContext context, String title, String? detail, {String action = 'Delete'}) async =>
     await showDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(title: Text(title), content: Text(detail), actions: [
+      builder: (c) => AlertDialog(title: Text(title), content: detail == null ? null : Text(detail), actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
         FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(action)),
       ]),
@@ -206,7 +205,7 @@ Future<String?> share(BuildContext context, PlaylistSummary p) {
           final e = await library.share(p.id, who, role);
           if (!c.mounted) return;
           if (e == null) {
-            Navigator.pop(c, 'Shared “${p.name}” with $who: they can ${role == 'editor' ? 'edit' : 'view'} it.');
+            Navigator.pop(c, 'Shared “${p.name}” with $who');
           } else {
             set(() { busy = false; error = e; });
           }
@@ -220,13 +219,10 @@ Future<String?> share(BuildContext context, PlaylistSummary p) {
               TextField(controller: name, autofocus: true, enabled: !busy, decoration: const InputDecoration(labelText: 'Username'), onSubmitted: (_) => go()),
               const SizedBox(height: 14),
               SegmentedButton<String>(
-                segments: const [ButtonSegment(value: 'viewer', label: Text('Can view')), ButtonSegment(value: 'editor', label: Text('Can edit'))],
+                segments: const [ButtonSegment(value: 'viewer', label: Text('View only')), ButtonSegment(value: 'editor', label: Text('Can make changes'))],
                 selected: {role},
                 onSelectionChanged: busy ? null : (v) => set(() => role = v.first),
               ),
-              const SizedBox(height: 10),
-              Text('It shows under “Shared with you” for them. Sharing again with the same person changes what they can do.',
-                  style: Theme.of(c).textTheme.bodySmall),
               if (error != null) ...[
                 const SizedBox(height: 10),
                 Text(error!, style: TextStyle(color: Theme.of(c).colorScheme.error)),

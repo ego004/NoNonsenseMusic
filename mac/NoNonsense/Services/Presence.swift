@@ -165,7 +165,11 @@ actor DiscordIPC {
 @Observable
 final class Presence {
     private(set) var enabled = UserDefaults.standard.bool(forKey: "discordEnabled")
-    private(set) var clientID = UserDefaults.standard.string(forKey: "discordClientID") ?? ""
+    /// NoNonsense's own Discord application, built in (8 Oct): you no longer make one and paste its ID. An application
+    /// ID is public by design (every Rich Presence program sends it); Discord's public record of this one shows only
+    /// its name, "NoNonsenseMusic", and no owner. Its name is what people see after "Listening to".
+    static let applicationID = "1556695358023803031"
+    private let clientID = Presence.applicationID
     private(set) var status = "Off"
     private(set) var lastTrack: Track?                     // for the preview in Settings
     private(set) var lastPlaylist: String?                 // the playlist that song plays from, if any
@@ -188,8 +192,6 @@ final class Presence {
     @ObservationIgnored private let ipc = DiscordIPC()
     @ObservationIgnored private var attempts = 0          // only the newest attempt may set `status`
 
-    /// Discord Application IDs are 17 to 20 digits; anything else is not tried (it would only be refused).
-    private var idLooksValid: Bool { (17...20).contains(clientID.count) && clientID.allSatisfy(\.isNumber) }
     @ObservationIgnored private var last: (isPlaying: Bool, position: Double) = (false, 0)
 
     init() { status = enabled ? "Shows up when a song plays" : "Off" }
@@ -201,29 +203,16 @@ final class Presence {
         else { status = "Off"; Task { try? await ipc.setActivity(nil, clientID: clientID); await ipc.disconnect() } }
     }
 
-    func setClientID(_ id: String) {
-        let id = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard id != clientID else { return }                 // same ID: keep the connection (no new handshake)
-        clientID = id
-        UserDefaults.standard.set(clientID, forKey: "discordClientID")
-        Task { await ipc.disconnect() }
-        if enabled { resend() }
-    }
-
     func update(_ track: Track?, isPlaying: Bool, position: Double, playlist: String? = nil) {
         lastTrack = track
         lastPlaylist = playlist
         last = (isPlaying, position)
         guard enabled else { return }
-        guard !clientID.isEmpty else { status = "Add your Discord Application ID"; return }
-        guard idLooksValid else { status = "An Application ID is 17–20 digits"; return }
         send(track.flatMap { activity(for: $0, isPlaying: isPlaying, position: position, playlist: playlist) }, title: track?.title)
     }
 
     /// Settings' "Send a test status": the last song, or a sample, so the setup can be checked without playing anything.
     func sendTest() {
-        guard !clientID.isEmpty else { status = "Add your Discord Application ID"; return }
-        guard idLooksValid else { status = "An Application ID is 17–20 digits"; return }
         let sample = lastTrack ?? Track(best: Listing(source: "jiosaavn", id: "test", title: "Test from NoNonsense", artists: ["NoNonsense"],
                                                       album: nil, duration: 200, popularity: nil, image: nil), listings: [])
         send(activity(for: sample, isPlaying: true, position: 0, playlist: lastPlaylist), title: sample.title)

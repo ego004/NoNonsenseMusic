@@ -57,7 +57,7 @@ struct HomeView: View {
             .background(ScrollElasticity(vertical: .none, horizontal: .none))
         }
         .scrollBounceBehavior(.basedOnSize)
-        .navigationTitle("Home")
+        .scrollTitle("Home")
         .task { await library.refresh() }
         .onAppear { appeared = true }
     }

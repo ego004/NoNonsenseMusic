@@ -50,7 +50,25 @@ extension SelfTest {
             check("a new account starts with an empty library", library.liked.isEmpty && library.recent.isEmpty && library.playlists.isEmpty)
             try? await Task.sleep(for: .seconds(1))
             check("signed in, the window shows the library", frames["sidebar.title:Home"] != nil && !signInShowing())
+            if let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+               let frame = window.contentView?.superview {
+                let blurs = descendants(of: frame).compactMap { $0 as? NSVisualEffectView }
+                report("after sign-in: behind-window blurs \(blurs.filter { $0.blendingMode == .behindWindow }.count), within-window \(blurs.filter { $0.blendingMode == .withinWindow }.count), text fields \(descendants(of: frame).filter { $0 is NSTextField && ($0 as! NSTextField).isEditable }.count), window opaque \(window.isOpaque)")
+            }
             snap("auth-signed-in")
+
+            // the toolbar's small title shows only once the big one has scrolled under it (8 Oct: they overlapped)
+            if let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+               let scroll = descendants(of: window.contentView!).compactMap({ $0 as? NSScrollView })
+                   .max(by: { $0.frame.height < $1.frame.height }) {
+                check("at the top of Home, no small title in the toolbar", window.title.isEmpty, "title “\(window.title)”")
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: 200))
+                scroll.reflectScrolledClipView(scroll.contentView)
+                try? await Task.sleep(for: .milliseconds(400))
+                check("scrolled down, the small title appears", window.title == "Home", "title “\(window.title)”")
+                scroll.contentView.scroll(to: .zero)
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
 
             // the player's address: /play is asked with the token, and its redirect is not followed (handoff 3.2)
             let song = madeUp("Auth test song")

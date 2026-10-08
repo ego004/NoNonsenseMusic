@@ -273,7 +273,7 @@ struct SongListView: View {
         } message: {
             Text("They stay in your library and still play from the internet.")
         }
-        .navigationTitle(item.title)
+        .scrollTitle(item.title)
         .task { await library.refresh() }
     }
 

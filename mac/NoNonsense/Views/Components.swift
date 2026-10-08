@@ -659,6 +659,28 @@ extension WindowSurface where Wash == EmptyView {
     init() { wash = { EmptyView() } }
 }
 
+/// Apple's large-title pattern (Music, Mail): the big title belongs to the content, and the toolbar's small title
+/// appears only once the big one has scrolled up under the toolbar. Both at once overlapped under the see-through
+/// toolbar (8 Oct). Put it on the scroll view itself (List or ScrollView). The transform runs per scroll step but only
+/// computes a Bool; SwiftUI calls the action, and redraws the toolbar, only when it flips.
+struct ScrollTitle: ViewModifier {
+    let title: String
+    var after: CGFloat = 36                    // points scrolled before the big title is under the toolbar
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > after } action: { _, now in
+                shown = now
+            }
+            .navigationTitle(shown ? title : "")
+    }
+}
+
+extension View {
+    func scrollTitle(_ title: String, after: CGFloat = 36) -> some View { modifier(ScrollTitle(title: title, after: after)) }
+}
+
 struct ClearWindow: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { Finder() }
     func updateNSView(_ view: NSView, context: Context) {}

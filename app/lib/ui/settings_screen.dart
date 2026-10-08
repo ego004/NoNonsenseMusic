@@ -39,7 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         heading('Account'),
         Row(children: [
           Expanded(child: Text(s.auth.user == null ? 'Signed in' : 'Signed in as ${s.auth.user!.username}')),
-          // this device only: your other devices stay signed in
+          // this device only: the others stay signed in
           OutlinedButton(onPressed: s.auth.signOut, child: const Text('Sign Out')),
         ]),
         const SizedBox(height: 12),

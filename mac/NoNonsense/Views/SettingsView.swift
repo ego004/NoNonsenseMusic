@@ -402,7 +402,6 @@ private struct DiscordSettings: View {
     @AppStorage("settings.open.share") private var openShare = true
     @AppStorage("settings.open.preview") private var openPreview = true
     @Environment(Presence.self) private var presence
-    @State private var idDraft = ""                      // applied on Return: each change means a new Discord handshake
     @State private var messageDraft = ""                 // applied on Return: each change is a command to Discord
 
     var body: some View {
@@ -410,18 +409,10 @@ private struct DiscordSettings: View {
         Form {
             Section {
                 Toggle("Show what I'm listening to", isOn: Binding(get: { presence.enabled }, set: { presence.setEnabled($0) }))
-                TextField("Application ID", text: $idDraft, prompt: Text("e.g. 1291000000000000000"))
-                    .onSubmit { presence.setClientID(idDraft) }
-                    .onAppear { idDraft = presence.clientID }
                 LabeledContent("Status") { Text(presence.status).foregroundStyle(.secondary) }
-                Button("Send a test status") {
-                    presence.setClientID(idDraft)            // a pasted ID counts even without Return
-                    presence.sendTest()
-                }
-                .disabled(idDraft.isEmpty)
+                Button("Send a test status") { presence.sendTest() }
             } footer: {
-                Text("Needs the Discord app open. Create an application at discord.com/developers → New Application; its name is what people see after “Listening to”. Paste its Application ID here.")
-                    .foregroundStyle(.secondary)
+                Text("Needs the Discord app open on this Mac.").foregroundStyle(.secondary)
             }
 
             Section(isExpanded: $openShare) {
@@ -453,12 +444,7 @@ private struct DiscordSettings: View {
                 Text("Share")
             }
 
-            Section {
-                EmptyView()
-            } footer: {
-                Text("The logo needs one upload: discord.com/developers › your application › Rich Presence › Art Assets › add the icon named “nononsense”. It shows as the picture while paused, and as a small badge on the cover while playing.")
-                    .foregroundStyle(.secondary)
-            }
+
 
             Section(isExpanded: $openPreview) {
                 DiscordPreview()

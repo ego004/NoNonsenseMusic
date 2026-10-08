@@ -20,6 +20,7 @@ struct PlaylistView: View {
                 songs(detail)
             } else if loading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .navigationTitle(library.playlists.first { $0.id == id }?.name ?? "Playlist")
             } else {
                 // the server could not be asked (it spun forever, audit 7 Oct): say so, and offer to ask again
                 ContentUnavailableView {
@@ -29,9 +30,9 @@ struct PlaylistView: View {
                 } actions: {
                     Button("Try Again") { Task { await load() } }
                 }
+                .navigationTitle(library.playlists.first { $0.id == id }?.name ?? "Playlist")
             }
         }
-        .navigationTitle(detail?.name ?? library.playlists.first { $0.id == id }?.name ?? "Playlist")
         .task(id: id) { await load() }
     }
 
@@ -91,6 +92,7 @@ struct PlaylistView: View {
             player.play(tracks, startAt: i, keys: detail.keys, source: detail.queueSource)
         }
         .scrollContentBackground(.hidden)
+        .scrollTitle(detail.name)
         .animation(.snappy(duration: 0.3), value: detail.keys)          // rows slide when one is removed or added
         .sensoryFeedback(.levelChange, trigger: detail.keys)            // a light tick as the order changes (Force Touch trackpads)
     }
