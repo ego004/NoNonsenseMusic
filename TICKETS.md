@@ -43,39 +43,30 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 
 ## NOW · Release 1, the open list (8 Oct 2026)
 
-Every ask from the 8 Oct sessions, so none is lost. ✅ done · ◐ in progress · ☐ to do · ❓ waits on your decision.
+Every ask from the 8 Oct sessions, so none is lost. ✅ done · ☐ to do · 🤝 built together with the owner · ❓ waits on the owner.
+How each ✅ was built and checked: `handoff.md`, and the commit messages.
 
-**Done today:** ✅ accounts merged (AUTH-1, AUTH-3, both apps sign in) · ✅ your library migrated to `ego` · ✅ sign-in screens rewritten (see-through, short text) · ✅ device name chosen at sign-in, renamed in Settings (`PATCH /auth/me/device`) · ✅ expired sessions cleaned every 6 h · ✅ the computer-name leak looked at (the name is shown before it is sent, and yours to change)
+**Done (8 Oct):** accounts merged (AUTH-1, AUTH-3; both apps sign in) · the owner's library migrated · sign-in screens (see-through, short text, device name, server address) · device rename (`PATCH /auth/me/device`) · expired sessions cleaned every 6 h · titles that never overlap (Mac `scrollTitle`) · Discord id built in (Mac) · **YouTube links looked up by the apps** (visionOS client; the server's /play is the fallback) · Flutter lyrics fetched as a song starts · members list (`GET /playlists/{id}/members`, both apps) · Flutter Settings: appearance, lyrics, server status · Flutter Mac: YouTube length doubled, fixed · playlist links: the server's `/p/<id>` page, the Mac app opens `nononsense://playlist/<id>`, Copy Link in both apps
 
-**Apps**
-- ✅ Mac: the big "Liked Songs" title and the toolbar's small title overlapped → the toolbar title appears only once the big one has scrolled under it (`scrollTitle`; self-test checks it)
-- ✅ Mac: a faint sign-in screen behind the library: it was a self-test window behind yours (you, 8 Oct)
-- ◐ Flutter: Settings with everything the Mac app has → ✅ Appearance (theme, text size), Lyrics (when to fetch, line movement), Server status; ☐ Discord (the feature itself is missing in Flutter: Rich Presence over Discord's local pipe/socket), ☐ Footprint (CPU and memory), ☐ card size. Trackpad and the glass controls are Mac only
-- ✅ Flutter Mac build: a YouTube song showed twice its length (Apple's player misreads YouTube's AAC); capped at the listed length + 1 s, and ends there, as on the Mac
-- ✅ Both apps: the server's address set on the sign-in screen ("Server: …", a click to change), and changed later in Settings › Server
-- ☐ Flutter: every Mac fix of 8 Oct, checked one by one, and the app run for real
-- ✅ Discord: the application id built in, no field to fill (public by design; Discord's record shows only the name, no owner)
-- ✅ YouTube links looked up by the apps (visionOS client: whole songs, ~0.6 s), the server's /play as fallback; Mac self-test and Flutter integration test play one with no /play reaching the server. Also fixes YouTube failing (-1) in the Flutter Mac build
-- ☐ Explain YouTube old vs new
-- ❓ Genius, experimental (Settings): researched 8 Oct. Annotations and credits via the official API need a free token (yours: genius.com/api-clients, into backend/.env); the lyrics text is in no API (only the 590 KB web page, against Genius's terms) → your call on both
-- ✅ Flutter: "Finding lyrics" showed on opening the lyrics: Flutter asked only when the panel opened; now as each song starts, like the Mac (integration test checks the panel opens with them)
-- ☐ Rate limiting and recovery codes: built together with you
-- ☐ Deploy on Render (your choice, 8 Oct)
-- ❓ Keychain prompt on every build (ad-hoc signing): A, a certificate made on this Mac, or B, the token in a file only your account reads
-- ☐ Footprint at 11%: measure it with you, not a priority (you, 8 Oct)
-- ◐ Public playlists open by **link** (your choice, 8 Oct): ✅ the server's `/p/<id>` page, ✅ the Mac app opens `nononsense://playlist/<id>`, ✅ Copy Link in both apps' share dialogs; ☐ Flutter opening links (a new package, `app_links`, plus registration on each platform). How: each app registers a URL scheme, `nononsense://playlist/<id>` (Mac: Info.plist `CFBundleURLTypes`; Windows: a registry key the installer writes; Android: an intent filter), and the server serves `https://<server>/p/<id>`, a tiny page that opens that link (and says "get the app" when nothing opens it). Share… gets "Copy Link"
-- ✅ Members list: `GET /playlists/{id}/members`; the share sheet lists people, the owner removes them, members see it under People… (both apps)
+**To build, in this order**
+1. ☐ **The name "NoNonsenseMusic"** wherever the app's name shows: the Mac app (menu bar, Dock, window title, About; `CFBundleDisplayName`/`CFBundleName`) and the Flutter app (Windows window title, taskbar, installer, `.exe` product name; Android launcher label; macOS build too)
+2. ☐ **Mac: in full screen, the top bar (where the small title shows) turns black.** The window is see-through (`WindowSurface`, `ClearWindow`); in full screen macOS draws the toolbar area itself
+3. ☐ **The session token in a file, not the Keychain** (owner's choice, 8 Oct): the Keychain asks for the login password after every build because the app is ad-hoc signed (each build is a "new app" to it). Mac: a file in Application Support, permissions 0600 (only the owner's account reads it), the Keychain item deleted once moved. Flutter macOS: the same (flutter_secure_storage on Mac has the same prompt); Windows (DPAPI) and Android (Keystore) stay as they are: they never prompt
+4. ☐ **Genius notes, experimental** (Settings › Lyrics, off by default; notes only, not lyrics text). The website's own API first (no token: `genius.com/api/search/song`, `/api/referents?song_id=…&text_format=plain`), the official API with the owner's token as the fallback if that breaks (`GENIUS_ACCESS_TOKEN` in `backend/.env`, which the owner adds). Fetched once on the server, cached for everyone like lyrics. UI: a faint accent underline on lines with a note; a click opens a glass popover with the note, credited "Genius"; an "About" card in Now Playing (description, produced by, samples)
+5. ☐ **Flutter opens playlist links**: `app_links`, plus `nononsense` registered on macOS (Info.plist), Android (intent filter) and Windows (registry under HKCU, and forwarding a link to the open app)
+6. ☐ **Discord in Flutter** (the feature does not exist there): Rich Presence over Discord's local pipe (Windows) or socket (macOS, Linux), the Mac app's `Presence.swift` as the model, its built-in application id
+7. ☐ **Footprint in Flutter** (CPU and memory), and card size
+8. ☐ Footprint shows up to 11% on the Mac with its page open: measure, low priority
 
-**Server, then deploy on the web**
-- ❓ Recovery codes instead of email (your design, reviewed 8 Oct): you write it, or Claude?
-- ☐ Rate limit sign-in, sign-up and recovery per IP
-- ☐ The hosted server starts with the access log off (it records every IP and song played)
-- ☐ Deploy: where, the domain, HTTPS, backups
-- ❓ Saving someone else's public playlist (`playlist_saves`): undecided
+**With the owner (do not build alone)**
+- 🤝 Recovery codes (the owner's design, reviewed 8 Oct: 10 single-use 80-bit codes shown once at sign-up, SHA-256 stored, `DELETE … RETURNING` as the check, one transaction with the new password and deleting every session)
+- 🤝 Rate limiting: per IP for sign-in, sign-up and recovery; per account after sign-in
+- 🤝 Deploy on **Render**: the access log off (it records every IP and song), HTTPS, the database and its backups, the domain
 
-**Owed explanations:** `_taken`, `_rekey`, `_move` · YouTube old vs new
+**Waiting on the owner**
+- ❓ Saving someone else's public playlist to your list (`playlist_saves`)
 
-**Later:** AUTH-4 the device list · LIVE-1…3 · FRIENDS-1, JAM-1 · releases (.dmg, Windows, .apk) · delete the `backup-before-rewrite` tag and `~/projects/music-backups` when you are happy · BUG-5, BUG-7 · MUS-15 onwards
+**Later:** AUTH-4 the device list · LIVE-1…3 · FRIENDS-1, JAM-1 · releases (.dmg, Windows, .apk) · BUG-5, BUG-7 · MUS-15 onwards · delete the `backup-before-rewrite` tag and `~/projects/music-backups` (owner, when happy)
 
 ---
 

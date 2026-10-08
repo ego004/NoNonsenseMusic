@@ -1,11 +1,11 @@
-# Handoff · NoNonsense Music
+# Handoff · NoNonsenseMusic
 
-As of 8 Oct 2026. Written for a Claude session that continues on **the apps** while the server work for accounts
-is finished on a branch. Read this first, then `TICKETS.md` (the plan; the AUTH section has the design and why),
-then `docs/backend.md`, `docs/mac-app.md`.
+As of 8 Oct 2026, evening. For a Claude session that continues building while the owner is away from the Mac session
+that wrote this. Read this, then `TICKETS.md` › **NOW** (the open list, in build order), then `docs/` where you need the
+detail of a file.
 
-**If your checkout is older than 8 Oct, reset it first:** history on `main` was rewritten on 8 Oct (a personal
-detail removed from an old commit). Old clones have commits that no longer exist:
+**If your checkout is older than 8 Oct, reset it first.** History on `main` was rewritten on 8 Oct (a personal detail
+removed from an old commit); old clones hold commits that no longer exist:
 
 ```bash
 git fetch origin && git reset --hard origin/main
@@ -15,196 +15,134 @@ git fetch origin && git reset --hard origin/main
 
 ## 1. The map
 
-| Part | Where | State |
+| Part | Where | State, 8 Oct |
 |---|---|---|
-| Server (FastAPI, PostgreSQL 18) | `backend/` | Accounts, sessions, per-user library, shared playlists: **done on branch `auth-1`**, not on `main` |
-| Mac app (SwiftUI, macOS 26) | `mac/` | Works against `main`'s server (no accounts). **Needs sign-in** before `auth-1` can merge |
-| Windows / Android / Mac app (Flutter) | `app/` | Milestones 1–2 done (library, playing, under 1% CPU behind other windows). **Needs sign-in** too |
-| Plan | `TICKETS.md` | Release 1 = AUTH-1…4, LIVE-1…3, FRIENDS-1, JAM-1 |
+| Server (FastAPI, PostgreSQL 18, Python 3.13, uv) | `backend/` | Accounts, per-user library, shared playlists, members, device names, link page. **217 tests pass** |
+| Mac app (SwiftUI, macOS 26, Liquid Glass) | `mac/` | Signs in; looks YouTube links up itself; opens playlist links. Self-tests pass |
+| Flutter app (Windows, Android; also builds for macOS) | `app/` | Signs in; looks YouTube links up itself; Settings partly matched to the Mac. **21 tests + the integration test pass** |
+| CI | `.github/workflows/` | Builds the Mac app, the Windows app, and Flutter for macOS and Android on every push to `main` |
+| The plan | `TICKETS.md` › NOW | Every open ask, in order. **Work from it** and tick items there as they land |
 
-**Your job: sign-in in both apps (section 3), against `auth-1`.** The server side is finished and tested; the apps
-are what blocks the merge. Branch from `auth-1` (`git switch -c app-auth origin/auth-1`), not from `main`.
-
-**Roles.** The owner writes the backend; Claude reviews, explains and writes the tests. Claude owns the apps. Any app
-code that relies on a backend contract, or any edit to a backend file, is named in that reply: the owner's design
-wins.
-
-**Rules that hold everywhere:**
-- The repo is **public**. Before every push (docs and tickets too), scan the diff and commit messages for personal
-  information. No real names as example data ("Alex", "Sam", "Kai" are the examples). No stream URLs, yt-dlp dumps,
-  `.env` contents, real lyrics, or IP addresses in commits or logs.
-- Lightest is the default: ~0% CPU idle, ~1% playing, measured in Release. A costly feature is a setting that
-  shows its measured cost.
-- Tests are lean: one per behaviour, each must fail on the old code.
-- Comments say why, with a date. Commit and push only when the owner asks; merge to `main` only when the owner asks.
-- Tests use the `music_test` database and port 8765, never `music` or 8000.
+Everything is on `main`. The owner's own database is migrated to accounts; their Mac runs the app from `main`.
 
 ---
 
-## 2. What `auth-1` changed on the server
+## 2. Rules (from the owner; they hold everywhere)
 
-Five commits on `auth-1` (`git log --oneline main..origin/auth-1`). `uv run pytest -q` in `backend/`:
-**213 passed, 1 xfailed** (8 Oct).
+- **The repo is public.** Before every push (docs and tickets too), scan the diff and the commit messages:
+  `git diff origin/main..HEAD | grep -i -E "<the owner's names, school, employer, email domain, home IP prefix>|/Users/|googlevideo"`.
+  You do not know the owner's personal details, and must not learn them from the repo's history: scan for `/Users/`,
+  `@gmail`, `googlevideo` (stream URLs), and anything that looks like a real name, email or IP. Example names in code
+  and tests: **Alex, Sam, Kai**. Never commit stream URLs, yt-dlp dumps, `.env` contents, real lyrics, or IP addresses.
+- **Lightest is the default:** ~0% CPU idle, ~1% playing, measured in Release. A costly feature is a setting, off by
+  default, that shows its measured cost.
+- **Apple design language** on the Mac (Fluent-like on Windows): no narrating captions under controls ("Sharing again
+  changes…" was removed on 8 Oct); short, plain text; Apple's patterns (large titles, sheets, popovers).
+- **Tests are lean:** one per behaviour, each must fail on the old code. **Show evidence** in your reply (what you ran,
+  what came back); say plainly what you could not run.
+- **Comments say why, with a date.** No `dart format` over whole files: the project's lines run to ~120 characters and
+  the formatter rewrites everything (it did on 8 Oct; reverted).
+- **Backend:** name every backend file you change in your reply. **Recovery codes, rate limiting and the deploy are built
+  together with the owner: do not build them alone.**
+- **Tests never touch the owner's library:** database `music_test`, test server on port 8765 (or 8766), never 8000.
+  Never edit `backend/.env`. Never type or ask for the owner's password.
+- Git: a branch per change, tests pass, merge into `main`, push (the owner allows that for this work).
 
-### Accounts and sessions (AUTH-1)
-- **Sign up is open to anyone:** username 3–32 characters (unique, case-insensitive), password 8–64.
-- **Passwords:** Argon2id (`argon2-cffi`), hashed off the event loop.
-- **Sessions are opaque tokens, not JWT:** `secrets.token_urlsafe(32)`; the server stores only its SHA-256. One row
-  per signed-in device. 30 days, sliding (each use pushes the expiry, written at most once an hour). Sign-out
-  deletes the row, so it ends at once.
-- **Every request but three needs `Authorization: Bearer <token>`.** Missing, wrong, expired or signed-out token →
-  **401** with `WWW-Authenticate: Bearer`. The open three: `GET /health`, `POST /auth/signup`, `POST /auth/signin`.
-- Wrong password and unknown username answer the same 401 body, `"Wrong username or password"`, in the same time.
+---
 
-### Per-user library (AUTH-3)
-- Likes, plays (events) and playlists belong to a user. `GET /liked`, `/recent`, `/playlists` answer **yours**.
-- Songs, listings, the audio-link cache and the lyrics cache stay shared: computed once for everyone.
-- `/prefetch` replaces **your** waiting list only; the workers take one song from each user in turn.
+## 3. Running and checking things
 
-### Shared playlists (AUTH-3)
-Each playlist has an owner, an optional list of members (`viewer` or `editor`), and a `public` flag.
-
-| Who | Open, play | Add, remove, reorder songs | Rename, public, delete, invite, remove people |
-|---|---|---|---|
-| Owner | yes | yes | yes |
-| Editor | yes | yes | no (403) |
-| Viewer, or anyone signed in when `public` | yes | no (403) | no (403) |
-| Anyone else, private | **404** (as if it did not exist) | 404 | 404 |
-
-A member may remove themselves (leave). `GET /playlists` lists your own (in your order), then those shared with
-you; a public playlist you are not a member of is **not** listed: it is opened by id (a link).
-
-### The API the apps call (generated from the routes, 8 Oct)
-
-| Route | Answer | Notes |
+| What | Command | Needs |
 |---|---|---|
-| `GET /health` | 200 | open |
-| `POST /auth/signup` `{username, password, device_name?}` | **201** `{token, user: {id, username}}` | open. 409 taken, 422 bad length |
-| `POST /auth/signin` `{username, password, device_name?}` | 200 `{token, user}` | open. 401 wrong |
-| `GET /auth/me` | 200 `{id, username}` | check a stored token at launch |
-| `POST /auth/signout` | 204 | ends this token only |
-| `GET /search?q=` | 200 | |
-| `GET /play/{source}/{source_id}[?serve_fresh=true]` | **307** to the audio URL | needs the token: see 3.2 |
-| `POST /prefetch` `{listings}` | 202 | |
-| `POST /liked` · `DELETE /liked/{song_id}` · `GET /liked` | `SongRef` · 204 · list | yours |
-| `GET /recent?limit=` · `POST /events` | list · `SongRef` | yours |
-| `POST /playlists` `{name}` | 201 `PlaylistMetadata` | 409 if **you** have that name |
-| `GET /playlists` | `{playlists: [PlaylistMetadata]}` | each now has `public` and `role` |
-| `GET /playlists/{id}` | `PlaylistItems` | has `public`, `role`; `liked` on items is the viewer's own |
-| `PATCH /playlists/{id}` `{name?, public?}` | 200 `PlaylistMetadata` | owner only. Was rename (`{name}`) only; the apps' existing rename calls still work. `public` is new |
-| `DELETE /playlists/{id}` | 204 | owner only |
-| `POST /playlists/{id}/items` · `DELETE …/items/{item_id}` · `POST …/items/{item_id}/move` | 201 · 204 · 204 | editor or owner |
-| `POST /playlists/{id}/move` | 204 | reorders **your** list (own playlists) |
-| `PUT /playlists/{id}/members` `{username, role: viewer\|editor}` | 204 | **new**, owner. Same call again changes the role. 404 `"No account with that username"` |
-| `DELETE /playlists/{id}/members/{user_id}` | 204 | **new**. Owner removes anyone; a member removes themselves |
-| `POST /lyrics` | 200 | |
+| Backend tests | `cd backend && uv run pytest -q` → 217 passed, 1 xfailed | PostgreSQL with a `music_test` database |
+| A test server | `cd backend && DATABASE_URL=postgresql:///music_test uv run fastapi run src/music_backend/main.py --port 8765 --host 127.0.0.1` | the same |
+| Flutter tests | `cd app && flutter test --dart-define=SERVER=http://127.0.0.1:8765` → 21 passed, 1 skipped | the test server; without it the server tests skip themselves |
+| Flutter, real YouTube | `flutter test test/youtube_test.dart --dart-define=YOUTUBE=1` | the internet |
+| Flutter, the whole app in a window | `flutter test integration_test/app_test.dart -d macos --dart-define=SERVER=http://127.0.0.1:8765` | macOS; it signs up, plays (a YouTube song too), opens lyrics, a playlist, every Settings section |
+| Mac self-tests | `mac/Scripts/selftest.sh NN_SELFTEST_AUTH=1` (accounts, sharing, links, titles), `NN_SELFTEST_YOUTUBE=1` (a YouTube song looked up and played by the app) | macOS; `NN_TEST_PORT=8766` if 8765 is busy |
+| Mac Release build | `cd mac && xcodegen && xcodebuild -project NoNonsense.xcodeproj -scheme NoNonsense -configuration Release -derivedDataPath build build` | macOS, Xcode |
 
-`PlaylistMetadata` = `{id, name, song_count, thumbnail, duration, public, role}`; `role` is
-`"owner" | "editor" | "viewer"`.
-
-**There is no route that lists a playlist's members yet.** The sharing screen can invite and change roles, but cannot
-show who is on it. If the app needs that list, ask the owner first: it is a backend change, and the owner writes the
-backend.
+If your machine lacks PostgreSQL or macOS, run what you can, let CI build the rest, and **say which checks you could
+not run**. Never claim a check you did not run.
 
 ---
 
-## 3. Your work: sign-in in both apps
+## 4. How the 8 Oct changes work (what you build on)
 
-### 3.1 Both apps
+**Accounts.** Opaque session tokens (SHA-256 stored), Argon2id passwords, 30-day sliding sessions, expired ones cleaned
+every 6 h. Every route needs `Authorization: Bearer <token>` except `/health`, `/auth/signup`, `/auth/signin` and the
+link page `/p/{id}`. 401 → the apps show sign-in again. Device names: chosen at sign-in (the computer's name as the
+starting value, shown before it is sent), renamed with `PATCH /auth/me/device`.
 
-1. **Sign-in / sign-up screen** at launch when no token is stored. One screen, two buttons. Show the server's
-   `detail` text on 401, 409 and 422 errors (it is written to be shown).
-2. **Store the token in the platform's secure store**, not in preferences: the Keychain on macOS; on Flutter, the
-   `flutter_secure_storage` package (Keychain on Apple, DPAPI-encrypted on Windows, the Android Keystore).
-   `flutter_secure_storage` is a new dependency: say so when you add it.
-3. **Send `Authorization: Bearer <token>` on every request.**
-   - Mac: `API.swift` builds every `URLRequest` in `get`, `sendNoContent`, `send` (around line 181–210), plus
-     `health` (line 37), `DELETE /liked` (line 113), and `Debug/SelfTest.swift:271`. One place should add the
-     header.
-   - Flutter: `lib/core/api.dart`, `_send` (around line 22).
-4. **On 401 from any route** (expired, or signed out on another device): drop the token, show the sign-in screen.
-   Not a "server unreachable" banner: the server answered.
-5. **Launch:** with a stored token, call `GET /auth/me`. 200 → in; 401 → sign-in screen.
-6. **Sign out** in Settings: `POST /auth/signout`, then delete the token.
-7. **`device_name`** on sign-up and sign-in: the computer's name (it becomes the device list in AUTH-4).
+**Playlists and sharing.** Owner / editor / viewer, plus a `public` flag; one access check (`library._require`). A
+private playlist you cannot see is 404; a role too low is 403. `GET /playlists/{id}/members`: the owner first, then
+members (for the owner and members only). Shared links: `<server>/p/<id>` is an open page that hands over to
+`nononsense://playlist/<id>`; the Mac app registers that scheme (its Debug build answers `nononsense-debug` instead, so
+self-tests never catch the owner's links).
 
-### 3.2 Playing audio: do not give the token to the player
+**YouTube.** A YouTube link carries the IP that asked for it, signed (`ip` is in its `sparams`): a link the server
+fetches plays only on the server's network. So **the apps look YouTube links up themselves** (`mac/…/YouTubeLookup.swift`,
+`app/lib/core/youtube.dart`): an anonymous visitor id from youtube.com (memory only), then one POST to
+`youtubei/v1/player` as the **visionOS** client, the one yt-dlp uses (no JavaScript, no PO token); AAC, itag 140. The
+Android client gave only the first 1 MB of music tracks (403 after). The server's `/play` (yt-dlp) is the fallback. When
+YouTube breaks the visionOS client, copy the new values from yt-dlp's `yt_dlp/extractor/youtube/_base.py` ('visionos').
+Apple's player misreads these files' length (about twice): both apps cap the length at the listed one + 1 s, and end
+the song there.
 
-`/play` needs the token, and it answers 307 to the audio host (YouTube or JioSaavn). Today both apps hand the
-`/play` URL straight to the player (`Player.swift:374` `AVPlayerItem(url:)`, `DownloadStore.swift:79`,
-`player.dart:200` `_audio.setUrl`). With accounts, the player would have to send `Authorization`, and if its
-HTTP stack follows the redirect with that header, **the token goes to the audio host.**
-**Not verified:** whether AVFoundation, `URLSession` and just_audio's three backends forward `Authorization` across
-hosts. Do not rely on it either way.
-
-**Do this instead:** the app asks `/play` itself, with the token, **without following the redirect**, reads the
-`Location` header, and gives that audio URL to the player. The Mac app already does exactly this for
-`serve_fresh` (`API.swift:59`, the `noRedirect` session): make it the only path. It costs no extra round trip:
-following the redirect was already two requests. The player never sees the token; downloads use the same audio URL.
-
-### 3.3 Playlists in the UI
-- Show shared playlists under your own. The server sends yours first, then the shared ones; tell them apart by
-  `role != "owner"` (there is no separate `shared` field).
-- Use `role` to show or hide actions: viewer → no add, remove, reorder; editor → no rename, delete, public toggle,
-  share. The server enforces this anyway (403); the UI should not offer what will be refused.
-- Owner: a **Share** sheet (username + viewer/editor), a **Public** toggle (`PATCH {public}`), rename via
-  `PATCH {name}`. Member: **Leave** (`DELETE …/members/{own user id}`; the id is in `/auth/me`).
-- A playlist that answers 404 after it was open (unshared, or deleted by its owner): close it and refresh the list.
-
-### 3.4 Tests that will need a token
-- Mac self-tests (`mac/Scripts/selftest.sh`, test server on 8765): sign up a `test-<random>` account first.
-- Flutter `test/library_server_test.dart`: the same.
-- The backend's own `tests/conftest.py` has `sign_up(client)` as the pattern: accounts named `test-…` are deleted
-  after the run.
-
-### 3.5 Building
-- Mac app: `cd mac && xcodegen && xcodebuild -project NoNonsense.xcodeproj -scheme NoNonsense -configuration Release -derivedDataPath build build`.
-  **The app starts its own server** (`ServerLauncher`) from `backend/` on port 8000: whatever branch is checked out.
-- Flutter: `cd app && flutter build macos` (also `windows` in CI: `.github/workflows/windows.yml`; `apk` for
-  Android).
+**The apps never hand the session token to an audio player**: they ask `/play` themselves without following the
+redirect and give the player the `Location`.
 
 ---
 
-## 4. Merging `auth-1` (the owner does this, when both apps sign in)
+## 5. What to build, in order (TICKETS.md › NOW has the list; here are the hints)
 
-The server on `auth-1` **refuses to start on a database from before accounts**, with a message that says what to
-run. The owner's own library must move to their account once, in one transaction:
+1. **The name "NoNonsenseMusic"** wherever the app's name shows. Mac: `mac/project.yml` (`CFBundleDisplayName`, and
+   `CFBundleName`/`PRODUCT_NAME` if the menu bar should say it; the Keychain item and the preferences domain
+   `app.nononsense.music` stay). Flutter: `app/windows/runner/main.cpp` (window title), `app/windows/runner/Runner.rc`
+   (product name), `app/android/app/src/main/AndroidManifest.xml` (`android:label`), `app/macos/Runner/Configs/AppInfo.xcconfig`
+   (`PRODUCT_NAME`), and `MaterialApp(title:)` in `app/lib/main.dart`.
+2. **Mac, full screen: the top bar turns black.** The main window is made see-through (`ClearWindow`, `WindowSurface`
+   in `Views/Components.swift`); in full screen macOS draws the toolbar area itself and shows black there. Look at how
+   the toolbar background is hidden (`RootView.swift`, `.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)`) and
+   what a full-screen window needs (it cannot be see-through to the desktop: give the full-screen case the window
+   colour, or the same blur as the content). Check it in a real full-screen window.
+3. **The session token in a file, not the Keychain** (the owner's choice). Why: the app is ad-hoc signed, every build is
+   a "new app" to the Keychain, so it asks for the login password after each build. The professional fix is the
+   Keychain plus a stable signature (an Apple Developer ID); without one, a file only the user's account can read is
+   what most open-source apps do. Mac: `~/Library/Application Support/<bundle id>/session` with permissions 0600, written
+   atomically; move an existing Keychain token into it once, then delete the Keychain item (`Services/Account.swift`).
+   Flutter on macOS: the same, replacing `flutter_secure_storage` there; keep it on Windows (DPAPI) and Android
+   (Keystore), which never prompt.
+4. **Genius notes, experimental** (off by default; notes only, never Genius's lyrics text). Server: a new source next to
+   `services/lyrics.py`, cached in the database for everyone like lyrics. First the website's own API (no token;
+   researched 8 Oct: `https://genius.com/api/search/song?q=…` then `https://genius.com/api/referents?song_id=…&per_page=50&text_format=plain`,
+   about 3.4 s and 123 KB per song, 11 notes for one test song); the official API (`api.genius.com`, same data) with
+   `GENIUS_ACCESS_TOKEN` from `backend/.env` as the fallback when the website's breaks (the owner adds the token; the
+   official API without it answers 401). Apps: a faint accent underline under lyric lines that have a note (match each
+   note's fragment to the lines, case and punctuation ignored); a click opens a glass popover with the note, credited
+   "Genius"; an "About" card in Now Playing (description, produced by, samples). Settings › Lyrics › "Genius notes".
+5. **Flutter opens playlist links**: the `app_links` package; register `nononsense` on macOS (Info.plist), Android
+   (intent filter) and Windows (registry under `HKCU\Software\Classes\nononsense`, and forwarding a link to the app
+   already open, per `app_links`' Windows notes).
+6. **Discord in Flutter**: Rich Presence over Discord's local IPC (Windows: the pipe `\\.\pipe\discord-ipc-0`; macOS
+   and Linux: the socket `discord-ipc-0` in the temp folder). `mac/NoNonsense/Services/Presence.swift` is the model
+   (handshake, frames, the built-in application id, what is shared, the settings).
+7. **Footprint in Flutter** (this app's CPU and memory; the Mac's `Services/Footprint.swift` is the model), and card size.
+8. Footprint reads up to 11% on the Mac with its page open: measure (low priority).
 
-```bash
-cd ~/projects/music/backend && uv run python scripts/migrate_auth3.py --username <their username>
-```
-
-It asks for the password itself (never type it for them, never put it in a command). It was verified on a copy of
-the real database on 8 Oct (22 likes and 510 plays moved; a second run prints "Nothing to do"). `music_test` is
-already migrated.
-
-Order: both apps sign in → owner runs the migration → merge `auth-1` (and the app branch) into `main`.
+**Not yours:** recovery codes, rate limiting and the deploy on Render are built with the owner. `playlist_saves` waits on
+the owner's decision.
 
 ---
 
-## 5. What is left for release 1, in order
+## 6. Things learned the hard way (8 Oct)
 
-| Item | What | Who |
-|---|---|---|
-| **App sign-in** | Section 3 | you (Claude, apps) |
-| **AUTH-2** | Email: verification at sign-up, password reset by emailed code. A sender must be chosen (an app password on a mail account, or a provider with an own domain): **ask the owner** | owner + Claude |
-| **AUTH-4** | Devices: list your sessions (name, last used), sign one out remotely | owner + Claude |
-| **Rate limits** | Per account after sign-in; per IP only for sign-in attempts (decided 8 Oct) | owner + Claude |
-| **LIVE-1…3** | A live connection per device; control one device from another (Spotify Connect-like); choose the audio output per device | both |
-| **FRIENDS-1, JAM-1** | Friends by list or link; a jam everyone in it controls | both |
-| **Releases** | GitHub Releases: Mac `.dmg` (the Swift app), Windows installer or zip, Android `.apk` | Claude |
-
-**Undecided (ask before building):** saving someone else's public playlist to your list. Proposed: a separate
-`playlist_saves` table (not a fourth role: a save gives no rights, it only lists it). The owner has not chosen.
-
-**Known, open:**
-- YouTube copies fail to play in the Flutter app's **macOS** build (just_audio error -1); JioSaavn copies play.
-  Windows is unaffected as far as tested.
-- Home's sideways shelf swipe (Flutter) is not verified on a real trackpad.
-- Mac app: dragging inside a playlist that is then deleted leaves the top and bottom bars transparent.
-- Recently Played reads all of a user's plays (fast now, 0.4 ms at test scale); a "last played" table fixes it if
-  it grows.
-- Hosting test: YouTube audio URLs are bound to the IP that asked for them, so a hosted server must also be the
-  thing that streams, or the URLs fail on another network. Not tested yet.
-- MUS-15 onwards in `TICKETS.md`; BUG-5 and BUG-7 (backend, the owner's).
-- The docs (`docs/backend.md`) do not describe `auth-1` yet: **the owner writes the README and docs**; leave them.
+- The Mac self-tests' pictures cannot draw Liquid Glass or `List` contents: a glass button draws as plain text there. Trust
+  the checks; judge looks on a real screen.
+- The Mac self-test app shares preferences with the owner's app: a test that changes a setting must put it back.
+- Flutter `bool.fromEnvironment('X')` is true only for the word `true`; use `String.fromEnvironment('X') != ''`.
+- A Flutter test finder with `.first` throws when nothing is built yet; `scrollUntilVisible` needs the plain finder.
+- The Flutter integration test needs its window in front; it stalls if another app is full screen.
+- `player.position` on the Mac is the clock's starting point; the playing position is `livePosition`.
+- psycopg: a connection block commits on normal exit and rolls back on an exception; raise after the block when a write
+  must stay (the expired-session delete).
