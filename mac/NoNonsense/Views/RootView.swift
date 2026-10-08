@@ -10,11 +10,9 @@ struct RootView: View {
     @AppStorage("lyricsFetch") private var lyricsFetch = LyricsFetch.songStart     // Settings › Lyrics
     @State private var selection: Destination? = .section(.home)
     @State private var searchRequests = 0                 // ⌘F presses: Search focuses its bar on each
-    @AppStorage("windowOpacity") private var windowOpacity = Look.windowOpacity   // 0 = see-through, 1 = solid
     @AppStorage("artStrength") private var artStrength = Look.artStrength         // how strongly the cover colours the window
     @Environment(\.colorScheme) private var scheme
     @Environment(ThemeStore.self) private var theme
-    @AppStorage("windowBlur") private var windowBlur = Look.windowBlur              // 0 = clear, 1 = frosted
     @AppStorage("textScale") private var textScale = Look.textScale                 // Settings › Appearance › Text size
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var glass                                    // lets the message and the player bar morph into each other
@@ -74,18 +72,8 @@ struct RootView: View {
             // a background takes the size of what it is behind and can never enlarge it
             // the desktop, blurred (WindowBlur), under a wash of the playing song's artwork (Backdrop)
             .background {
-                ZStack {
-                    ClearWindow()                                   // the window itself see-through, so the blur can be thinned
-                    WindowBlur(amount: windowBlur)
-                    // Everything over the blur is ONE layer with ONE opacity: playing a song changes the colour,
-                    // never how see-through the window is (stacked layers made it nearly opaque before, 5 Oct).
-                    ZStack {
-                        Color(nsColor: .windowBackgroundColor)
-                        IsolatedBackdrop(track: player.current, strength: artStrength, underNowPlaying: true)
-                    }
-                    .opacity(max(windowOpacity, Look.minWindowOpacity))   // a value saved before the floor existed may be lower
-                }
-                .ignoresSafeArea()
+                // playing a song changes the wash's colour, never how see-through the window is
+                WindowSurface { IsolatedBackdrop(track: player.current, strength: artStrength, underNowPlaying: true) }
             }
             // see-through title bar: the backdrop shows under it, and lists fade softly as they scroll beneath it
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -316,8 +304,6 @@ private struct PlaylistSheets: ViewModifier {
                     if selection == .playlist(playlist.id) { selection = .section(.home) }
                     Task { await library.leave(playlist) }
                 }
-            } message: { _ in
-                Text("It goes from your list; its owner keeps it.")
             }
     }
 }

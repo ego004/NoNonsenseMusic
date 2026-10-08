@@ -72,7 +72,7 @@ struct PlaylistView: View {
 
             if detail.items.isEmpty {
                 ContentUnavailableView("No songs yet", systemImage: "music.note.list",
-                                       description: Text(canEdit ? "Right-click any song › Add to Playlist." : "Its owner hasn't added any."))
+                                       description: canEdit ? Text("Right-click any song › Add to Playlist.") : nil)
                     .frame(maxWidth: .infinity)                 // a list row is only as wide as its content: centre it (6 Oct)
                     #if DEBUG
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { SelfTest.emptyStateFrame = $0 }
@@ -133,7 +133,7 @@ struct PlaylistView: View {
                     .menuIndicator(.hidden)
                     .buttonStyle(.glass)
                     .fixedSize()
-                    .help(detail.summary.isOwner ? "Rename, share or delete" : "Download or leave")
+                    .help("More")
                 }
                 .controlSize(.large)
                 .padding(.top, 8)
@@ -144,11 +144,11 @@ struct PlaylistView: View {
         .padding(.bottom, 16)
     }
 
-    /// How it is shared, under its length: "Shared with you · You can edit", or "Public" for your own; nil for your
+    /// How it is shared, under its length: "Shared · Can make changes", or "Public" for your own; nil for your
     /// own private ones.
     static func standing(_ playlist: PlaylistSummary) -> String? {
-        if playlist.isOwner { return playlist.isPublic ? "Public: anyone signed in can open it" : nil }
-        return "Shared with you · " + (playlist.canEdit ? "You can add, remove and reorder songs" : "You can view and play")
+        if playlist.isOwner { return playlist.isPublic ? "Public" : nil }
+        return playlist.canEdit ? "Shared · Can make changes" : "Shared · View only"
     }
 
     /// "12 songs · 48 min", "1 song · 3 min", "30 songs · 1 hr 52 min"
@@ -334,14 +334,14 @@ struct SharePlaylistSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Share “\(playlist.name)”").font(.title3.weight(.semibold))
-            TextField("Username", text: $username, prompt: Text("Their username"))
+            TextField("Username", text: $username, prompt: Text("Username"))
                 .textFieldStyle(.roundedBorder)
                 .font(.title3)
                 .focused($focused)
                 .onSubmit(go)
-            Picker("They can", selection: $role) {
-                Text("View and play").tag("viewer")
-                Text("Add, remove and reorder songs").tag("editor")
+            Picker("Permission", selection: $role) {
+                Text("View only").tag("viewer")
+                Text("Can make changes").tag("editor")
             }
             .pickerStyle(.radioGroup)
             if let problem {
@@ -350,8 +350,6 @@ struct SharePlaylistSheet: View {
                     .foregroundStyle(.red)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            Text("Sharing again with someone changes what they can do.")
-                .font(.callout).foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }

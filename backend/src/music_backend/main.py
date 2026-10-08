@@ -34,11 +34,15 @@ async def lifespan(app: FastAPI):
     # (a list comprehension: `[create_task(...)] * N` would be ONE task listed N times)
     app.state.prefetch_workers = [asyncio.create_task(app.state.url_cache.prefetch_worker())
                                   for _ in range(settings.num_prefetch_workers)]
+    # expired sessions: once now, before any request, then every 6 h
+    async with pool.connection() as conn:
+        await auth.delete_expired_sessions(conn)
+    app.state.session_cleanup = asyncio.create_task(auth.clean_sessions_forever(pool))
 
     yield
 
     # shutdown, in this order: the workers, then lookups still running, then the pool they write to
-    stopping = (app.state.prefetch_workers + list(app.state.url_cache.running.values())
+    stopping = ([app.state.session_cleanup] + app.state.prefetch_workers + list(app.state.url_cache.running.values())
                 + list(app.state.lyrics_cache.running.values()))
     for task in stopping:
         task.cancel()

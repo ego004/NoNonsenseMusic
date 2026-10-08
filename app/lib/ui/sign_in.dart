@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../core/auth.dart';
@@ -24,8 +26,10 @@ class AuthGate extends StatelessWidget {
       );
 }
 
-/// One screen, two buttons: Sign In, or Create Account with the same name and password. The server's reason is shown
-/// as it comes ("Wrong username or password", "That username is taken"): it is written to be shown.
+/// Sign in, or create an account (one switch between the two), like the Mac app's (8 Oct): a title, the fields, one
+/// filled button; no notes. The rules show only when broken: the server's reason ("Wrong username or password", "That
+/// username is taken") is written to be shown. The device name starts as the computer's name, shown so you see what
+/// is sent, and yours to change.
 class SignInScreen extends StatefulWidget {
   final Auth auth;
   final Settings settings;
@@ -37,6 +41,8 @@ class SignInScreen extends StatefulWidget {
 class _SignInScreenState extends State<SignInScreen> {
   final _username = TextEditingController();
   final _password = TextEditingController();
+  late final _device = TextEditingController(text: widget.settings.deviceName);
+  bool _creating = false;
   String? _error;
   bool _busy = false;
 
@@ -44,17 +50,19 @@ class _SignInScreenState extends State<SignInScreen> {
   void dispose() {
     _username.dispose();
     _password.dispose();
+    _device.dispose();
     super.dispose();
   }
 
-  Future<void> _go({required bool create}) async {
+  Future<void> _go() async {
     if (_busy) return;
     setState(() { _busy = true; _error = null; });
-    final error = await widget.auth.signIn(_username.text.trim(), _password.text, create: create);
+    final error = await widget.auth.signIn(_username.text.trim(), _password.text, create: _creating, device: _device.text);
+    if (error == null) await widget.settings.setDeviceName(_device.text.trim().isEmpty ? Auth.computerName : _device.text.trim());
     if (mounted) setState(() { _busy = false; _error = error; });
   }
 
-  /// The server's address, reachable from here too: a wrong one would otherwise lock you out of Settings.
+  /// The server's address: offered only when it could not be reached (a wrong one would otherwise lock you out).
   Future<void> _changeServer() async {
     final field = TextEditingController(text: widget.settings.server);
     final address = await showDialog<String>(
@@ -78,20 +86,21 @@ class _SignInScreenState extends State<SignInScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final notice = widget.auth.notice;
+    final notice = _creating ? null : widget.auth.notice;
+    final action = _creating ? (_busy ? 'Creating…' : 'Create Account') : (_busy ? 'Signing In…' : 'Sign In');
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
+      // the window's acrylic shows through, as in the app (shell.dart)
+      backgroundColor: Platform.isWindows ? Colors.transparent : theme.colorScheme.surface,
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 340),
+          constraints: const BoxConstraints(maxWidth: 300),
           child: AutofillGroup(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text('NoNonsense', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Text('Sign in to your library.', style: theme.textTheme.bodyMedium),
+              Text(_creating ? 'Create Account' : 'Sign In',
+                  textAlign: TextAlign.center, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600)),
               if (notice != null) ...[
-                const SizedBox(height: 16),
-                Text(notice, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Text(notice, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
               ],
               const SizedBox(height: 20),
               TextField(
@@ -107,28 +116,31 @@ class _SignInScreenState extends State<SignInScreen> {
                 controller: _password,
                 enabled: !_busy,
                 obscureText: true,
-                autofillHints: const [AutofillHints.password],
-                decoration: const InputDecoration(labelText: 'Password', helperText: 'A new account: 3–32 characters for the name, 8–64 for the password.'),
-                onSubmitted: (_) => _go(create: false),
+                autofillHints: [_creating ? AutofillHints.newPassword : AutofillHints.password],
+                decoration: InputDecoration(labelText: _creating ? 'Password (8 or more characters)' : 'Password'),
+                onSubmitted: (_) => _go(),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _device,
+                enabled: !_busy,
+                decoration: const InputDecoration(labelText: 'Device Name', prefixIcon: Icon(Icons.computer_outlined)),
+                onSubmitted: (_) => _go(),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Text(_error!, key: const ValueKey('signInError'), style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error)),
+                Text(_error!, key: const ValueKey('signInError'), textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error)),
               ],
               const SizedBox(height: 20),
-              Row(children: [
-                Expanded(child: FilledButton(onPressed: _busy ? null : () => _go(create: false), child: Text(_busy ? 'One moment…' : 'Sign In'))),
-                const SizedBox(width: 10),
-                Expanded(child: OutlinedButton(onPressed: _busy ? null : () => _go(create: true), child: const Text('Create Account'))),
-              ]),
-              const SizedBox(height: 18),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: _busy ? null : _changeServer,
-                  child: Text('Server: ${widget.settings.server}', style: theme.textTheme.bodySmall),
-                ),
+              FilledButton(onPressed: _busy ? null : _go, child: Text(action)),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _busy ? null : () => setState(() { _creating = !_creating; _error = null; }),
+                child: Text(_creating ? 'Sign In Instead' : 'Create Account…'),
               ),
+              if (widget.auth.unreachable)
+                TextButton(onPressed: _busy ? null : _changeServer, child: const Text('Server Settings…')),
             ]),
           ),
         ),

@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # minutes: a session's end is pushed forward at most this often, so most requests only read their session
     # instead of writing it (a write on every request was the cost; a 30-day window does not care about an hour)
     session_slide_minutes: int = 60
+    session_cleanup_hours: int = 6       # how often expired sessions are deleted (AUTH-1, 8 Oct)
 
 
 settings = Settings()

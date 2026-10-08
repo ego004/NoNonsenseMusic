@@ -632,6 +632,33 @@ extension View {
 }
 
 /// Makes its window non-opaque with a clear background, so a thinned blur shows the desktop, not a grey window.
+/// The window's own surface: the desktop blurred behind it, under ONE wash (the window colour, plus whatever `wash`
+/// adds) at ONE opacity, from Settings › Appearance. Stacked layers made the window nearly opaque before (5 Oct). The
+/// main window adds the playing song's artwork; the sign-in screen adds nothing (8 Oct: it painted a solid colour, so
+/// the window was opaque there and its glass sat on flat grey).
+struct WindowSurface<Wash: View>: View {
+    @AppStorage("windowBlur") private var windowBlur = Look.windowBlur          // 0 = clear, 1 = frosted
+    @AppStorage("windowOpacity") private var windowOpacity = Look.windowOpacity // 0 = see-through, 1 = solid
+    @ViewBuilder var wash: () -> Wash
+
+    var body: some View {
+        ZStack {
+            ClearWindow()                                   // the window itself see-through, so the blur can be thinned
+            WindowBlur(amount: windowBlur)
+            ZStack {
+                Color(nsColor: .windowBackgroundColor)
+                wash()
+            }
+            .opacity(max(windowOpacity, Look.minWindowOpacity))   // a value saved before the floor existed may be lower
+        }
+        .ignoresSafeArea()
+    }
+}
+
+extension WindowSurface where Wash == EmptyView {
+    init() { wash = { EmptyView() } }
+}
+
 struct ClearWindow: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { Finder() }
     func updateNSView(_ view: NSView, context: Context) {}

@@ -40,7 +40,7 @@ extension SelfTest {
 
             // signed in
             check("GET /auth/me knows the account", (try? await API.me())?.username == owner.username)
-            check("this Mac's name goes with each sign-in: 1 to 64 characters", (1...64).contains(Account.deviceName.count))
+            check("the device name starts as this Mac's name, 1 to 64 characters", (1...64).contains(Account.computerName.count))
             await library.refresh()
             check("a new account starts with an empty library", library.liked.isEmpty && library.recent.isEmpty && library.playlists.isEmpty)
             try? await Task.sleep(for: .seconds(1))

@@ -112,3 +112,16 @@ async def current_user(request: Request, authorization: str | None = Header(defa
 
 async def delete_session(conn: AsyncConnection, token: str) -> None:
     await conn.execute("DELETE FROM sessions WHERE token_hash = %s", [hash_token(token)])
+
+async def delete_expired_sessions(conn: AsyncConnection) -> int:
+    """Every expired session, at once; how many went. A session is otherwise deleted only when its token is used again,
+    so a device that never comes back would keep its row (and its device name) for good."""
+    return (await conn.execute("DELETE FROM sessions WHERE expires_at < now()")).rowcount
+
+async def clean_sessions_forever(pool) -> None:
+    """The server's cleanup task: every `session_cleanup_hours`, until the server stops (cancelled). The first round
+    runs at startup, before any request (main.lifespan)."""
+    while True:
+        await asyncio.sleep(settings.session_cleanup_hours * 3600)
+        async with pool.connection() as conn:
+            await delete_expired_sessions(conn)

@@ -12,10 +12,10 @@ struct AccountGate<Content: View>: View {
             switch account.state {
             case .checking:
                 // a moment at launch, longer while the app starts your server
-                Text(server.state == .starting ? "Starting your server…" : "")
+                Text(server.state == .starting ? "Starting Server…" : "")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
+                    .background { WindowSurface() }
             case .signedOut:
                 SignInView()
             case .signedIn:
@@ -34,41 +34,56 @@ struct AccountGate<Content: View>: View {
     }
 }
 
-/// One screen, two buttons: Sign In, or Create Account with the same name and password. The server's reason shows
-/// as it comes ("Wrong username or password", "That username is taken"): it is written to be shown.
+/// Sign in, or create an account (one switch between the two). Apple's sign-in sheets as the model (8 Oct): the app
+/// icon, a title, two fields, one prominent button; no notes. The rules show only when broken: the server's reason
+/// ("Wrong username or password", "That username is taken") is written to be shown. On the window's own surface,
+/// see-through like the main window.
 struct SignInView: View {
     @Environment(Account.self) private var account
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var username = ""
     @State private var password = ""
+    @State private var device = Account.deviceName
+    @State private var creating = false
     @State private var problem: String?
     @State private var working = false
     @State private var shakes = 0
     @FocusState private var focus: Field?
-    private enum Field { case username, password }
+    private enum Field { case username, password, device }
 
     private var ready: Bool { !username.trimmingCharacters(in: .whitespaces).isEmpty && !password.isEmpty && !working }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("NoNonsense").textStyle(size: 30, weight: .bold)
-            Text("Sign in to your library.").textStyle(.body).foregroundStyle(.secondary)
-            if let notice = account.notice {
-                Label(notice, systemImage: "person.crop.circle.badge.exclamationmark")
-                    .textStyle(.callout, weight: .medium)
+        VStack(spacing: 16) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 72, height: 72)
+            VStack(spacing: 4) {
+                Text(creating ? "Create Account" : "Sign In").textStyle(.title2, weight: .semibold)
+                if let notice = account.notice, !creating {
+                    Text(notice).textStyle(.callout).foregroundStyle(.secondary)
+                }
             }
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 TextField("Username", text: $username)
                     .textContentType(.username)
                     .focused($focus, equals: .username)
                     .onSubmit { focus = .password }
-                SecureField("Password", text: $password)
-                    .textContentType(.password)
+                SecureField(creating ? "Password (8 or more characters)" : "Password", text: $password)
+                    .textContentType(creating ? .newPassword : .password)
                     .focused($focus, equals: .password)
-                    .onSubmit { go(create: false) }
+                    .onSubmit { go() }
+                // what your other devices will call this Mac: shown, so you see what is sent, and yours to change
+                HStack(spacing: 8) {
+                    Image(systemName: "laptopcomputer").foregroundStyle(.secondary)
+                    TextField("Device Name", text: $device)
+                        .focused($focus, equals: .device)
+                        .onSubmit { go() }
+                }
+                .help("The name this Mac has in your list of devices")
             }
             .textFieldStyle(.roundedBorder)
-            .font(.title3)
+            .controlSize(.large)
             .disabled(working)
             // [reduceMotion]: the animator's closure is Sendable; it takes the value, not the view's main-actor property
             .keyframeAnimator(initialValue: 0.0, trigger: shakes) { [reduceMotion] fields, x in
@@ -82,47 +97,50 @@ struct SignInView: View {
                 }
             }
             if let problem {
-                Label(problem, systemImage: "exclamationmark.circle.fill")
+                Text(problem)
                     .textStyle(.callout)
                     .foregroundStyle(.red)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .multilineTextAlignment(.center)
+                    .transition(.opacity)
             }
-            HStack {
-                Button("Create Account") { go(create: true) }
-                    .buttonStyle(.glass)
-                    .disabled(!ready)
-                Spacer()
-                Button(working ? "One moment…" : "Sign In") { go(create: false) }   // no spinner: text, nothing animating
-                    .buttonStyle(.glassProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!ready)
+            Button { go() } label: {
+                // no spinner: text, nothing animating
+                Text(working ? (creating ? "Creating…" : "Signing In…") : (creating ? "Create Account" : "Sign In"))
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.glassProminent)
             .controlSize(.large)
-            Text("A new account: a name of 3–32 characters, a password of 8–64.")
-                .textStyle(.caption).foregroundStyle(.secondary)
-            // a wrong address would otherwise lock you out: Settings › Server is one click away
-            SettingsLink { Text("Server: \(API.baseURL.absoluteString) · Change…") }
-                .buttonStyle(.link)
-                .textStyle(.caption)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!ready)
+            Button(creating ? "Sign In Instead" : "Create Account…") {
+                creating.toggle()
+                problem = nil
+            }
+            .buttonStyle(.link)
+            .disabled(working)
+            // a wrong address would lock you out: offered only when the server could not be reached
+            if account.unreachable {
+                SettingsLink { Text("Server Settings…") }
+                    .buttonStyle(.link)
+            }
         }
-        .frame(width: 340)
-        .padding(28)
-        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .frame(width: 280)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
-        .animation(.snappy(duration: 0.25), value: problem)
+        .background { WindowSurface() }
+        .animation(.snappy(duration: 0.2), value: problem)
+        .animation(.snappy(duration: 0.2), value: creating)
         .sensoryFeedback(.error, trigger: shakes)
         .onAppear { focus = .username }
         .onChange(of: username) { problem = nil }
         .onChange(of: password) { problem = nil }
     }
 
-    private func go(create: Bool) {
+    private func go() {
         guard ready else { return }
         working = true
         problem = nil
         Task {
-            let reason = await account.signIn(username.trimmingCharacters(in: .whitespaces), password, create: create)
+            let reason = await account.signIn(username.trimmingCharacters(in: .whitespaces), password, create: creating, device: device)
             working = false
             if let reason { problem = reason; shakes += 1 }
         }

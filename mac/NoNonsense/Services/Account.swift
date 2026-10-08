@@ -12,8 +12,11 @@ final class Account {
 
     private(set) var state = State.checking
     private(set) var user: AccountUser?
-    /// Why the sign-in screen shows when you did not choose it ("You were signed out…"), or nil.
+    /// Why the sign-in screen shows when you did not choose it ("You've been signed out."), or nil.
     private(set) var notice: String?
+    /// The last sign-in could not reach the server: the screen then offers Server Settings (a wrong address would
+    /// otherwise lock you out). Not shown otherwise: the app's own server needs no address.
+    private(set) var unreachable = false
     /// The session ended (you signed out, or the server said so): the player stops and the library empties, so
     /// nothing of this account stays on screen or keeps playing for the next one.
     @ObservationIgnored var onEnded: (() -> Void)?
@@ -50,10 +53,15 @@ final class Account {
 
     /// Signs in, or makes the account and signs in (`create`). nil when it worked; else the server's reason, shown as
     /// it is ("Wrong username or password", "That username is taken", "Password should have at least 8 characters").
-    func signIn(_ username: String, _ password: String, create: Bool) async -> String? {
+    func signIn(_ username: String, _ password: String, create: Bool, device: String = Account.deviceName) async -> String? {
+        // an empty name would show as nothing in your device list: the computer's name instead
+        let typed = String(device.trimmingCharacters(in: .whitespaces).prefix(64))
+        let device = typed.isEmpty ? Self.computerName : typed
         do {
-            let reply = try await create ? API.signUp(username, password, device: Self.deviceName)
-                                         : API.signIn(username, password, device: Self.deviceName)
+            let reply = try await create ? API.signUp(username, password, device: device)
+                                         : API.signIn(username, password, device: device)
+            Self.deviceName = device
+            unreachable = false
             API.token = reply.token
             user = reply.user
             savedUser = reply.user
@@ -62,9 +70,11 @@ final class Account {
             await keychain { $0.write(reply.token) }
             return nil
         } catch let failure as API.Failure {
+            unreachable = false
             return failure.localizedDescription
         } catch {
-            return "Couldn't reach the server. Check its address in Settings › Server."
+            unreachable = true
+            return "Can't connect to the server."
         }
     }
 
@@ -81,7 +91,7 @@ final class Account {
     private func ended() {
         guard state != .signedOut else { return }
         forget()
-        notice = "You were signed out. Sign in again."
+        notice = "You've been signed out."
     }
 
     private func forget() {
@@ -119,9 +129,16 @@ final class Account {
         }
     }
 
-    /// This Mac's name as Settings › General › About shows it ("Kai's MacBook Air"), for your list of signed-in
-    /// devices (AUTH-4). At most 64 characters, the server's limit. Not Host.current(): it can wait on DNS lookups.
+    /// What this Mac is called in your list of signed-in devices (AUTH-4): your choice, on the sign-in screen. It
+    /// starts as the computer's name (Settings › General › About: "Kai's MacBook Air"), which macOS usually makes from
+    /// its owner's name, so the field shows it before it is sent and you can change it (8 Oct). Remembered here.
     static var deviceName: String {
+        get { UserDefaults.standard.string(forKey: "deviceName") ?? computerName }
+        set { UserDefaults.standard.set(newValue, forKey: "deviceName") }
+    }
+
+    /// The computer's name, at most 64 characters (the server's limit). Not Host.current(): it can wait on DNS lookups.
+    static var computerName: String {
         let name = (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? ""
         return String((name.isEmpty ? "Mac" : name).prefix(64))
     }

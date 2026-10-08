@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
+import 'auth.dart';
 import 'models.dart';
 
 /// The window's background on Windows. Drawn by Windows itself, not by the app.
@@ -20,12 +21,18 @@ class Settings extends ChangeNotifier {
   String server = Api.base;
   WindowMaterial material = WindowMaterial.acrylic; // your choice, 8 Oct
   bool explicit = true; // play a song's explicit version when it has one
+  /// What this device is called in your list of signed-in devices (AUTH-4): yours to choose on the sign-in screen;
+  /// it starts as the computer's name (Auth.computerName).
+  String deviceName = Auth.computerName;
+  bool _loaded = false;
 
   Future<void> load() async {
     _p = await SharedPreferences.getInstance();
     server = _p.getString('server') ?? Api.base;
     material = WindowMaterial.values.asNameMap()[_p.getString('material')] ?? WindowMaterial.acrylic;
     explicit = _p.getBool('explicit') ?? true;
+    deviceName = _p.getString('deviceName') ?? Auth.computerName;
+    _loaded = true;
     _apply();
   }
 
@@ -39,6 +46,11 @@ class Settings extends ChangeNotifier {
     await _p.setString('server', server);
     _apply();
     notifyListeners();
+  }
+
+  Future<void> setDeviceName(String name) async {
+    deviceName = name;
+    if (_loaded) await _p.setString('deviceName', name); // a widget test's Settings is never loaded: nothing to keep
   }
 
   Future<void> setMaterial(WindowMaterial m) async {

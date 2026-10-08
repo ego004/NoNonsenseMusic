@@ -159,3 +159,19 @@ def test_likes_and_plays_are_per_user(client):
     assert client.get("/liked", headers=bearer(sam)).json() == []
     assert client.get("/recent", headers=bearer(sam)).json() == []
     assert client.delete(f"/liked/{song}", headers=bearer(sam)).status_code == 404     # Sam cannot unlike Alex's
+
+
+# ---------- expired sessions are cleaned up ----------
+
+def test_expired_sessions_are_deleted_at_startup_and_live_ones_kept(monkeypatch):
+    # a device that never comes back: its expired session went only when its token was used again (8 Oct)
+    monkeypatch.setattr(db, "DATABASE_URL", TEST_URL)
+    from music_backend.main import app
+    with TestClient(app) as client:
+        gone, kept = sign_up(client)["token"], sign_up(client)["token"]
+    gone_hash, kept_hash = (hashlib.sha256(t.encode()).digest() for t in (gone, kept))
+    sql("UPDATE sessions SET expires_at = now() - interval '1 day' WHERE token_hash = %s", [gone_hash])
+    with TestClient(app):                                        # a restart: the cleanup runs at once
+        assert sql("SELECT 1 FROM sessions WHERE token_hash = %s", [gone_hash]) == []
+        assert len(sql("SELECT 1 FROM sessions WHERE token_hash = %s", [kept_hash])) == 1
+    assert app.state.session_cleanup.done()                      # and stops with the server

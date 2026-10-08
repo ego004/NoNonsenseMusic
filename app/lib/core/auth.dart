@@ -55,6 +55,8 @@ class Auth extends ChangeNotifier {
 
   /// Why the sign-in screen shows when you did not choose it ("You were signed out…"), or null.
   String? notice;
+  /// The last sign-in could not reach the server: the screen then offers the server's address.
+  bool unreachable = false;
 
   /// The session ended (you signed out, or the server said so): the player stops and the library empties, so nothing
   /// of this account stays on screen for the next one.
@@ -81,11 +83,16 @@ class Auth extends ChangeNotifier {
 
   /// Signs in, or makes the account and signs in (`create`). null when it worked; else the server's reason, to show
   /// as it is ("Wrong username or password", "That username is taken", "Password should have at least 8 characters").
-  Future<String?> signIn(String username, String password, {bool create = false}) async {
+  Future<String?> signIn(String username, String password, {bool create = false, String? device}) async {
+    // an empty name would show as nothing in your device list: the computer's name instead
+    var name = (device ?? '').trim();
+    if (name.isEmpty) name = computerName;
+    if (name.length > 64) name = name.substring(0, 64); // the server's limit
     try {
       final (token, who) = create
-          ? await Api.signUp(username, password, deviceName)
-          : await Api.signIn(username, password, deviceName);
+          ? await Api.signUp(username, password, name)
+          : await Api.signIn(username, password, name);
+      unreachable = false;
       await _store.write('token', token);
       await _store.write('user', jsonEncode(who.toJson()));
       Api.token = token;
@@ -94,9 +101,11 @@ class Auth extends ChangeNotifier {
       _set(AuthState.signedIn);
       return null;
     } on ApiError catch (e) {
+      unreachable = false;
       return e.toString();
     } catch (_) {
-      return "Couldn't reach the server. Check its address below.";
+      unreachable = true;
+      return "Can't connect to the server.";
     }
   }
 
@@ -113,7 +122,7 @@ class Auth extends ChangeNotifier {
   /// The server answered 401 to the token in use.
   void _ended() {
     if (state == AuthState.signedOut) return;
-    notice = 'You were signed out. Sign in again.';
+    notice = "You've been signed out.";
     _forget();
   }
 
@@ -132,13 +141,17 @@ class Auth extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// This computer's name, for your list of signed-in devices (AUTH-4). At most 64 characters (the server's limit).
-  static String get deviceName {
+  /// The computer's name, the device name's starting value: usually made from its owner's name ("Kais-MacBook-Air"),
+  /// so the sign-in screen shows it before it is sent and you can change it (8 Oct). Android has none ("localhost").
+  static String get computerName {
     var name = '';
     try {
       name = Platform.localHostname;
     } catch (_) {}
-    if (name.isEmpty || name == 'localhost') name = Platform.isAndroid ? 'Android' : Platform.operatingSystem;
+    if (name.endsWith('.local')) name = name.substring(0, name.length - '.local'.length);
+    if (name.isEmpty || name == 'localhost') {
+      name = switch (Platform.operatingSystem) { 'macos' => 'Mac', 'windows' => 'Windows PC', 'android' => 'Android', _ => 'Computer' };
+    }
     return name.length > 64 ? name.substring(0, 64) : name;
   }
 }

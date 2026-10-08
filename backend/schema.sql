@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 -- every request finds its session by token_hash (the primary key: indexed already); "my devices" and "sign out
 -- everywhere" ask by user, which without this would read the whole table
 CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id);
+-- the cleanup (auth.delete_expired_sessions, every few hours) reads only the expired rows through this, not the table
+CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions (expires_at);
 
 
 CREATE TABLE IF NOT EXISTS likes (

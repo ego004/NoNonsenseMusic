@@ -554,8 +554,6 @@ private struct ServerSettings: View {
                 .disabled(account.state != .signedIn || signingOut)
             } header: {
                 Text("Account")
-            } footer: {
-                Text("Your other devices stay signed in.").foregroundStyle(.secondary)
             }
             Section {
                 TextField("Address", text: $addressDraft, prompt: Text(API.defaultServer))

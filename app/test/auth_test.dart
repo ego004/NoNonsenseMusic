@@ -88,12 +88,36 @@ void main() {
 
     await tester.enterText(find.widgetWithText(TextField, 'Username'), 'kai');
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'short');
-    await tester.tap(find.text('Create Account'));
+    await tester.tap(find.text('Create Account…'));                       // switch to creating
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Create Account'));
     await tester.pumpAndSettle();
     expect(find.text('Password should have at least 8 characters'), findsOneWidget);
 
-    await tester.tap(find.text('Sign In'));
+    await tester.tap(find.text('Sign In Instead'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Sign In'));
     await tester.pumpAndSettle();
     expect(find.text('the app'), findsOneWidget);
+  });
+
+  testWidgets("the device name starts as the computer's name, and the one you type is what is sent", (tester) async {
+    final sent = <String>[];
+    Api.client = FakeServer((r, body) async {
+      sent.add((jsonDecode(body) as Map)['device_name'] as String);
+      return json(session, 200);
+    });
+    final auth = Auth(store: MemoryTokenStore())..state = AuthState.signedOut;
+    final settings = Settings();
+    await tester.pumpWidget(MaterialApp(home: AuthGate(auth: auth, settings: settings, signedIn: (_) => const Text('the app'))));
+
+    expect(find.widgetWithText(TextField, Auth.computerName), findsOneWidget);    // shown before anything is sent
+    await tester.enterText(find.widgetWithText(TextField, 'Username'), 'kai');
+    await tester.enterText(find.widgetWithText(TextField, 'Password'), 'a password');
+    await tester.enterText(find.widgetWithText(TextField, Auth.computerName), 'Work laptop');
+    await tester.tap(find.widgetWithText(FilledButton, 'Sign In'));
+    await tester.pumpAndSettle();
+    expect(sent, ['Work laptop']);
+    expect(settings.deviceName, 'Work laptop');                                    // offered next time
   });
 }
