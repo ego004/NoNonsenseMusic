@@ -76,7 +76,7 @@ How each ✅ was built and checked: `handoff.md`, and the commit messages.
 **Waiting on the owner**
 - ❓ Saving someone else's public playlist to your list (`playlist_saves`)
 
-**Later:** AUTH-4 the device list · LIVE-1…3 · FRIENDS-1, JAM-1 · releases (.dmg, Windows, .apk) · BUG-5, BUG-7 · MUS-15 onwards · delete the `backup-before-rewrite` tag and `~/projects/music-backups` (owner, when happy)
+**Later:** AUTH-4 the device list · LIVE-1…3 · releases (.dmg, Windows, .apk) · BUG-5, BUG-7 · MUS-15 onwards · delete the `backup-before-rewrite` tag and `~/projects/music-backups` (owner, when happy). (FRIENDS-1 and JAM-1 backends built 10 Oct; their app UIs are open.)
 
 ---
 
@@ -896,6 +896,24 @@ Each step: you build it, run the done-when checks, then tell me "FRIENDS-1 step 
 - [PostgreSQL `ON DELETE CASCADE`](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK) (a deleted user's friendships go with them)
 - FastAPI [status codes](https://fastapi.tiangolo.com/tutorial/response-status-code/) (201, 204)
 - Your own `library.py` for the service pattern (exceptions → HTTP, `conn.transaction()`)
+
+---
+
+## JAM-1 · Jam: one host plays, everyone else holds the remote (backend ✅ 10 Oct 2026)
+
+**Decided:** the remote-control model, not Spotify-Jam-style local sync. One device is the host (the speakers); every member sees now-playing + queue over a WebSocket and can play/pause/skip/seek/add/remove/reorder/jump. The host app is a dumb speaker driven by room state. No audio sync, no clock-skew math.
+
+**How it is built** (`services/jam.py`, `JamHub` on `app.state.jams`):
+- Rooms are **in memory**, lost on restart by design: a playhead that moves every second is not worth a table, and restarts already lose in-flight YouTube links.
+- The queue holds **listings** (the app's own search results), never song ids or URLs. The host plays a listing through `/play` like any other song; the room writes nothing to the database.
+- `POST /jam` creates (you are host + first member, 8-char code from a no-lookalike alphabet); `POST /jam/join` by code (idempotent); `GET /jam/{id}` state (members only); `POST /jam/{id}/host` take the speakers; `POST /jam/{id}/leave` (host leaving: next member by join order inherits; last member: room closes).
+- `WS /ws/jam?ticket=&room_id=`: single-use ticket from `POST /ws-ticket` (JWT never in a URL). On connect: full state. Then `JamCommand` JSON in, `{"type":"state"}` out after every mutation, `{"type":"position"}` light pushes from the host (~5 s), `"ping"`/`"pong"` heartbeat (30 s window). Close codes: 4401 bad ticket, 4403 not a member, 4404 room closed.
+- **Everyone controls, not just the host.** Only the `position` heartbeat is host-only. Membership is re-checked on every command (leaving from another device does not leave a live socket mutating the room). 60 commands/min/member; queue cap 200. Rate limits: create/join 20/min.
+- The host app sends `skip` when a song ends (the server runs no timer); when the queue runs low it calls `POST /radio` as today, then `add`.
+
+**App work still open:** jam UI on Mac + Flutter (create/join screen, room view with remote controls, host playback driven by room state, position display from playhead + local elapsed).
+
+**Later:** join via friend list / presence; multi-host audio outputs (LIVE-3); persisting rooms across restarts if ever wanted.
 
 ---
 

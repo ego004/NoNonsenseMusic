@@ -33,6 +33,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "album": (60, 60),                  # GET /album: each one asks a source for a full track list
     "artist": (60, 60),                 # GET /artist: each one may fan out to several album pages
     "radio": (30, 60),                  # POST /radio: each one asks a source for a station batch
+    "jam": (20, 60),                    # POST /jam and /jam/join: opening rooms, not the controls inside them
 }
 LOCAL = {"127.0.0.1", "::1", "localhost"}
 

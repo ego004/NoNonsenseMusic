@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from psycopg import errors
 
 from music_backend.core import db, ratelimit
-from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications
+from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications, jam
 from music_backend.services.matching import rank_songs, merge_youtube, rank_albums, rank_artists
 from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
@@ -21,7 +21,8 @@ from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Li
                                   RecoverRequest, PasswordRequest, RecoveryCodes, RecoveryCodesLeft,
                                   GeniusResponse, FriendUser, FriendRequests, RespondRequest, FriendRequest,
                                   Notification, NotificationsResponse, WSTicket, MarkReadResponse,
-                                  AlbumRef, ArtistRef, AlbumDetail, ArtistDetail, PinAlbumRequest)
+                                  AlbumRef, ArtistRef, AlbumDetail, ArtistDetail, PinAlbumRequest,
+                                  JamCreateRequest, JamJoinRequest, JamCommand, JamState)
 from music_backend.core.settings import settings
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic, youtube
 
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI):
     app.state.lyrics_cache = cache.LyricsCache(pool)
     app.state.genius_cache = cache.GeniusCache(pool)
     app.state.hub = notifications.NotificationHub()               # WebSocket connections + one-time WS tickets
+    app.state.jams = jam.JamHub()                                 # jam rooms: in memory, lost on restart by design
     # the prefetch workers: N separate tasks, running by themselves; the list keeps them alive
     # (a list comprehension: `[create_task(...)] * N` would be ONE task listed N times)
     app.state.prefetch_workers = [asyncio.create_task(app.state.url_cache.prefetch_worker())
@@ -790,3 +792,109 @@ async def notification_unread_count(request: Request, user: Signed) -> MarkReadR
     """Just the badge count (cheap: one indexed count)."""
     async with request.app.state.pool.connection() as conn:
         return MarkReadResponse(unread_count=await notifications.unread_count(conn, user.id))
+
+
+# ---------- jam (JAM-1): one host plays, everyone else holds the remote ----------
+
+@app.post("/jam", status_code=201)
+async def create_jam(body: JamCreateRequest, request: Request,
+                     user: Annotated[User, Depends(per_account("jam"))]) -> JamState:
+    """Open a jam room. You are its host (the speakers) and its first member. The 8-character
+    code is what you give to other people; the room lives in this process and is lost on restart."""
+    room = request.app.state.jams.create(user.id, user.username, body.name)
+    return request.app.state.jams.state(room)
+
+
+@app.post("/jam/join")
+async def join_jam(body: JamJoinRequest, request: Request,
+                   user: Annotated[User, Depends(per_account("jam"))]) -> JamState:
+    """Join a room by its code. Joining a room you are already in does nothing (same state back)."""
+    try:
+        room = request.app.state.jams.join(user.id, user.username, body.code)
+    except jam.RoomNotFound:
+        raise HTTPException(status_code=404, detail="No room with that code")
+    return request.app.state.jams.state(room)
+
+
+@app.get("/jam/{room_id}")
+async def get_jam(room_id: UUID, request: Request, user: Signed) -> JamState:
+    """The room's current state. 404 for a missing room or when you are not a member."""
+    try:
+        room = request.app.state.jams.require(room_id, user.id)
+    except jam.RoomNotFound:
+        raise HTTPException(status_code=404, detail="No such room")
+    return request.app.state.jams.state(room)
+
+
+@app.post("/jam/{room_id}/host", status_code=204)
+async def take_jam_host(room_id: UUID, request: Request, user: Signed) -> Response:
+    """Take the speakers: you become the host, the old host's app stops playing. Any member may."""
+    try:
+        room = request.app.state.jams.take_host(user.id, room_id)
+    except jam.RoomNotFound:
+        raise HTTPException(status_code=404, detail="No such room")
+    await request.app.state.jams.broadcast(room, {"type": "state", "data": request.app.state.jams.state(room).model_dump(mode="json")})
+    return Response(status_code=204)
+
+
+@app.post("/jam/{room_id}/leave", status_code=204)
+async def leave_jam(room_id: UUID, request: Request, user: Signed) -> Response:
+    """Leave the room. If you were the host, the next member by join order inherits the speakers;
+    if you were the last member, the room closes."""
+    try:
+        room = request.app.state.jams.leave(user.id, room_id)
+    except jam.RoomNotFound:
+        raise HTTPException(status_code=404, detail="No such room")
+    except jam.NotAMember:
+        raise HTTPException(status_code=404, detail="You are not in this room")
+    if room is not None:
+        await request.app.state.jams.broadcast(room, {"type": "state", "data": request.app.state.jams.state(room).model_dump(mode="json")})
+    return Response(status_code=204)
+
+
+@app.websocket("/ws/jam")
+async def ws_jam(websocket: WebSocket, ticket: str = Query(...), room_id: UUID = Query(...)) -> None:
+    """The room's live channel: connect with a single-use ticket from POST /ws-ticket plus the room
+    id. On connect you get the full state; after that, send JamCommand JSON ("ping" for the
+    heartbeat) and you will receive {"type":"state"} after every mutation, or {"type":"position"}
+    pushes while the host plays. A dropped socket is not a leave — reconnect, or POST leave."""
+    hub = websocket.app.state.hub
+    jams = websocket.app.state.jams
+    user_id = hub.redeem_ticket(ticket)
+    if user_id is None:
+        await websocket.close(code=4401, reason="invalid or expired ticket")
+        return
+    try:
+        room = jams.require(room_id, user_id)
+    except jam.RoomNotFound:
+        await websocket.close(code=4403, reason="not a member of this room")
+        return
+    await websocket.accept()
+    jams.register(websocket, user_id, room_id)
+    try:
+        await websocket.send_json({"type": "state", "data": jams.state(room).model_dump(mode="json")})
+        while True:
+            raw = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+            if raw == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+            try:
+                cmd = JamCommand.model_validate_json(raw)
+            except Exception:
+                await websocket.send_json({"type": "error", "detail": "Unknown command."})
+                continue
+            # the room may have closed (last member left) or membership may have changed mid-session
+            if jams.get(room_id) is None:
+                await websocket.close(code=4404, reason="room closed")
+                return
+            await jams.handle_command(room, user_id, cmd, websocket)
+    except (asyncio.TimeoutError, WebSocketDisconnect):
+        pass
+    except Exception:
+        logger.debug("ws/jam for %s closed with an error", user_id, exc_info=True)
+    finally:
+        jams.unregister(websocket)
+        try:
+            await websocket.close()
+        except Exception:
+            pass

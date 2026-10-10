@@ -393,3 +393,48 @@ class WSTicket(BaseModel):
 
 class MarkReadResponse(BaseModel):
     unread_count: int
+
+# ---- jam (JAM-1): one room, one host plays, everyone else holds the remote ----
+
+class JamQueueEntry(BaseModel):
+    """One song waiting in a jam room's queue. The listing is the app's own search result, sent
+    as-is: the room never writes to the database, and the host plays it through /play like any other."""
+    entry_id: UUID
+    listing: Listing
+
+
+class JamMember(BaseModel):
+    user_id: UUID
+    username: str
+
+
+class JamState(BaseModel):
+    """Everything a client needs to render the room. position_seconds is the playhead as of the
+    moment this state was built: add the time since receipt locally when displaying, or use the
+    lighter {"type":"position"} pushes that arrive while a song plays."""
+    room_id: UUID
+    code: str
+    name: str | None
+    host_id: UUID
+    members: list[JamMember]
+    current: JamQueueEntry | None
+    is_playing: bool
+    position_seconds: float
+    queue: list[JamQueueEntry]
+
+
+class JamCreateRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=40)
+
+
+class JamJoinRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=32)
+
+
+# One shape for every control message over /ws/jam; the handler checks which fields the type needs.
+class JamCommand(BaseModel):
+    type: Literal["play", "pause", "seek", "skip", "add", "remove", "move", "jump", "position"]
+    seconds: float | None = None                 # seek, position
+    listings: list[Listing] | None = None        # add
+    entry_id: UUID | None = None                 # remove, move, jump
+    to_index: int | None = None                  # move: 0-based index in the queue
