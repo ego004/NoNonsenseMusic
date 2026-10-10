@@ -11,8 +11,10 @@ from uuid import UUID
 from fractional_indexing import FIError, generate_key_between, generate_n_keys_between
 from psycopg import AsyncConnection
 
+from music_backend.services import notifications
 from music_backend.services.matching import normalise, pick_best, same_recording
-from music_backend.models import EventType, LibrarySong, Listing, Member, PlaylistMetadata, PlaylistItem, Song
+from music_backend.models import (EventType, LibrarySong, Listing, Member, Notification,
+                                  PlaylistMetadata, PlaylistItem, Song)
 
 logger = logging.getLogger(__name__)
 
@@ -341,20 +343,35 @@ async def delete_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UU
     await _require(conn, user_id, playlist_id, "owner")
     await conn.execute("DELETE FROM playlists WHERE id = %s", [playlist_id])
 
-async def share_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, username: str, role: str) -> None:
+async def share_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, username: str, role: str) -> Notification | None:
     """The owner invites someone by username, or changes their role ("viewer" or "editor"). NoSuchUser when there is
-    no such account; inviting yourself does nothing (you own it)."""
+    no such account; inviting yourself does nothing (you own it). A NEW membership creates the invitee's playlist_invite
+    notification in the same transaction, returned for the WebSocket push; a role change is not a new invite, so None."""
     await _require(conn, user_id, playlist_id, "owner")
     await _reject_album(conn, playlist_id)
     row = await (await conn.execute("SELECT id FROM users WHERE lower(username) = lower(%s)", [username])).fetchone()
     if row is None:
         raise NoSuchUser(username)
     if row["id"] == user_id:
-        return
-    await conn.execute(
+        return None
+    inserted = (await (await conn.execute(
         """INSERT INTO playlist_members (playlist_id, user_id, role) VALUES (%s, %s, %s)
-           ON CONFLICT (playlist_id, user_id) DO UPDATE SET role = EXCLUDED.role""",
-        [playlist_id, row["id"], role])
+           ON CONFLICT (playlist_id, user_id) DO UPDATE SET role = EXCLUDED.role
+           RETURNING (xmax = 0) AS inserted""",
+        [playlist_id, row["id"], role])).fetchone())["inserted"]
+    if not inserted:
+        return None
+    info = await (await conn.execute(
+        """SELECT pl.name AS playlist_name, u.username AS owner_username
+             FROM playlists pl JOIN users u ON u.id = pl.user_id
+            WHERE pl.id = %s""",
+        [playlist_id])).fetchone()
+    return await notifications.create(conn, row["id"], "playlist_invite", {
+        "playlist_id": str(playlist_id),
+        "playlist_name": info["playlist_name"],
+        "from_user_id": str(user_id),
+        "from_username": info["owner_username"],
+    })
 
 async def playlist_members(conn: AsyncConnection, user_id: UUID, playlist_id : UUID) -> list[Member]:
     """Who is on the playlist: its owner first, then the people it is shared with, oldest invite first. For the owner

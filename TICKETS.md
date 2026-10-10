@@ -782,7 +782,7 @@ Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens
 
 **Problem:** you cannot see other users on the server. Jam (JAM-1) needs a way to find people and invite them; playlist sharing already invites by username, but there is no relationship to build on. This ticket adds the foundation: a friends list with requests.
 
-**What this is NOT:** notifications (Phase 2 — no `notifications` table yet, no WebSocket). No jam invites. No playlist-sharing invites. No activity feed. No blocking. Those build on this.
+**What this is NOT:** jam invites. No activity feed. No blocking. Those build on this. (Update 10 Oct: Phase 2 notifications + WebSocket are built; sharing a playlist now pushes a `playlist_invite` to the invitee.)
 
 **Facts already checked (10 Oct 2026)**
 - `users` table exists with `id` (uuidv7) and `username` (unique case-insensitive via `lower(username)` index).

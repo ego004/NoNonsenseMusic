@@ -255,3 +255,8 @@ CREATE INDEX IF NOT EXISTS notifications_user_read_idx ON notifications (user_id
 CREATE UNIQUE INDEX IF NOT EXISTS notifications_dedup_idx
     ON notifications (user_id, type, (payload->>'from_user_id'))
     WHERE type = 'friend_request' AND read = false;
+-- the same for playlist invites: one unread playlist_invite per (user, playlist); share→unshare→share
+-- while the first invite is still unread cannot pile up identical notifications
+CREATE UNIQUE INDEX IF NOT EXISTS notifications_playlist_dedup_idx
+    ON notifications (user_id, type, (payload->>'playlist_id'))
+    WHERE type = 'playlist_invite' AND read = false;

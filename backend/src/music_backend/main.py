@@ -496,9 +496,15 @@ async def move_playlist(playlist_id: UUID, body: MoveRequest, request: Request, 
 
 @app.put("/playlists/{playlist_id}/members", status_code = 204)
 async def share_playlist(playlist_id: UUID, body: ShareRequest, request: Request, user: Signed) -> Response:
-    """The owner invites someone (or changes their role): viewer or editor."""
+    """The owner invites someone (or changes their role): viewer or editor. A new membership pushes a
+    playlist_invite notification to the invitee over their WebSocket."""
     async with request.app.state.pool.connection() as conn:
-        await library.share_playlist(conn, user.id, playlist_id, body.username, body.role)
+        notification = await library.share_playlist(conn, user.id, playlist_id, body.username, body.role)
+    if notification is not None:
+        await request.app.state.hub.push(notification.user_id, {
+            "type": "notification",
+            "data": notification.model_dump(mode="json"),
+        })
     return Response(status_code = 204)
 
 @app.get("/playlists/{playlist_id}/members")

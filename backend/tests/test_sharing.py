@@ -175,3 +175,94 @@ def test_a_playlist_link_page_hands_over_to_the_app_and_names_nothing(client, pe
     assert f"nononsense://playlist/{trip}" in page.text
     assert "Road trip" not in page.text                              # private or not, the page shows nothing of it
     assert client.get("/p/not-a-uuid").status_code == 422
+
+
+# ---------- playlist_invite notifications (closing the dead type) ----------
+
+def invitees_notifications(person):
+    return person("GET", "/notifications").json()
+
+
+def test_invite_creates_a_playlist_invite_notification(people):
+    alex, sam, _, trip, _ = people
+    assert share(alex, trip, sam, "viewer").status_code == 204
+    body = invitees_notifications(sam)
+    assert body["unread_count"] == 1
+    [n] = body["notifications"]
+    assert n["type"] == "playlist_invite" and n["read"] is False
+    payload = n["payload"]
+    assert payload["playlist_id"] == trip
+    assert payload["playlist_name"] == "Road trip"
+    assert payload["from_user_id"] == alex.id
+    assert payload["from_username"] == alex.username
+
+
+def test_the_owner_gets_no_notification_for_their_own_invite(people):
+    alex, sam, _, trip, _ = people
+    share(alex, trip, sam, "viewer")
+    assert invitees_notifications(alex)["notifications"] == []
+
+
+def test_a_role_change_is_not_a_new_invite(people):
+    alex, sam, _, trip, _ = people
+    share(alex, trip, sam, "editor")
+    share(alex, trip, sam, "viewer")                                 # demotion: membership updated, not created
+    assert sam("GET", f"/playlists/{trip}").json()["role"] == "viewer"
+    body = invitees_notifications(sam)
+    assert body["unread_count"] == 1                                 # still just the first invite
+    assert [n["payload"]["playlist_name"] for n in body["notifications"]] == ["Road trip"]
+
+
+def test_self_invite_creates_nothing(people):
+    alex, _, _, trip, _ = people
+    assert alex("PUT", f"/playlists/{trip}/members", json={"username": alex.username, "role": "viewer"}).status_code == 204
+    assert invitees_notifications(alex)["notifications"] == []
+
+
+def test_unshare_then_reinvite_while_unread_is_deduped(people):
+    alex, sam, _, trip, _ = people
+    share(alex, trip, sam, "viewer")
+    assert alex("DELETE", f"/playlists/{trip}/members/{sam.id}").status_code == 204
+    share(alex, trip, sam, "editor")                                 # first invite still unread: suppressed
+    body = invitees_notifications(sam)
+    assert body["unread_count"] == 1
+    assert len(body["notifications"]) == 1
+
+
+def test_reinvite_after_the_first_was_read_is_a_new_notification(people):
+    alex, sam, _, trip, _ = people
+    share(alex, trip, sam, "viewer")
+    [first] = invitees_notifications(sam)["notifications"]
+    sam("POST", f"/notifications/{first['id']}/read")                # seen: no longer deduped
+    assert alex("DELETE", f"/playlists/{trip}/members/{sam.id}").status_code == 204
+    share(alex, trip, sam, "editor")
+    body = invitees_notifications(sam)
+    assert body["unread_count"] == 1
+    assert len(body["notifications"]) == 2                           # history keeps both
+
+
+def test_a_bad_invite_stores_no_notification(people):
+    alex, sam, _, trip, _ = people
+    assert share(alex, trip, sam, "owner").status_code == 422        # rejected before any write
+    assert alex("PUT", f"/playlists/{trip}/members", json={"username": "no-such-person", "role": "viewer"}).status_code == 404
+    assert invitees_notifications(sam)["notifications"] == []
+
+
+def test_the_invitee_may_mark_it_read(people):
+    alex, sam, _, trip, _ = people
+    share(alex, trip, sam, "viewer")
+    [n] = invitees_notifications(sam)["notifications"]
+    assert sam("POST", f"/notifications/{n['id']}/read").status_code == 200
+    assert invitees_notifications(sam)["unread_count"] == 0
+
+
+def test_the_invite_pushes_over_the_invitees_websocket(client, people):
+    alex, sam, _, trip, _ = people
+    ticket = sam("POST", "/ws-ticket").json()["ticket"]
+    with client.websocket_connect(f"/ws/notifications?ticket={ticket}") as ws:
+        ws.receive_json()                                            # connected
+        share(alex, trip, sam, "editor")
+        msg = ws.receive_json()
+        assert msg["type"] == "notification"
+        assert msg["data"]["type"] == "playlist_invite"
+        assert msg["data"]["payload"]["playlist_name"] == "Road trip"
