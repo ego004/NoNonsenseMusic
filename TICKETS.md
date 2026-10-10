@@ -38,6 +38,7 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 | MUS-20 | Albums in search: an album opens its songs in order, and plays as one (future scope) | **You** (backend) · Claude (app) | M |
 | MUS-19 ✅ | Explicit and clean versions: an 🅴 on explicit ones, and your choice of which plays (done 7 Oct) | Claude (wired in, on your go-ahead) | S |
 | BUG-1…7 | The 7 Oct audit's backend bugs, each gone and each with a test (BUG-1 before MUS-15) | **You** · Claude (review, tests) | S each |
+| FRIENDS-1 | Friends list: send/accept/decline requests, see friends, remove | **You** (backend) · Claude (app, tests) | M |
 
 ---
 
@@ -761,6 +762,127 @@ Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens
 **Yours to decide:** albums in the `/search` reply or a request of their own; how many per search; stored (like playlists) or only looked up; what to do when the two sources list different songs for one album.
 
 **Done when:** searching "Camp Childish Gambino" shows the album; opening it lists its songs in order; Play plays them in that order.
+
+---
+
+## FRIENDS-1 · Friends list
+
+**Problem:** you cannot see other users on the server. Jam (JAM-1) needs a way to find people and invite them; playlist sharing already invites by username, but there is no relationship to build on. This ticket adds the foundation: a friends list with requests.
+
+**What this is NOT:** notifications (Phase 2 — no `notifications` table yet, no WebSocket). No jam invites. No playlist-sharing invites. No activity feed. No blocking. Those build on this.
+
+**Facts already checked (10 Oct 2026)**
+- `users` table exists with `id` (uuidv7) and `username` (unique case-insensitive via `lower(username)` index).
+- `library.py` already has the pattern: service file with functions that take `conn`, raise custom exceptions, `main.py` catches them and returns HTTP errors.
+- `playlist_members` shows the sharing pattern: a join table with roles, `ON DELETE CASCADE`, and a composite PK.
+- `auth.current_user` dependency gives every route the signed-in `User` (id + username).
+- No WebSocket code exists yet. All current communication is HTTP request→response.
+
+### Design (10 Oct 2026)
+
+**Two tables:**
+
+```sql
+CREATE TABLE IF NOT EXISTS friend_requests (
+    from_user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    to_user_id   uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (from_user_id, to_user_id)
+);
+-- "my incoming and outgoing requests"
+CREATE INDEX IF NOT EXISTS friend_requests_to_idx ON friend_requests (to_user_id);
+
+CREATE TABLE IF NOT EXISTS friends (
+    -- stored once per pair, smaller UUID first: (3, 5) not (5, 3)
+    user_a_id     uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    user_b_id     uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    friends_since timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_a_id, user_b_id),
+    -- user_a is always the smaller: a CHECK, not a convention
+    CHECK (user_a_id < user_b_id)
+);
+-- "who is friends with whom, either direction"
+CREATE INDEX IF NOT EXISTS friends_a_idx ON friends (user_a_id);
+CREATE INDEX IF NOT EXISTS friends_b_idx ON friends (user_b_id);
+```
+
+**Why store friends once (sorted)?** Alice (id=5) and Bob (id=3) are friends → store `(3, 5)`. "Is Alice friends with Bob?" = `WHERE user_a=3 AND user_b=5`. No OR, no duplication, no "did I store it the right way?" bugs.
+
+**Why `CHECK (user_a_id < user_b_id)`?** The database enforces the sorting. If code tries to insert `(5, 3)`, it gets a `CheckViolation`. No Python-side sorting needed, no drift possible.
+
+**Service file:** `backend/src/music_backend/services/friends.py` — same pattern as `library.py`. `main.py` opens the connection, `friends.py` runs the SQL. Custom exceptions → HTTP status codes.
+
+**No request ID.** Accept/decline identify the request by **username**, not an opaque ID. Simpler, and the app already shows usernames.
+
+### Models (`models.py`)
+
+```python
+class FriendUser(BaseModel):
+    """One friend (or requester): who they are and when the relationship began/was requested."""
+    user_id: UUID
+    username: str
+    since: datetime   # friends_since for friends, created_at for requests
+
+class FriendRequests(BaseModel):
+    incoming: list[FriendUser]   # people who sent you a request
+    outgoing: list[FriendUser]   # people you sent a request to
+```
+
+### Endpoints
+
+| Endpoint | Method | Body | Returns | Errors |
+|---|---|---|---|---|
+| `/friends/request` | POST | `{"username": "bob"}` | 201 | 404 no such user · 400 yourself · 409 already friends · 409 request pending |
+| `/friends/requests` | GET | — | `FriendRequests` | — |
+| `/friends/accept` | POST | `{"username": "alice"}` | 204 | 404 no such user · 404 no pending request |
+| `/friends/decline` | POST | `{"username": "alice"}` | 204 | 404 no such user · 404 no pending request |
+| `/friends` | GET | — | `list[FriendUser]` | — |
+| `/friends/{friend_id}` | DELETE | — | 204 | 404 not friends |
+
+**Why accept/decline by username?** The app shows "Alice wants to be your friend" with Accept/Decline buttons. The username is what the user sees. No need for an opaque request ID the app has to store.
+
+**Why 201 on send request?** The request is created. 200 would also work; 201 is more correct (a new resource exists).
+
+**Why 204 on accept/decline/remove?** Nothing to return. The client re-fetches `/friends` or `/friends/requests`.
+
+### Steps
+
+Each step: you build it, run the done-when checks, then tell me "FRIENDS-1 step N ready". I review and write tests.
+
+| Step | Build | Done when |
+|---|---|---|
+| 1 | Tables in `schema.sql` | Server starts; `\d friend_requests` and `\d friends` show the right columns |
+| 2 | Models in `models.py` | Server starts (import check) |
+| 3 | Service: `send_request`, `list_requests` | Manually test with curl: send a request, list it, send duplicate (409) |
+| 4 | Service: `accept`, `decline`, `remove`, `list_friends` | Accept → friends list shows them; decline → gone; remove → gone |
+| 5 | Endpoints in `main.py` | All 6 endpoints work via curl |
+| 6 | App (Claude) | Friends screen: see requests, accept/decline, see friends, remove |
+
+### Error cases (each needs a test)
+
+| Case | Exception | HTTP |
+|---|---|---|
+| Send request to nonexistent user | `NoSuchUser` | 404 |
+| Send request to yourself | `HTTPException(400)` | 400 |
+| Already friends | `AlreadyFriends` | 409 |
+| Request already pending | `RequestPending` | 409 |
+| Accept/decline with no pending request | `NoRequest` | 404 |
+| Remove non-friend | `NotFriends` | 404 |
+| Duplicate request (race) | DB unique violation → `RequestPending` | 409 |
+
+### Decisions that are yours
+
+- Whether `send_request` should be idempotent (re-sending to the same person returns 201 silently) or always 409 on duplicate. I suggest 409 — the client should know.
+- Whether removing a friend should also delete any pending request between you (I suggest yes — clean slate).
+- Whether the friends list should be alphabetical or by `friends_since` (newest first). I suggest alphabetical for a stable UI.
+- Rate limiting on `/friends/request` (a spammer could send 1000 requests). Suggest 20/min per account.
+
+### Docs
+
+- [PostgreSQL `CHECK` constraints](https://www.postgresql.org/docs/current/ddl-constraints.html) (enforcing `user_a_id < user_b_id`)
+- [PostgreSQL `ON DELETE CASCADE`](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK) (a deleted user's friendships go with them)
+- FastAPI [status codes](https://fastapi.tiangolo.com/tutorial/response-status-code/) (201, 204)
+- Your own `library.py` for the service pattern (exceptions → HTTP, `conn.transaction()`)
 
 ---
 

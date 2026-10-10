@@ -129,3 +129,54 @@ async def clean_sessions_forever(pool) -> None:
 async def rename_session(conn: AsyncConnection, token: str, device_name: str) -> None:
     """Renames the device this token belongs to (the user chooses it at sign-in, and may change it later)."""
     await conn.execute("UPDATE sessions SET device_name = %s WHERE token_hash = %s", [device_name, hash_token(token)])
+
+
+# ---------- recovery codes (8 Oct) ----------
+# There is no email: a forgotten password is reset with one of ten codes the user kept. Crockford's base 32 (no I, L,
+# O or U), 16 characters in groups of four: 80 random bits each. Typed back, case, spaces and dashes are ignored, and
+# O, I and L read as 0, 1 and 1, the mistakes people make copying them.
+
+RECOVERY_CODES = 10
+_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+class WrongRecovery(Exception):
+    pass
+
+def new_recovery_code() -> str:
+    raw = "".join(secrets.choice(_ALPHABET) for _ in range(16))
+    return "-".join(raw[i:i + 4] for i in range(0, 16, 4))
+
+def hash_recovery_code(text: str) -> bytes:
+    plain = "".join(c for c in text.upper() if c.isalnum()).replace("O", "0").replace("I", "1").replace("L", "1")
+    return hashlib.sha256(plain.encode()).digest()
+
+async def replace_recovery_codes(conn: AsyncConnection, user_id: UUID) -> list[str]:
+    """A new set of ten; the old set stops working. The codes are returned once and never stored as they are."""
+    codes = [new_recovery_code() for _ in range(RECOVERY_CODES)]
+    async with conn.transaction():
+        await conn.execute("DELETE FROM recovery_codes WHERE user_id = %s", [user_id])
+        async with conn.cursor() as cur:
+            await cur.executemany("INSERT INTO recovery_codes (user_id, code_hash) VALUES (%s, %s)",
+                                  [(user_id, hash_recovery_code(c)) for c in codes])
+    return codes
+
+async def recovery_codes_left(conn: AsyncConnection, user_id: UUID) -> int:
+    return (await (await conn.execute("SELECT count(*) AS n FROM recovery_codes WHERE user_id = %s", [user_id])).fetchone())["n"]
+
+async def recover(conn: AsyncConnection, username: str, code: str, new_password: str) -> User:
+    """A code is used up, the password replaced and every session ended (signed out everywhere), all or none: one
+    transaction. WrongRecovery for an unknown name or a code that is not (or no longer) theirs: one answer for both."""
+    async with conn.transaction():
+        row = await (await conn.execute(
+            "SELECT id, username FROM users WHERE lower(username) = lower(%s)", [username])).fetchone()
+        used = None
+        if row is not None:
+            used = await (await conn.execute(
+                "DELETE FROM recovery_codes WHERE user_id = %s AND code_hash = %s RETURNING user_id",
+                [row["id"], hash_recovery_code(code)])).fetchone()
+        if used is None:
+            raise WrongRecovery()
+        password_hash = await asyncio.to_thread(hasher.hash, new_password)
+        await conn.execute("UPDATE users SET password_hash = %s WHERE id = %s", [password_hash, row["id"]])
+        await conn.execute("DELETE FROM sessions WHERE user_id = %s", [row["id"]])
+    return User(id=row["id"], username=row["username"])

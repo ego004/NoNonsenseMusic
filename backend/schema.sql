@@ -82,6 +82,17 @@ CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id);
 -- the cleanup (auth.delete_expired_sessions, every few hours) reads only the expired rows through this, not the table
 CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions (expires_at);
 
+-- Recovery codes (8 Oct): the way back in without the password (there is no email). Ten per account, each used once;
+-- shown once (at sign-up, or when a new set is made) and stored only as their SHA-256: a code is 80 random bits, so a
+-- fast hash is enough (as for session tokens). Using one is `DELETE … RETURNING`: the check and the using-up are one
+-- statement, so two resets with the same code cannot both succeed.
+CREATE TABLE IF NOT EXISTS recovery_codes (
+    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    code_hash  bytea       NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, code_hash)
+);
+
 
 CREATE TABLE IF NOT EXISTS likes (
     -- whose like (AUTH-3): a deleted user's likes go with them
@@ -191,3 +202,46 @@ CREATE TABLE IF NOT EXISTS genius (
     fetched_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (song_name, artist_name)
 );
+
+
+-- FRIENDS-1: friends and friend requests. A request is one per pair (the PK); a friendship is stored once,
+-- the smaller UUID first (the CHECK enforces it), so "are A and B friends?" is one lookup, never two.
+CREATE TABLE IF NOT EXISTS friend_requests (
+    from_user_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    to_user_id   uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (from_user_id, to_user_id)
+);
+CREATE INDEX IF NOT EXISTS friend_requests_to_idx ON friend_requests (to_user_id);
+
+CREATE TABLE IF NOT EXISTS friends (
+    user_a_id     uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    user_b_id     uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    friends_since timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_a_id, user_b_id),
+    CHECK (user_a_id < user_b_id)
+);
+CREATE INDEX IF NOT EXISTS friends_a_idx ON friends (user_a_id);
+CREATE INDEX IF NOT EXISTS friends_b_idx ON friends (user_b_id);
+
+
+-- FRIENDS-1 Phase 2: notifications. seq (BIGSERIAL) is the catch-up cursor — a reconnecting client sends its
+-- last_seen_seq and gets everything after it, so a push arriving during the catch-up query is never duplicated.
+CREATE TABLE IF NOT EXISTS notifications (
+    id         uuid        PRIMARY KEY DEFAULT uuidv7(),
+    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    type       text        NOT NULL,
+    payload    jsonb       NOT NULL,
+    seq        bigint      GENERATED ALWAYS AS IDENTITY,
+    read       boolean     NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- the catch-up query: WHERE user_id = X AND seq > cursor ORDER BY seq
+CREATE INDEX IF NOT EXISTS notifications_user_seq_idx ON notifications (user_id, seq);
+-- the unread badge count: WHERE user_id = X AND read = false
+CREATE INDEX IF NOT EXISTS notifications_user_read_idx ON notifications (user_id, read) WHERE read = false;
+-- dedup: one unread friend_request per (user, sender); a second POST /friends/request cannot double-notify
+CREATE UNIQUE INDEX IF NOT EXISTS notifications_dedup_idx
+    ON notifications (user_id, type, (payload->>'from_user_id'))
+    WHERE type = 'friend_request' AND read = false;

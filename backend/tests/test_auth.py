@@ -131,10 +131,12 @@ def test_use_slides_the_expiry_but_at_most_once_an_hour(client):
 
 def test_every_route_but_health_signup_and_signin_answers_401_without_a_token(client):
     from music_backend.main import app
-    open_routes = {"/health", "/auth/signup", "/auth/signin", "/p/{playlist_id}"}   # /p: a link page, names nothing
+    open_routes = {"/health", "/auth/signup", "/auth/signin", "/auth/recover", "/p/{playlist_id}"}   # /p: a link page, names nothing
     checked = 0
     for route in app.routes:
         if not hasattr(route, "dependant") or route.path in open_routes:
+            continue
+        if not hasattr(route, "methods"):          # WebSocket routes have no methods (FRIENDS-1 Phase 2)
             continue
         path = route.path
         for name in route.param_convertors:
@@ -188,3 +190,78 @@ def test_a_device_renames_its_own_session_only(client):
     assert names[hashlib.sha256(laptop.encode()).digest()] == "Unknown Device"
     assert client.patch("/auth/me/device", json={"device_name": ""}, headers=bearer(phone)).status_code == 422
     assert client.patch("/auth/me/device", json={"device_name": "x"}, headers={"Authorization": ""}).status_code == 401
+
+
+# ---------- recovery codes ----------
+
+def test_sign_up_shows_ten_codes_once_and_stores_only_their_hashes(client):
+    session = sign_up(client)
+    codes = session["recovery_codes"]
+    assert len(codes) == 10 and len(set(codes)) == 10
+    assert all(len(c) == 19 and c.count("-") == 3 for c in codes)                 # XXXX-XXXX-XXXX-XXXX
+    stored = [bytes(r[0]) for r in sql("SELECT code_hash FROM recovery_codes WHERE user_id = %s", [session["user"]["id"]])]
+    assert sorted(stored) == sorted(hashlib.sha256(c.replace("-", "").encode()).digest() for c in codes)
+    assert client.get("/auth/recovery-codes").json() == {"left": 10}
+    assert sign_in(client, session["user"]["username"]).json().get("recovery_codes") is None   # never again
+
+
+def test_a_code_resets_the_password_signs_out_everywhere_and_works_once(client):
+    name = new_username()
+    session = sign_up(client, name)
+    old_token, code = session["token"], session["recovery_codes"][3]
+    typed = code.lower().replace("-", " ").replace("0", "o")          # as a person might type it back
+    r = client.post("/auth/recover", json={"username": name.upper().replace("TEST-", "test-"), "code": typed,
+                                            "new_password": "a new password", "device_name": "Kai's laptop"})
+    assert r.status_code == 200
+    assert client.get("/auth/me", headers=bearer(old_token)).status_code == 401     # every old session ended
+    assert client.get("/auth/me", headers=bearer(r.json()["token"])).status_code == 200
+    assert sign_in(client, name).status_code == 401                                 # the old password is gone
+    assert sign_in(client, name, "a new password").status_code == 200
+    again = client.post("/auth/recover", json={"username": name, "code": code, "new_password": "another one"})
+    assert again.status_code == 401                                                 # used up
+    assert client.get("/auth/recovery-codes", headers=bearer(r.json()["token"])).json() == {"left": 9}
+
+
+def test_a_wrong_code_and_an_unknown_name_answer_the_same(client):
+    name = new_username()
+    sign_up(client, name)
+    wrong = client.post("/auth/recover", json={"username": name, "code": "AAAA-AAAA-AAAA-AAAA", "new_password": PASSWORD})
+    unknown = client.post("/auth/recover", json={"username": new_username(), "code": "AAAA-AAAA-AAAA-AAAA", "new_password": PASSWORD})
+    assert wrong.status_code == unknown.status_code == 401 and wrong.json() == unknown.json()
+    assert sign_in(client, name).status_code == 200                                 # nothing changed
+
+
+def test_someone_elses_code_does_not_work(client):
+    alex, sam = sign_up(client), sign_up(client)
+    r = client.post("/auth/recover", json={"username": alex["user"]["username"], "code": sam["recovery_codes"][0],
+                                            "new_password": "taken over"})
+    assert r.status_code == 401
+
+
+def test_a_new_set_needs_the_password_and_replaces_the_old(client):
+    name = new_username()
+    first = sign_up(client, name)["recovery_codes"]
+    assert client.post("/auth/recovery-codes", json={"password": "not it"}).status_code == 401
+    r = client.post("/auth/recovery-codes", json={"password": PASSWORD})
+    assert r.status_code == 200 and len(r.json()["codes"]) == 10 and set(r.json()["codes"]).isdisjoint(first)
+    old = client.post("/auth/recover", json={"username": name, "code": first[0], "new_password": "a new password"})
+    assert old.status_code == 401                                                   # the old set stopped working
+
+
+@pytest.mark.anyio
+async def test_two_resets_with_one_code_at_once_only_one_wins(pool, user_id):
+    from music_backend.services import auth
+    async with pool.connection() as conn:
+        code = (await auth.replace_recovery_codes(conn, user_id))[0]
+        name = (await (await conn.execute("SELECT username FROM users WHERE id = %s", [user_id])).fetchone())["username"]
+
+    async def attempt(password):
+        async with pool.connection() as conn:
+            try:
+                await auth.recover(conn, name, code, password)
+                return True
+            except auth.WrongRecovery:
+                return False
+    import asyncio
+    results = await asyncio.gather(attempt("first password"), attempt("second password"))
+    assert sorted(results) == [False, True]

@@ -5,19 +5,21 @@ from contextlib import asynccontextmanager
 from typing import get_args, Annotated
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from psycopg import errors
 
-from music_backend.core import db
-from music_backend.services import auth, library, cache, genius, lyrics
+from music_backend.core import db, ratelimit
+from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications
 from music_backend.services.matching import rank_songs
 from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
                                   LyricsRequest, LyricsResponse, Session, SignInRequest, SignUpRequest, User,
                                   PlaylistUpdate, ShareRequest, DeviceNameRequest, Member, GeniusRequest,
-                                  GeniusResponse)
+                                  RecoverRequest, PasswordRequest, RecoveryCodes, RecoveryCodesLeft,
+                                  GeniusResponse, FriendUser, FriendRequests, RespondRequest, FriendRequest,
+                                  Notification, NotificationsResponse, WSTicket, MarkReadResponse)
 from music_backend.core.settings import settings
 from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
 
@@ -29,9 +31,11 @@ async def lifespan(app: FastAPI):
     await pool.open()
     await db.apply_schema(pool)
     app.state.pool = pool
+    app.state.limits = ratelimit.Limiter()                        # rate limits (core/ratelimit.py): counts in memory
     app.state.url_cache = cache.ListingURLCache(SOURCES, pool)   # one cache for every request; it borrows connections from the pool
     app.state.lyrics_cache = cache.LyricsCache(pool)
     app.state.genius_cache = cache.GeniusCache(pool)
+    app.state.hub = notifications.NotificationHub()               # WebSocket connections + one-time WS tickets
     # the prefetch workers: N separate tasks, running by themselves; the list keeps them alive
     # (a list comprehension: `[create_task(...)] * N` would be ONE task listed N times)
     app.state.prefetch_workers = [asyncio.create_task(app.state.url_cache.prefetch_worker())
@@ -40,11 +44,13 @@ async def lifespan(app: FastAPI):
     async with pool.connection() as conn:
         await auth.delete_expired_sessions(conn)
     app.state.session_cleanup = asyncio.create_task(auth.clean_sessions_forever(pool))
+    app.state.notification_cleanup = asyncio.create_task(notifications.clean_forever(pool))
 
     yield
 
     # shutdown, in this order: the workers, then lookups still running, then the pool they write to
-    stopping = ([app.state.session_cleanup] + app.state.prefetch_workers + list(app.state.url_cache.running.values())
+    stopping = ([app.state.session_cleanup, app.state.notification_cleanup] + app.state.prefetch_workers
+                + list(app.state.url_cache.running.values())
                 + list(app.state.lyrics_cache.running.values()) + list(app.state.genius_cache.running.values()))
     for task in stopping:
         task.cancel()
@@ -83,6 +89,14 @@ assert set(SOURCES) == set(get_args(SourceName)), f"SOURCES {set(SOURCES)} != So
 # /health, /auth/signup and /auth/signin.
 Signed = Annotated[User, Depends(auth.current_user)]
 
+
+def per_account(action: str):
+    """`user: Annotated[User, Depends(per_account("search"))]`: signed in, and within that account's limit (429)."""
+    async def check(request: Request, user: Signed) -> User:
+        request.app.state.limits.check(action, str(user.id))
+        return user
+    return check
+
 # the playlist errors, answered the same way everywhere: no try/except per route
 @app.exception_handler(library.NoSuchPlaylist)
 async def _no_such_playlist(request: Request, e: library.NoSuchPlaylist) -> JSONResponse:
@@ -95,6 +109,28 @@ async def _not_allowed(request: Request, e: library.NotAllowed) -> JSONResponse:
 @app.exception_handler(library.NoSuchUser)
 async def _no_such_user(request: Request, e: library.NoSuchUser) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": "No account with that username"})
+
+
+# the friends errors, answered the same way everywhere
+@app.exception_handler(friends.NoSuchUser)
+async def _friends_no_such_user(request: Request, e: friends.NoSuchUser) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": "No account with that username"})
+
+@app.exception_handler(friends.AlreadyFriends)
+async def _already_friends(request: Request, e: friends.AlreadyFriends) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": "Already friends"})
+
+@app.exception_handler(friends.RequestPending)
+async def _request_pending(request: Request, e: friends.RequestPending) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": "Request already pending"})
+
+@app.exception_handler(friends.NoRequest)
+async def _no_request(request: Request, e: friends.NoRequest) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": "No pending request from that user"})
+
+@app.exception_handler(friends.NotFriends)
+async def _not_friends(request: Request, e: friends.NotFriends) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": "Not friends with that user"})
 
 
 @app.get("/health")
@@ -153,7 +189,7 @@ async def playlist_link(playlist_id: UUID) -> HTMLResponse:
 
 
 @app.get("/search")
-async def search(q: str, user: Signed) -> SearchResponse:
+async def search(q: str, user: Annotated[User, Depends(per_account("search"))]) -> SearchResponse:
     logger.debug("Received search query : %s", q)
     # every source runs at the same time; each one's failure stays inside its own search_one
     results = await asyncio.gather(*(search_one(name, source, q) for name, source in SOURCES.items()))
@@ -185,7 +221,7 @@ async def play(request: Request, user: Signed, source: SourceName, source_id: st
 # ---------- prefetch ----------
 
 @app.post("/prefetch", status_code = 202)
-async def prefetch_urls(body: PrefetchRequest, request: Request, user: Signed) -> Response:
+async def prefetch_urls(body: PrefetchRequest, request: Request, user: Annotated[User, Depends(per_account("prefetch"))]) -> Response:
     """The listings coming next, in order: looked up in the background so they start at once when played.
     Answers 202 straight away; a newer list replaces what is still waiting. async def: it runs on the event loop,
     where the queue lives (asyncio.Queue is not thread-safe, and a plain def would run on another thread)."""
@@ -339,7 +375,7 @@ async def unshare_playlist(playlist_id: UUID, member_id: UUID, request: Request,
 # ---- lyrics -----
 
 @app.post("/lyrics")
-async def get_lyrics(body: LyricsRequest, request: Request, user: Signed) -> LyricsResponse:
+async def get_lyrics(body: LyricsRequest, request: Request, user: Annotated[User, Depends(per_account("lyrics"))]) -> LyricsResponse:
     """Always 200: no lyrics is an empty `lines`, not an error. From the lyrics table when it has them."""
     return await request.app.state.lyrics_cache(body)
 
@@ -361,18 +397,55 @@ async def get_genius(body: GeniusRequest, request: Request, user: Signed) -> Gen
 async def signup(body: SignUpRequest, request: Request) -> Session:
     """A new account, signed in at once: the user and their first session on one connection, so both happen or
     neither does. 409 when the name is taken, whatever its capitals."""
+    request.app.state.limits.check_address(request, "signup_address")
     async with request.app.state.pool.connection() as conn:
         try:
             user = await auth.create_user(conn, body.username, body.password)
         except auth.UsernameTaken:
             raise HTTPException(status_code=409, detail="That username is taken")
         token = await auth.create_session_token(conn, user.id, body.device_name)
+        codes = await auth.replace_recovery_codes(conn, user.id)    # the way back in: shown this once
+    return Session(token=token, user=user, recovery_codes=codes)
+
+
+@app.post("/auth/recover")
+async def recover(body: RecoverRequest, request: Request) -> Session:
+    """A forgotten password: a recovery code (used up), a new password, every other device signed out, and this one
+    signed in. One answer for an unknown name and a wrong code."""
+    request.app.state.limits.check_address(request, "recover_address")
+    request.app.state.limits.check("recover_username", body.username.lower())
+    async with request.app.state.pool.connection() as conn:
+        try:
+            user = await auth.recover(conn, body.username, body.code, body.new_password)
+        except auth.WrongRecovery:
+            raise HTTPException(status_code=401, detail="Wrong username or recovery code")
+        token = await auth.create_session_token(conn, user.id, body.device_name)
     return Session(token=token, user=user)
+
+
+@app.get("/auth/recovery-codes")
+async def recovery_codes_left(request: Request, user: Signed) -> RecoveryCodesLeft:
+    """How many unused codes you have (Settings warns when few are left)."""
+    async with request.app.state.pool.connection() as conn:
+        return RecoveryCodesLeft(left=await auth.recovery_codes_left(conn, user.id))
+
+
+@app.post("/auth/recovery-codes")
+async def new_recovery_codes(body: PasswordRequest, request: Request, user: Signed) -> RecoveryCodes:
+    """A new set of ten, replacing the old: your password again, so a session left open somewhere cannot do it."""
+    async with request.app.state.pool.connection() as conn:
+        try:
+            await auth.check_password(conn, user.username, body.password)
+        except auth.WrongCredentials:
+            raise HTTPException(status_code=401, detail="Wrong password")
+        return RecoveryCodes(codes=await auth.replace_recovery_codes(conn, user.id))
 
 
 @app.post("/auth/signin")
 async def signin(body: SignInRequest, request: Request) -> Session:
     """A new session for this device. One answer for a wrong password and for a name that does not exist."""
+    request.app.state.limits.check_address(request, "signin_address")
+    request.app.state.limits.check("signin_username", body.username.lower())
     async with request.app.state.pool.connection() as conn:
         try:
             user = await auth.check_password(conn, body.username, body.password)
@@ -403,3 +476,168 @@ async def signout(request: Request, user: Signed, authorization: str | None = He
     token = (authorization or "").partition(" ")[2]
     async with request.app.state.pool.connection() as conn:
         await auth.delete_session(conn, token)
+
+
+# ---------- friends (FRIENDS-1) ----------
+
+@app.post("/friends/request", status_code=201)
+async def send_friend_request(body: FriendRequest, request: Request,
+                              user: Annotated[User, Depends(per_account("friend_request"))]) -> None:
+    """Send a friend request. 201 on success; 404 no such user; 400 yourself; 409 already friends or request pending."""
+    async with request.app.state.pool.connection() as conn:
+        try:
+            notification = await friends.send_request(conn, user.id, body.username)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    if notification is not None:
+        await request.app.state.hub.push(notification.user_id, {
+            "type": "notification",
+            "data": notification.model_dump(mode="json"),
+        })
+
+
+@app.get("/friends/requests")
+async def get_friend_requests(request: Request,
+                             user: Annotated[User, Depends(per_account("friends"))]) -> FriendRequests:
+    """Incoming and outgoing friend requests, each oldest first."""
+    async with request.app.state.pool.connection() as conn:
+        incoming, outgoing = await friends.list_requests(conn, user.id)
+    return FriendRequests(incoming=incoming, outgoing=outgoing)
+
+
+@app.post("/friends/respond", status_code=204)
+async def respond_to_request(body: RespondRequest, request: Request,
+                            user: Annotated[User, Depends(per_account("friends"))]) -> None:
+    """Accept or decline a friend request. 404 if no pending request from that user."""
+    async with request.app.state.pool.connection() as conn:
+        notification = await friends.respond(conn, user.id, body.username, body.action)
+    if notification is not None:
+        await request.app.state.hub.push(notification.user_id, {
+            "type": "notification",
+            "data": notification.model_dump(mode="json"),
+        })
+
+
+@app.get("/friends")
+async def get_friends(request: Request,
+                      user: Annotated[User, Depends(per_account("friends"))]) -> list[FriendUser]:
+    """Your friends, alphabetical by username."""
+    async with request.app.state.pool.connection() as conn:
+        return await friends.list_friends(conn, user.id)
+
+
+@app.delete("/friends/{friend_id}", status_code=204)
+async def remove_friend(friend_id: UUID, request: Request,
+                        user: Annotated[User, Depends(per_account("friends"))]) -> None:
+    """Remove a friend. 404 if you are not friends."""
+    async with request.app.state.pool.connection() as conn:
+        await friends.remove_friend(conn, user.id, friend_id)
+
+
+# ---------- notifications (FRIENDS-1 Phase 2) ----------
+
+@app.post("/ws-ticket")
+async def ws_ticket(request: Request,
+                    user: Annotated[User, Depends(per_account("notifications"))]) -> WSTicket:
+    """Trade your JWT for a single-use 30-second ticket for the WebSocket handshake.
+
+    The JWT never appears in a URL (access logs, proxies, browser history).
+    """
+    ticket = request.app.state.hub.issue_ticket(user.id, ttl_seconds=30)
+    return WSTicket(ticket=ticket, expires_in=30)
+
+
+@app.websocket("/ws/notifications")
+async def ws_notifications(websocket: WebSocket, ticket: str = Query(...)) -> None:
+    """Real-time notification push. Authenticated by a single-use ticket from POST /ws-ticket.
+
+    On connect: sends {"type":"connected","unread":N} so the client knows it is live and can
+    fetch its catch-up page. Then stays open until the client disconnects or the 30s heartbeat
+    window passes with no message (a dead mobile connection).
+    """
+    hub = websocket.app.state.hub
+    user_id = hub.redeem_ticket(ticket)
+    if user_id is None:
+        await websocket.close(code=4401, reason="invalid or expired ticket")
+        return
+    await websocket.accept()
+    hub.register(user_id, websocket)
+    try:
+        async with websocket.app.state.pool.connection() as conn:
+            unread = await notifications.unread_count(conn, user_id)
+        await websocket.send_json({"type": "connected", "unread": unread})
+        while True:
+            # heartbeat: a message from the client every ~25s keeps this from timing out;
+            # if the socket dies silently (mobile network change), receive_text raises or times out
+            msg = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+            # the only client message we care about is a ping; anything else is ignored
+            if msg == "ping":
+                await websocket.send_json({"type": "pong"})
+    except (asyncio.TimeoutError, WebSocketDisconnect):
+        pass
+    except Exception:
+        logger.debug("ws/notifications for %s closed with an error", user_id, exc_info=True)
+    finally:
+        hub.unregister(user_id, websocket)
+        try:
+            await websocket.close()
+        except Exception:
+            pass  # already closed by the peer
+
+
+@app.get("/notifications")
+async def get_notifications(request: Request, user: Signed,
+                            unread_only: bool = False,
+                            after_seq: Annotated[int, Query(ge=0)] = 0,
+                            before_seq: Annotated[int | None, Query(ge=0)] = None,
+                            limit: Annotated[int, Query(ge=1, le=100)] = 50) -> NotificationsResponse:
+    """Your notifications (newest first) plus the unread count.
+
+    after_seq: catch-up cursor — send the last seq you saw (0 = from the start).
+    before_seq: older than this seq (scrolling backwards).
+    """
+    async with request.app.state.pool.connection() as conn:
+        return await notifications.list_notifications(
+            conn, user.id,
+            unread_only=unread_only, after_seq=after_seq,
+            before_seq=before_seq, limit=limit,
+        )
+
+
+@app.post("/notifications/{notification_id}/read", status_code=200)
+async def mark_notification_read(notification_id: UUID, request: Request, user: Signed) -> MarkReadResponse:
+    """Mark one notification read. 404 only if it does not exist or is not yours; marking an
+    already-read one again is a harmless 200 (idempotent — retries and double devices)."""
+    async with request.app.state.pool.connection() as conn:
+        result = await notifications.mark_read(conn, user.id, notification_id)
+        if result == "not_found":
+            raise HTTPException(status_code=404, detail="Notification not found")
+        count = await notifications.unread_count(conn, user.id)
+    if result == "read":
+        # other devices on the same account need to hear about it too (flaw #5);
+        # already_read changed nothing, so there is nothing to sync
+        await request.app.state.hub.push(user.id, {
+            "type": "notification_read",
+            "data": {"id": str(notification_id), "unread": count},
+        })
+    return MarkReadResponse(unread_count=count)
+
+
+@app.post("/notifications/read-all", status_code=200)
+async def mark_all_notifications_read(request: Request, user: Signed) -> MarkReadResponse:
+    """Mark every unread notification read. Returns the (now zero) unread count."""
+    async with request.app.state.pool.connection() as conn:
+        await notifications.mark_all_read(conn, user.id)
+        count = await notifications.unread_count(conn, user.id)
+    await request.app.state.hub.push(user.id, {
+        "type": "notifications_cleared",
+        "data": {"unread": count},
+    })
+    return MarkReadResponse(unread_count=count)
+
+
+@app.get("/notifications/unread-count")
+async def notification_unread_count(request: Request, user: Signed) -> MarkReadResponse:
+    """Just the badge count (cheap: one indexed count)."""
+    async with request.app.state.pool.connection() as conn:
+        return MarkReadResponse(unread_count=await notifications.unread_count(conn, user.id))

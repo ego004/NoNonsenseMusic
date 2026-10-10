@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, Field
 
@@ -191,6 +191,106 @@ class DeviceNameRequest(BaseModel):
     device_name : str = Field(min_length=1, max_length=DEVICE_NAME_MAX)
 
 class Session(BaseModel):
-    """The reply to sign-up and sign-in: the only time the token itself is sent."""
+    """The reply to sign-up, sign-in and a recovery: the only time the token itself is sent. `recovery_codes`: at
+    sign-up only, the one time they are shown."""
     token : str
     user : User
+    recovery_codes : list[str] | None = None
+
+class RecoverRequest(BaseModel):
+    """POST /auth/recover: the way back in with a recovery code: a new password, and this device signed in."""
+    username : str = Field(max_length=USERNAME_MAX)
+    code : str = Field(max_length=40)
+    new_password : str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
+    device_name : str = Field(default="Unknown Device", max_length=DEVICE_NAME_MAX)
+
+class PasswordRequest(BaseModel):
+    """POST /auth/recovery-codes: a new set needs the password again (a session alone is not enough)."""
+    password : str = Field(max_length=PASSWORD_MAX)
+
+class RecoveryCodes(BaseModel):
+    codes : list[str]
+
+class RecoveryCodesLeft(BaseModel):
+    left : int
+
+
+class FriendUser(BaseModel):
+    """One person in a friends list or a request list: who they are, and when the relationship began (or was asked for)."""
+    user_id: UUID
+    username: str
+    since: datetime                            # friends_since for friends, created_at for requests
+
+
+class FriendRequests(BaseModel):
+    """GET /friends/requests: the requests waiting on you, and the ones you are waiting on."""
+    incoming: list[FriendUser]
+    outgoing: list[FriendUser]
+
+
+class FriendRequest(BaseModel):
+    """POST /friends/request: ask someone to be your friend. Just their username."""
+    username: str = Field(max_length=USERNAME_MAX)
+
+
+class RespondRequest(BaseModel):
+    """POST /friends/respond: accept or decline someone's request. The username identifies which one."""
+    username: str = Field(max_length=USERNAME_MAX)
+    action: Literal["accept", "decline"]
+
+
+# ---------- notifications (FRIENDS-1 Phase 2) ----------
+
+NotificationType = Literal["friend_request", "friend_accepted", "playlist_invite"]
+
+
+class FriendRequestPayload(BaseModel):
+    from_user_id: UUID
+    from_username: str
+
+
+class FriendAcceptedPayload(BaseModel):
+    by_user_id: UUID
+    by_username: str
+
+
+class PlaylistInvitePayload(BaseModel):
+    playlist_id: UUID
+    playlist_name: str
+    from_user_id: UUID
+    from_username: str
+
+
+# one place mapping type -> payload model: services/notifications.py validates before INSERT,
+# so a typo in a caller's dict never reaches the database
+NOTIFICATION_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
+    "friend_request": FriendRequestPayload,
+    "friend_accepted": FriendAcceptedPayload,
+    "playlist_invite": PlaylistInvitePayload,
+}
+
+
+class Notification(BaseModel):
+    id: UUID
+    user_id: UUID                      # who it is for (push target; excluded from client-facing JSON below)
+    type: NotificationType
+    payload: dict[str, Any]            # already validated on the way in; read back as-is
+    seq: int                           # monotonically increasing (catch-up cursor)
+    read: bool
+    created_at: datetime
+
+
+class NotificationsResponse(BaseModel):
+    notifications: list[Notification]
+    unread_count: int
+
+
+class WSTicket(BaseModel):
+    """POST /ws-ticket reply: a single-use short-lived token for the WebSocket handshake.
+    The JWT itself never appears in a URL query string (access logs, proxies, history)."""
+    ticket: str
+    expires_in: int                  # seconds (30)
+
+
+class MarkReadResponse(BaseModel):
+    unread_count: int
