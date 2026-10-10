@@ -197,6 +197,60 @@ def test_ws_two_members_both_receive_the_broadcast(client):
                 assert msg["data"]["is_playing"] is True
 
 
+@pytest.mark.anyio
+async def test_stale_position_heartbeat_cannot_unpause():
+    """A heartbeat that was in flight when someone paused must not flip the room back to playing."""
+    hub, room, sender = fresh_room()
+    await hub.handle_command(room, room.host_id, JamCommand(type="add", listings=[make_listing(1, duration=300)]), sender)
+    await hub.handle_command(room, room.host_id, JamCommand(type="pause"), sender)
+    frozen = room.position_seconds
+    await hub.handle_command(room, room.host_id, JamCommand(type="position", seconds=frozen + 50), sender)
+    assert room.is_playing is False
+    assert room.position_seconds == pytest.approx(frozen, abs=1)
+
+
+def test_nan_and_infinity_seconds_rejected_at_the_model():
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError):
+            JamCommand(type="seek", seconds=bad)
+    assert JamCommand(type="seek", seconds=42).seconds == 42
+    assert JamCommand(type="seek").seconds is None
+
+
+@pytest.mark.anyio
+async def test_nan_seconds_over_the_wire_answer_error():
+    hub, room, sender = fresh_room()
+    await hub.handle_command(room, room.host_id, JamCommand(type="add", listings=[make_listing(1)]), sender)
+    # the WS endpoint validates with model_validate_json; NaN is what the poison looks like on the wire
+    with pytest.raises(Exception):
+        JamCommand.model_validate_json('{"type":"seek","seconds":NaN}')
+    assert room.position_seconds == 0
+
+
+def test_take_host_and_leave_are_rate_limited(client):
+    alice, bob = Person(client), Person(client)
+    room = alice("POST", "/jam", json={}).json()                           # alice: 1 of the jam budget
+    bob("POST", "/jam/join", json={"code": room["code"]})                  # bob: 1 of his own
+    for _ in range(19):                                                    # alice: 2..20
+        assert bob("POST", f"/jam/{room['room_id']}/host").status_code == 204
+    assert bob("POST", f"/jam/{room['room_id']}/host").status_code == 429  # 21st: over the shared /jam limit
+    assert alice("POST", f"/jam/{room['room_id']}/leave").status_code == 204  # alice still has budget left
+
+
+def test_leave_closes_that_users_socket(client):
+    alice, bob = Person(client), Person(client)
+    room = alice("POST", "/jam", json={}).json()
+    bob("POST", "/jam/join", json={"code": room["code"]})
+    ticket = alice("POST", "/ws-ticket").json()["ticket"]
+    with client.websocket_connect(f"/ws/jam?ticket={ticket}&room_id={room['room_id']}") as ws:
+        ws.receive_json()
+        assert alice("POST", f"/jam/{room['room_id']}/leave").status_code == 204
+        with pytest.raises(Exception):
+            ws.receive_json()                                              # server closed with 4404
+    state = bob("GET", f"/jam/{room['room_id']}").json()
+    assert state["host_id"] == bob.id                                      # hostship still passed on
+
+
 # ---------- command semantics (hub directly, no socket plumbing) ----------
 
 def fresh_room():

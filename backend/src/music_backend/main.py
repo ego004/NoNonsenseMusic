@@ -827,8 +827,10 @@ async def get_jam(room_id: UUID, request: Request, user: Signed) -> JamState:
 
 
 @app.post("/jam/{room_id}/host", status_code=204)
-async def take_jam_host(room_id: UUID, request: Request, user: Signed) -> Response:
-    """Take the speakers: you become the host, the old host's app stops playing. Any member may."""
+async def take_jam_host(room_id: UUID, request: Request,
+                        user: Annotated[User, Depends(per_account("jam"))]) -> Response:
+    """Take the speakers: you become the host, the old host's app stops playing. Any member may.
+    Rate-limited with the other /jam routes: each call broadcasts to the whole room."""
     try:
         room = request.app.state.jams.take_host(user.id, room_id)
     except jam.RoomNotFound:
@@ -838,17 +840,27 @@ async def take_jam_host(room_id: UUID, request: Request, user: Signed) -> Respon
 
 
 @app.post("/jam/{room_id}/leave", status_code=204)
-async def leave_jam(room_id: UUID, request: Request, user: Signed) -> Response:
+async def leave_jam(room_id: UUID, request: Request,
+                    user: Annotated[User, Depends(per_account("jam"))]) -> Response:
     """Leave the room. If you were the host, the next member by join order inherits the speakers;
-    if you were the last member, the room closes."""
+    if you were the last member, the room closes. Any WebSocket you still hold for this room is
+    closed with 4404 — leaving everywhere means leaving on every device."""
+    jams = request.app.state.jams
+    room_before = jams.get(room_id)
+    mine = [ws for ws, uid in room_before.sockets.items() if uid == user.id] if room_before else []
     try:
-        room = request.app.state.jams.leave(user.id, room_id)
+        room = jams.leave(user.id, room_id)
     except jam.RoomNotFound:
         raise HTTPException(status_code=404, detail="No such room")
     except jam.NotAMember:
         raise HTTPException(status_code=404, detail="You are not in this room")
+    for ws in mine:                                  # the sockets are already off the room; now end them
+        try:
+            await ws.close(code=4404, reason="you left this room")
+        except Exception:
+            pass
     if room is not None:
-        await request.app.state.jams.broadcast(room, {"type": "state", "data": request.app.state.jams.state(room).model_dump(mode="json")})
+        await jams.broadcast(room, {"type": "state", "data": jams.state(room).model_dump(mode="json")})
     return Response(status_code=204)
 
 

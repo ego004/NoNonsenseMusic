@@ -193,11 +193,13 @@ class JamHub:
             if user_id != room.host_id:
                 await sender.send_json({"type": "error", "detail": "Only the host reports the playhead."})
                 return
-            if cmd.seconds is None or cmd.seconds < 0 or room.current is None:
+            # a heartbeat from before a pause is stale: dropping it (rather than setting is_playing
+            # back to True) keeps the room frozen where the pause put it — otherwise one in-flight
+            # heartbeat after someone pauses desyncs the room until the host happens to play again
+            if cmd.seconds is None or cmd.seconds < 0 or room.current is None or not room.is_playing:
                 return
             room.position_seconds = cmd.seconds
             room.position_at = time.time()
-            room.is_playing = True
             await self.broadcast(room, {"type": "position", "seconds": self.playhead(room), "is_playing": True})
             return
         if cmd.type == "play":

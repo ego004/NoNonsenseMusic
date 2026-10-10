@@ -1,7 +1,8 @@
+import math
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # The one list of source IDs, used by every model, SOURCES in main.py, and the /play URL.
 # Lowercase, no spaces: they appear in URLs (/play/ytmusic/...) and must never drift between files.
@@ -438,3 +439,12 @@ class JamCommand(BaseModel):
     listings: list[Listing] | None = None        # add
     entry_id: UUID | None = None                 # remove, move, jump
     to_index: int | None = None                  # move: 0-based index in the queue
+
+    @field_validator("seconds")
+    @classmethod
+    def _finite_seconds(cls, v: float | None) -> float | None:
+        # NaN/Infinity survive a "< 0" check and then poison the room's position and every
+        # JSON broadcast of it; reject them at the door
+        if v is not None and not math.isfinite(v):
+            raise ValueError("seconds must be a finite number")
+        return v
