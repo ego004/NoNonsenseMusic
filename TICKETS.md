@@ -14,6 +14,8 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 > **Renumbered 5 Oct 2026.** Done and removed: resilient search, play, merge + rank, library, shuffle, and the Mac app v1. Git history and old commit messages use the old numbers. Old → new: 16 → 1 (and 4), 15 → 2, 8 → 3, 5 → 5, 9 → 6, 10 → 7, 6 + 11 → 8, 12 → 9, 13 → 10, 14 → 11.
 
 > **Order (decided 5 Oct, updated 7 Oct 2026, evening):** ~~MUS-2~~ ✅ → ~~MUS-1~~ ✅ → ~~MUS-12 lyrics~~ ✅ → **BUG-1 → BUG-7** (the 7 Oct audit's bugs; BUG-1 first: MUS-15 changes the same check) → **MUS-15** links that survive an IP change (small; you feel it daily) → **MUS-16** log searches and measure ranking → **MUS-17** a ranking foundation (features, weights, explanations) → **MUS-18** your taste → MUS-3 autoplay (ranked by MUS-17 + 18) → MUS-13 YouTube → MUS-20 albums in search (future scope, added 7 Oct). MUS-14 covers whenever you want a contained evening.
+>
+> **10 Oct 2026:** MUS-13 and MUS-20's **backends** were built ahead of this order (plain YouTube source; album/artist search across all 3 sources; album/artist pages; pinned albums). Their app parts — the "Search YouTube" switch, the album/artist screens — are still open. The order above is otherwise unchanged.
 
 | Ticket | What you can show at the end | Who | Size |
 |---|---|---|---|
@@ -29,13 +31,13 @@ Stuck for more than 30 minutes? Bring: what you tried, what you expected, what h
 | MUS-10 | About 1 in 5 autoplay songs is new to you, and it learns which new ones you skip | **You** | M |
 | MUS-11 | Your own "people who played X played Y" model, beating or losing to YouTube radio on your skip rate | **Pair** | L |
 | MUS-12 ✅ | Lyrics in Now Playing, lit line by line in time with the song | **You** (backend) · Claude (app) | M |
-| MUS-13 | Songs that exist only on plain YouTube, found with a "Search YouTube" switch | **You** (backend) · Claude (app) | M |
+| MUS-13 (backend ✅ 10 Oct, app switch open) | Songs that exist only on plain YouTube, found with a "Search YouTube" switch | **You** (backend) · Claude (app) | M |
 | MUS-14 | Playlist covers: upload an image, checked and cleaned, served with a URL that changes when it does | **You** (backend) · Claude (app, tests) | S |
 | MUS-15 | After your IP changes, songs still start at once: one failed play, not one per song | **You** (backend) · Claude (tests) | S |
 | MUS-16 | Every search is logged with what you played from it, and one command says how good the ranking is | **You** (backend) · Claude (app sends the search id, eval script) | M |
 | MUS-17 | Search ranked by named, weighted signals; each result can say why it ranks where it does; a change is judged by MUS-16's number | **You** (scorer) · Claude (app "why", tests) | L |
 | MUS-18 | Your taste as numbers (songs and artists you play, finish, skip, like), used by search and autoplay | **You** · Claude (tests) | M |
-| MUS-20 | Albums in search: an album opens its songs in order, and plays as one (future scope) | **You** (backend) · Claude (app) | M |
+| MUS-20 (backend ✅ 10 Oct, app screens open) | Albums in search: an album opens its songs in order, and plays as one (future scope) | **You** (backend) · Claude (app) | M |
 | MUS-19 ✅ | Explicit and clean versions: an 🅴 on explicit ones, and your choice of which plays (done 7 Oct) | Claude (wired in, on your go-ahead) | S |
 | BUG-1…7 | The 7 Oct audit's backend bugs, each gone and each with a test (BUG-1 before MUS-15) | **You** · Claude (review, tests) | S each |
 | FRIENDS-1 | Friends list: send/accept/decline requests, see friends, remove | **You** (backend) · Claude (app, tests) | M |
@@ -718,28 +720,31 @@ Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens
 
 **Problem:** some songs are on YouTube but not on YouTube Music: uploads, leaks, edits, underground releases. Search never shows them.
 
-**Facts already checked (5 Oct 2026)**
+**Facts already checked (5 Oct 2026; finished 10 Oct 2026)**
 - `ytmusic.py` searches with `SONGS_ONLY` (line 19) through the `WEB_REMIX` client: YouTube Music's catalogue of official songs only. That filter is why these songs never appear; it is working as designed.
-- A YouTube video plays through the same yt-dlp path as a YouTube Music song (format 140, AAC 128 kbps): only the watch URL differs (`www.youtube.com/watch?v=` instead of `music.youtube.com`).
+- A YouTube video plays through the same yt-dlp path as a YouTube Music song (format 140, AAC 128 kbps): only the watch URL differs (`www.youtube.com/watch?v=` instead of `music.youtube.com`). Proved live 10 Oct: `get_song_url` returned a real URL with `?expire=`.
 - Plain YouTube titles are noisy ("Artist - Song (Official Video) [HD]", "slowed + reverb"), and video durations differ from the song's (29 Sep: an official video 263 s, the song 200 s). `same_recording` will rarely merge a video with a song, so they show as separate results. For songs that are missing elsewhere, that is what you want.
-- It is the same IP as YouTube Music: every YouTube search adds to the bot-check risk (blocked twice on 5 Oct). **Needs MUS-1 step 2b (back-off) first.**
+- It is the same IP as YouTube Music: every YouTube search adds to the bot-check risk (blocked twice on 5 Oct). ~~Needs MUS-1 step 2b (back-off) first.~~ Done: the cache's per-source strikes/back-off cover it, and with the flag off there are zero YouTube requests.
 - Your rule: no keyword lists for judgement. Cleaning video titles ("(Official Video)") is judgement: show the raw title, or parse it with an LLM later.
+- Plain YouTube search (checked 10 Oct): POST `youtubei/v1/search`, client `WEB` 2.20251006.01.00 → ~18 `videoRenderer` rows (title runs, `lengthText`, owner, view counts with K/M/B suffixes). Saved reply: `backend/samples/youtube_search.json`. Live rows have no `lengthText` and are skipped. Channels come from the same search with params `EgIQAg==` (`channelRenderer`; its title is `simpleText`, not runs).
 
 **Deliverables**
-1. A third source, `youtube`: search and play, through the same interface as the other two (`search`, `get_song_url`, `is_expired`) and in `SourceName`.
-2. **Off unless asked:** a switch next to the search bar ("Search YouTube"), and its default in Settings (Claude builds both).
-3. With the switch off, no request goes to YouTube's search (the log shows it).
-4. YouTube results rank below the music sources, or by your rule: they are noisier.
+1. ✅ **backend (10 Oct):** a third source, `youtube`: `search`, `get_song_url`, `is_expired`, `get_artist`, in `SourceName` and `SOURCES` — /play, /prefetch, cache and back-off work for it unchanged.
+2. **Open (Claude, app):** a switch next to the search bar ("Search YouTube"), and its default in Settings. The backend flag exists: `GET /search?q=…&youtube=true` (default off).
+3. ✅ With the flag off, no request goes to YouTube's search (a test asserts the source's search is never called).
+4. ✅ YouTube results rank below the music sources: videos never take an RRF score — a video matching a song joins that song's listings as a fallback only, and unmatched videos append after every ranked song.
 
-**Decisions that are yours**
-- How the app asks for it: `GET /search?q=…&youtube=true`, or a list of sources.
-- Plain YouTube search (the `WEB` client, a different reply shape) or YouTube Music's own *videos* filter (the same reply shape, maybe less coverage): measure which finds your missing songs.
-- How YouTube results rank against the others, and whether a video may ever join a song's listings.
+**Decisions made (10 Oct 2026)**
+- The app asks with `?youtube=true` (off by default; no source list).
+- Plain YouTube's own `WEB` search (measured, works) — not Music's videos filter.
+- Raw titles, never cleaned (your rule). Ranking: score 0, below all music results.
+- A video may join a song's listings when `same_video` matches: word-boundary title containment either way + artists match + ≤ 90 s apart (official videos drift about a minute).
 
 **Done when**
-- [ ] A song that is only on YouTube is found with the switch on, and plays.
-- [ ] Switch off: zero YouTube search requests in the log.
-- [ ] pytest for the reply parser with a saved reply (titles only; no URLs, no IP).
+- [x] A song that is only on YouTube is found with the flag on, and its audio URL resolves (10 Oct, live: 18 results for "blinding lights the weeknd", first one raw-titled; URL with `?expire=` came back).
+- [x] Switch off: zero YouTube search requests (test).
+- [x] pytest for the reply parser with a saved reply (titles only; no URLs, no IP) — `samples/youtube_search.json` + synthetic live/no-view rows.
+- [ ] The app: "Search YouTube" switch + its Settings default (Claude).
 
 **Docs:** your own `ytmusic.py` (the same InnerTube pattern) · yt-dlp's `ytsearchN:` with `extract_flat`, if you want a slower fallback
 
@@ -749,19 +754,27 @@ Train ALS (`implicit`) on ListenBrainz's open listening data (~1 billion listens
 
 **Problem:** search finds songs only. Typing an album's name gives its songs mixed in with everything else; there is no way to open an album, see its songs in order, and play it as one.
 
-**Facts to check first (not checked yet):**
-- Whether each source can search albums, and what the reply looks like: save one reply per source in `samples/`, as for songs. YouTube Music's search takes a filter (`ytmusic.py` asks for songs only with one): there may be one for albums. JioSaavn's web API answers several kinds of search.
-- How to get one album's songs, in order, from each source.
-- Whether one album on both sources can be recognised as the same (title, artist, number of songs?), the way `same_recording` does it for songs.
+**Facts checked (10 Oct 2026; all probed live, replies saved where useful)**
+- Album search per source: JioSaavn `search.getAlbumResults` (rows carry id, title, subtitle artist, year, and `more_info.song_count` — the top-level `list_count` is junk, measures "0"); YouTube Music `ytmusicapi search(filter="albums")` (MPREb_ browse ids). Plain YouTube has **no album entity at all** (measured: only playlist lockups) → albums come from the two music sources only.
+- Artist search, all three: JioSaavn `search.getArtistResults`; ytmusicapi `filter="artists"` (UC ids); plain YouTube channel search (same `youtubei/v1/search` with params `EgIQAg==`).
+- One album's tracks in order: JioSaavn `content.getAlbumDetails` (its `list` rows are the same shape as search rows, so `to_listing` works as-is); ytmusicapi `get_album` (tracks in track order with `duration_seconds`; a bad browseId raises KeyError → "not found"). A made-up JioSaavn id answers 200 with empty title/list → also "not found".
+- One artist's page: JioSaavn `artist.getArtistPageDetails` (topSongs/topAlbums/followers; bio is a JSON string of text pieces, `'[]'` → no bio); ytmusicapi `get_artist` (artist-page song rows carry **no duration anywhere** — filled from the song's own album by title match, measured 5/5; unfilled → 0 + a warning; subscribers/monthlyListeners like "40.1M"); plain YouTube: yt-dlp `extract_flat` on `/channel/{id}/videos` (newest first, followers from `channel_follower_count`).
+- One album on both sources = `same_album`: normalised titles equal + artists match (year deliberately not compared — editions differ). Fused with RRF exactly like songs; `same_artist` merges "The Weeknd - Topic" into "The Weeknd".
+- Pinned albums: `playlists` gained `kind`/`source`/`source_id` (default 'playlist'); the old `(user_id, name)` constraint was replaced by two partial indexes — names stay unique across **playlists** (an album may share a name with one), and one pin per `(user_id, source, source_id)`.
 
 **Deliverables:**
-1. Search answers albums too, as their own list (not mixed into songs): cover, artist, year, number of songs.
-2. One album's songs, in order, as songs the app can play (with their listings, like search results).
-3. The app (Claude): an Albums row in search results; an album screen (cover, songs, Play, Shuffle, Add to Playlist).
+1. ✅ **backend:** search answers albums and artists too, each as their own list in one combined `/search` reply (cover, artist, year, song count; artists by name), fused across sources; `filter=all|songs|albums|artists` asks for one kind only; per-source `num_albums`/`num_artists` counts in `sources`.
+2. ✅ **backend:** one album's songs, in order: `GET /album/{source}/{source_id}` (read-only: score-0 songs, one listing each, nothing written). Plus `GET /artist/{source}/{source_id}`: info + top songs + albums. Rate-limited like search (`album`/`artist`, 60/min).
+3. **Open (Claude, app):** an Albums/Artists row in search results; an album screen (cover, songs in order, Play, Shuffle, Add to Playlist).
+4. ✅ **backend (beyond the original scope — pinning):** `POST /albums/pin {source, source_id}` copies an album into your playlists as a row of `kind='album'`: tracks materialized in order at pin time through `resolve_song` (recordings you already have stay themselves), 409 on a second pin, read-only after — rename/public/share/add/remove/move answer 400 "This is a pinned album; delete it to unpin"; delete unpins (songs stay); it reorders in your playlist list like any other.
 
-**Yours to decide:** albums in the `/search` reply or a request of their own; how many per search; stored (like playlists) or only looked up; what to do when the two sources list different songs for one album.
+**Decisions made (10 Oct 2026):** albums and artists live in the `/search` reply (one round trip, one health report); 20 per source; albums from 2 sources (YouTube has none), artists from all 3; looking up is read-only, stored only when pinned; sources listing different track lists for one album: whichever you open is what you get (each copy keeps its own listing anyway).
 
-**Done when:** searching "Camp Childish Gambino" shows the album; opening it lists its songs in order; Play plays them in that order.
+**Done when:**
+- [x] Searching an album's name shows it as its own result (live 10 Oct: "after hours the weeknd" → After Hours / The Weeknd / 2020 / 14 tracks from both sources, fused into one row).
+- [x] Opening it lists its songs in order (live: 14/14, identical order and total duration on both sources).
+- [x] Pinning it keeps that order, twice-pin refuses (409), editing it refuses (400), unpin leaves the songs (live + 19 endpoint tests).
+- [ ] Play plays them in that order (app).
 
 ---
 

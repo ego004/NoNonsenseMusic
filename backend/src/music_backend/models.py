@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 # The one list of source IDs, used by every model, SOURCES in main.py, and the /play URL.
 # Lowercase, no spaces: they appear in URLs (/play/ytmusic/...) and must never drift between files.
 # Display names like "YouTube Music" belong to a UI, not here.
-SourceName = Literal["jiosaavn", "ytmusic"]
+SourceName = Literal["jiosaavn", "ytmusic", "youtube"]
 
 class Listing(BaseModel):
     source : SourceName
@@ -40,15 +40,91 @@ class Song(BaseSong):
 class SearchSourceInfo(BaseModel):
     source : SourceName
     healthy : bool
-    num_results : int
+    num_results : int          # songs found
     ms : int
+    # album/artist searches run in the same round (MUS-20); 0 when that filter was not asked for
+    num_albums : int = 0
+    num_artists : int = 0
     error : str | None = Field(default = None, exclude_if = lambda error: error is None)
+
+
+class AlbumRef(BaseModel):
+    """One source's copy of an album (MUS-20): enough to open it via GET /album/{source}/{id}."""
+    source : SourceName
+    id : str
+    title : str
+    artists : list[str]
+    year : int | None = None
+    image : str | None = None
+    song_count : int | None = None
+    explicit : bool | None = None
+
+
+class Album(BaseModel):
+    """The same album found on one or more sources: shown with the preferred copy's details."""
+    title : str
+    artists : list[str]
+    year : int | None = None
+    image : str | None = None
+    song_count : int | None = None
+    explicit : bool | None = None
+    score : float
+    best : AlbumRef
+    listings : list[AlbumRef]
+
+
+class ArtistRef(BaseModel):
+    """One source's copy of an artist (MUS-20): enough to open it via GET /artist/{source}/{id}."""
+    source : SourceName
+    id : str
+    name : str
+    image : str | None = None
+
+
+class Artist(BaseModel):
+    """The same artist found on one or more sources (a channel on plain YouTube counts)."""
+    name : str
+    image : str | None = None
+    score : float
+    best : ArtistRef
+    listings : list[ArtistRef]
+
+
+class AlbumDetail(BaseModel):
+    """One source's album page (MUS-20): metadata plus its tracks, in track order.
+
+    Songs are single-listing groups with score 0 — ordinary playable songs, so the app can play
+    an album's tracks exactly like search results. Nothing here is stored in the database.
+    """
+    source : SourceName
+    id : str
+    title : str
+    artists : list[str]
+    year : int | None = None
+    image : str | None = None
+    explicit : bool | None = None
+    songs : list[Song] = []
+
+
+class ArtistDetail(BaseModel):
+    """One source's artist page (MUS-20): info plus top songs (best-first) and albums."""
+    source : SourceName
+    id : str
+    name : str
+    image : str | None = None
+    bio : str | None = None
+    followers : int | None = None
+    monthly_listeners : int | None = None
+    songs : list[Song] = []
+    albums : list[AlbumRef] = []
 
 
 class SearchResponse(BaseModel):
     query : str
     sources : list[SearchSourceInfo]
     songs : list[Song]
+    albums : list[Album] = []
+    artists : list[Artist] = []
 
 
 EventType = Literal["play", "skip", "finish"]
@@ -69,6 +145,11 @@ class SongRef(BaseModel):
 
 class PlaylistRequest(BaseModel):
     name : str = Field(min_length=1)
+
+class PinAlbumRequest(BaseModel):
+    """POST /albums/pin: copy a source's album into your playlists as a pinned album."""
+    source : SourceName
+    source_id : str = Field(min_length=1)
 
 # AUTH-1: the limits, in one place. schema.sql's CHECK on users.username repeats the 3 and 32 as a last guard
 USERNAME_MIN, USERNAME_MAX = 3, 32
@@ -104,6 +185,11 @@ class PlaylistMetadata(BaseModel):
     # (owner: everything; editor: add, remove, reorder songs; viewer: look and play)
     public : bool = False
     role : Literal["owner", "editor", "viewer"] = "owner"
+    # a pinned album (MUS-20) is playlist-shaped but read-only: its tracks are a snapshot taken when you pinned it.
+    # source/source_id say which album on which source; both null for a normal playlist
+    kind : Literal["playlist", "album"] = "playlist"
+    source : SourceName | None = None
+    source_id : str | None = None
 
 class PlaylistsResponse(BaseModel):
     playlists : list[PlaylistMetadata]
@@ -130,6 +216,19 @@ class PrefetchListing(BaseModel):
 class PrefetchRequest(BaseModel):
     # the app sends 5 to 10; the maximum stops one request from queueing thousands of lookups
     listings : list[PrefetchListing] = Field(min_length = 1, max_length = 50)
+
+class RadioRequest(BaseModel):
+    """POST /radio (MUS-3): more songs after the queue runs low, seeded from its last song.
+
+    exclude: the ids already in the queue (or recently played) so the station does not repeat them.
+    The server also excludes the account's last 50 played songs on its own.
+    """
+    seed : PrefetchListing
+    exclude : list[PrefetchListing] = Field(default = [], max_length = 100)
+    limit : int = Field(default = 25, ge = 1, le = 50)
+
+class RadioResponse(BaseModel):
+    songs : list[Song]
 
 class LyricsRequest(BaseModel):
     song_name : str

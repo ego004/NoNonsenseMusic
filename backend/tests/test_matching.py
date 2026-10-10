@@ -3,7 +3,8 @@ import pytest
 import json
 from pathlib import Path
 
-from music_backend.services.matching import artists_match, group_listings, interleave, normalise, pick_best, rank_songs, same_recording, to_song
+from music_backend.services.matching import (artists_match, group_listings, interleave, merge_youtube, normalise, pick_best,
+                                rank_albums, rank_artists, rank_songs, same_album, same_recording, same_video, to_song)
 from music_backend.sources import jiosaavn, ytmusic
 from music_backend.models import Listing
 
@@ -221,3 +222,109 @@ def test_both_sources_report_the_explicit_version():
     yt = [ytmusic.to_listing(r) for r in rows]
     assert sum(l.explicit for l in yt) == 1                                 # the one row with the E badge
     assert all(l.explicit is not None for l in yt)                        # no badge: the clean (or only) version
+
+
+# ---------- MUS-13: plain YouTube videos matched against music-source songs ----------
+
+def video(title, artists, duration):
+    return make(title, artists, duration, "youtube")
+
+
+def test_same_video_exact_title():
+    assert same_video(make("Blinding Lights", ["The Weeknd"], 200),
+                      video("Blinding Lights", ["The Weeknd"], 202))
+
+
+def test_same_video_title_with_prefix_and_official_suffix():
+    # real shapes: album title vs "The Weeknd - Blinding Lights (Official Video)" (4:23 = 263 s)
+    assert same_video(make("Blinding Lights", ["The Weeknd"], 200),
+                      video("The Weeknd - Blinding Lights (Official Video)", ["The Weeknd"], 263))
+
+
+def test_same_video_different_song_is_not_matched():
+    assert not same_video(make("Blinding Lights", ["The Weeknd"], 200),
+                          video("The Weeknd - Starboy", ["The Weeknd"], 230))
+
+
+def test_same_video_artist_mismatch_is_not_matched():
+    assert not same_video(make("Halo", ["Beyoncé"], 261),
+                          video("Halo Reach Main Theme", ["Marty O'Donnell"], 265))
+
+
+def test_same_video_beyond_the_duration_window_is_not_matched():
+    # a 10-hour loop shares the words and the artist but is not a playback fallback for the song
+    assert not same_video(make("Blinding Lights", ["The Weeknd"], 200),
+                          video("Blinding Lights (10 Hour Loop)", ["The Weeknd"], 36000))
+
+
+def test_merge_matching_video_adds_a_fallback_listing_not_a_second_row():
+    songs = rank_songs([[make("Blinding Lights", ["The Weeknd"], 200)]])
+    merged = merge_youtube(songs, [video("The Weeknd - Blinding Lights (Official Video)", ["The Weeknd"], 263)])
+    assert [s.title for s in merged] == ["Blinding Lights"]
+    assert [l.source for l in merged[0].listings] == ["jiosaavn", "youtube"]   # youtube last: fallback only
+    assert merged[0].best.source == "jiosaavn"                                 # preference unchanged
+
+
+def test_merge_a_new_video_goes_after_every_music_song():
+    songs = rank_songs([[make("Blinding Lights", ["The Weeknd"], 200),
+                         make("Starboy", ["The Weeknd"], 230)]])
+    merged = merge_youtube(songs, [video("The Weeknd - After Hours (Official Video)", ["The Weeknd"], 250)])
+    assert [s.title for s in merged] == ["Blinding Lights", "Starboy", "The Weeknd - After Hours (Official Video)"]
+    assert merged[-1].score == 0                                               # below every RRF score
+
+
+def test_merge_with_no_new_videos_keeps_the_ranking():
+    songs = rank_songs([[make("Blinding Lights", ["The Weeknd"], 200)]])
+    assert merge_youtube(songs, []) == songs
+
+
+# ---------- MUS-20: album and artist fusion ----------
+
+def album_ref(source, id, title, artists, year=None):
+    from music_backend.models import AlbumRef
+    return AlbumRef(source=source, id=id, title=title, artists=artists, year=year)
+
+
+def artist_ref(source, id, name):
+    from music_backend.models import ArtistRef
+    return ArtistRef(source=source, id=id, name=name)
+
+
+def test_rank_albums_finds_the_same_album_on_both_sources():
+    js = [album_ref("jiosaavn", "a1", "After Hours", ["The Weeknd"], 2020)]
+    yt = [album_ref("ytmusic", "MPREb_1", "After Hours", ["The Weeknd"], 2020)]
+    albums = rank_albums([js, yt])
+    assert len(albums) == 1
+    assert [l.source for l in albums[0].listings] == ["jiosaavn", "ytmusic"]
+    assert albums[0].best.source == "jiosaavn"
+    assert albums[0].year == 2020
+
+
+def test_rank_albums_does_not_merge_different_artists_same_title():
+    # many albums share a title ("Greatest Hits"): the artists must still match
+    js = [album_ref("jiosaavn", "a1", "Greatest Hits", ["Cher"])]
+    yt = [album_ref("ytmusic", "b1", "Greatest Hits", ["Madonna"])]
+    assert len(rank_albums([js, yt])) == 2
+
+
+def test_rank_albums_found_on_two_sources_outranks_a_one_off():
+    both = [album_ref("jiosaavn", "a1", "After Hours", ["The Weeknd"]),
+            album_ref("jiosaavn", "a2", "Starboy", ["The Weeknd"])]
+    yt = [album_ref("ytmusic", "MPREb_1", "After Hours", ["The Weeknd"])]
+    albums = rank_albums([both, yt])
+    assert albums[0].title == "After Hours"           # two votes beat one
+    assert albums[1].title == "Starboy"
+
+
+def test_rank_artists_merges_a_topic_channel_into_the_artist():
+    js = [artist_ref("jiosaavn", "615155", "The Weeknd")]
+    yt = [artist_ref("ytmusic", "UC1", "The Weeknd")]
+    ytchannels = [artist_ref("youtube", "UC2", "The Weeknd - Topic")]
+    artists = rank_artists([js, yt, ytchannels])
+    assert len(artists) == 1
+    assert [l.source for l in artists[0].listings] == ["jiosaavn", "ytmusic", "youtube"]
+
+
+def test_rank_artists_keeps_different_people_apart():
+    js = [artist_ref("jiosaavn", "1", "Arijit Singh"), artist_ref("jiosaavn", "2", "Pritam")]
+    assert len(rank_artists([js])) == 2

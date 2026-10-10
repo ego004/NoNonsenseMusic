@@ -3,6 +3,17 @@
     async def search(query: str) -> list[Listing]
     async def get_song_url(song_id: str) -> str      # direct audio URL
 
+and, when the source has them at all, four more (MUS-20; a source without albums simply omits both):
+
+    async def search_albums(query: str) -> list[AlbumRef]
+    async def search_artists(query: str) -> list[ArtistRef]
+    async def get_album(album_id: str) -> AlbumDetail | None      # None: no such album
+    async def get_artist(artist_id: str) -> ArtistDetail | None   # None: no such artist
+
+and, when the source has radio, one more (MUS-3; every source currently does):
+
+    async def radio(source_id: str, limit: int = 25) -> list[Listing]   # []: no station for this id
+
 and reports failures with the two exceptions below instead of its own library's errors,
 so main.py never needs to know whether a source uses httpx, yt-dlp, or anything else.
 """

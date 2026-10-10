@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import get_args, Annotated
+from typing import get_args, Annotated, Literal
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, Query, WebSocket, WebSocketDisconnect
@@ -11,17 +11,19 @@ from psycopg import errors
 
 from music_backend.core import db, ratelimit
 from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications
-from music_backend.services.matching import rank_songs
+from music_backend.services.matching import rank_songs, merge_youtube, rank_albums, rank_artists
 from music_backend.models import (EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
+                                  RadioRequest, RadioResponse,
                                   LyricsRequest, LyricsResponse, Session, SignInRequest, SignUpRequest, User,
                                   PlaylistUpdate, ShareRequest, DeviceNameRequest, Member, GeniusRequest,
                                   RecoverRequest, PasswordRequest, RecoveryCodes, RecoveryCodesLeft,
                                   GeniusResponse, FriendUser, FriendRequests, RespondRequest, FriendRequest,
-                                  Notification, NotificationsResponse, WSTicket, MarkReadResponse)
+                                  Notification, NotificationsResponse, WSTicket, MarkReadResponse,
+                                  AlbumRef, ArtistRef, AlbumDetail, ArtistDetail, PinAlbumRequest)
 from music_backend.core.settings import settings
-from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic
+from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytmusic, youtube
 
 
 @asynccontextmanager
@@ -79,7 +81,7 @@ logging.getLogger("uvicorn.access").addFilter(_NoHealthChecks())
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-SOURCES = {"jiosaavn" : jiosaavn, "ytmusic" : ytmusic}
+SOURCES = {"jiosaavn" : jiosaavn, "ytmusic" : ytmusic, "youtube" : youtube}
 # fail at startup, not at the first request, if this table and SourceName ever drift apart
 assert set(SOURCES) == set(get_args(SourceName)), f"SOURCES {set(SOURCES)} != SourceName {get_args(SourceName)}"
 
@@ -110,6 +112,10 @@ async def _not_allowed(request: Request, e: library.NotAllowed) -> JSONResponse:
 async def _no_such_user(request: Request, e: library.NoSuchUser) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": "No account with that username"})
 
+@app.exception_handler(library.IsAlbum)
+async def _is_album(request: Request, e: library.IsAlbum) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"detail": "This is a pinned album; delete it to unpin"})
+
 
 # the friends errors, answered the same way everywhere
 @app.exception_handler(friends.NoSuchUser)
@@ -138,23 +144,41 @@ async def health():
     return {"status": "ok"}
 
 
-async def search_one(name: SourceName, source, q: str) -> tuple[list[Listing], SearchSourceInfo]:
-    """Run one source's search: time it, count its listings, and never raise.
+async def search_one(name: SourceName, source, q: str, *, songs: bool = True, albums: bool = True,
+                     artists: bool = True
+                     ) -> tuple[list[Listing], list[AlbumRef], list[ArtistRef], SearchSourceInfo]:
+    """Run one source's searches (whichever kinds the filter asked for) at once: time them, count the
+    results, and never raise.
 
-    Any failure (timeout, a changed reply shape, bad data) becomes an error message
-    in its SearchSourceInfo, so one broken source cannot take down the other.
+    Any failure (timeout, a changed reply shape, bad data) becomes an error message in its
+    SearchSourceInfo, so one broken source cannot take down the other. A source without albums
+    (plain YouTube has none) simply has no search_albums and is never asked for one.
     """
     start = time.perf_counter()
-    try:
-        listings = await source.search(q)
-        error = None
-    except Exception as e:
-        logger.warning("%s failed for %r: %r", name, q, e)
-        listings = []
-        error = type(e).__name__
+    found: dict[str, list] = {"songs" : [], "albums" : [], "artists" : []}
+    errors: list[str] = []
+
+    async def run(kind: str, fn) -> None:
+        try:
+            found[kind] = await fn(q)
+        except Exception as e:
+            logger.warning("%s %s search failed for %r: %r", name, kind, q, e)
+            errors.append(type(e).__name__)
+
+    jobs = []
+    if songs:
+        jobs.append(("songs", source.search))
+    if albums and (album_search := getattr(source, "search_albums", None)) is not None:
+        jobs.append(("albums", album_search))
+    if artists and (artist_search := getattr(source, "search_artists", None)) is not None:
+        jobs.append(("artists", artist_search))
+    await asyncio.gather(*(run(kind, fn) for kind, fn in jobs))
     ms = round((time.perf_counter() - start) * 1000)
-    info = SearchSourceInfo(source = name, healthy = error is None, num_results = len(listings), ms = ms, error = error)
-    return listings, info
+    error = errors[0] if errors else None
+    info = SearchSourceInfo(source = name, healthy = error is None, num_results = len(found["songs"]),
+                            ms = ms, num_albums = len(found["albums"]),
+                            num_artists = len(found["artists"]), error = error)
+    return found["songs"], found["albums"], found["artists"], info
 
 
 # ---------- a shared playlist's link (8 Oct) ----------
@@ -189,16 +213,108 @@ async def playlist_link(playlist_id: UUID) -> HTMLResponse:
 
 
 @app.get("/search")
-async def search(q: str, user: Annotated[User, Depends(per_account("search"))]) -> SearchResponse:
+async def search(q: str, user: Annotated[User, Depends(per_account("search"))],
+                 youtube: bool = False,
+                 filter: Literal["all", "songs", "albums", "artists"] = "all") -> SearchResponse:
+    """Songs, albums and artists from every source at once — or only what `filter` asks for.
+
+    youtube: also search plain YouTube (MUS-13). Off by default, so a normal search never asks it;
+    when on, its videos rank below every music-source song (merge_youtube) and its channels join
+    the artists. albums come from the music sources only: plain YouTube has no albums.
+    """
     logger.debug("Received search query : %s", q)
-    # every source runs at the same time; each one's failure stays inside its own search_one
-    results = await asyncio.gather(*(search_one(name, source, q) for name, source in SOURCES.items()))
-    by_source = []
+    active = dict(SOURCES)
+    if not youtube:
+        active.pop("youtube", None)
+    want = {"songs" : filter in ("all", "songs"),
+            "albums" : filter in ("all", "albums"),
+            "artists" : filter in ("all", "artists")}
+    # every source runs at the same time; each one's failures stay inside its own search_one
+    results = await asyncio.gather(*(search_one(name, source, q, **want) for name, source in active.items()))
+    songs_by_source, videos = [], []
+    albums_by_source, artists_by_source = [], []
     sources = []
-    for source_listings, info in results:
-        by_source.append(source_listings)
+    for song_listings, album_refs, artist_refs, info in results:
         sources.append(info)
-    return SearchResponse(query = q, sources = sources, songs = rank_songs(by_source))
+        if info.source == "youtube":
+            videos = song_listings
+            artists_by_source.append(artist_refs)      # kept last: the channels are the least preferred copy
+        else:
+            songs_by_source.append(song_listings)
+            albums_by_source.append(album_refs)
+            artists_by_source.append(artist_refs)
+    songs = rank_songs(songs_by_source)
+    if videos:
+        songs = merge_youtube(songs, videos)
+    return SearchResponse(query = q, sources = sources, songs = songs,
+                          albums = rank_albums(albums_by_source), artists = rank_artists(artists_by_source))
+
+# ---------- one album, one artist (MUS-20) ----------
+# Read-only pages: tracks come back as ordinary songs (score 0, one listing each) in the source's
+# own order, so the app plays them exactly like search results. Nothing is written to the database.
+
+@app.get("/album/{source}/{source_id}")
+async def album_detail(user: Annotated[User, Depends(per_account("album"))],
+                       source: SourceName, source_id: str) -> AlbumDetail:
+    """One album's tracks, in track order.
+
+    Plain YouTube has no album entity at all (measured 10 Oct), so its module has no get_album
+    and this answers "This source has no albums" (404) rather than asking it.
+    """
+    get = getattr(SOURCES[source], "get_album", None)
+    if get is None:
+        raise HTTPException(status_code=404, detail="This source has no albums")
+    try:
+        album = await get(source_id)
+    except SourceUnavailable as e:      # also SourceBlocked: still 502, same as /play
+        logger.warning("%s unavailable while opening album %r: %s", source, source_id, e)
+        raise HTTPException(status_code=502, detail=f"{source} is unavailable right now")
+    if album is None:
+        raise HTTPException(status_code=404, detail="Album not found")
+    return album
+
+
+@app.get("/artist/{source}/{source_id}")
+async def artist_detail(user: Annotated[User, Depends(per_account("artist"))],
+                        source: SourceName, source_id: str) -> ArtistDetail:
+    """One artist's info, top songs and albums — every source has artist pages (a channel counts)."""
+    try:
+        artist = await SOURCES[source].get_artist(source_id)
+    except SourceUnavailable as e:
+        logger.warning("%s unavailable while opening artist %r: %s", source, source_id, e)
+        raise HTTPException(status_code=502, detail=f"{source} is unavailable right now")
+    if artist is None:
+        raise HTTPException(status_code=404, detail="Artist not found")
+    return artist
+
+
+@app.post("/albums/pin", status_code = 201)
+async def pin_album(body: PinAlbumRequest, request: Request,
+                    user: Annotated[User, Depends(per_account("album"))]) -> PlaylistMetadata:
+    """Copy a source's album into your playlists as a pinned album: its tracks, in order, stored now.
+
+    Same fetch as GET /album (404 no albums / unknown, 502 source down), then one transaction that writes the
+    row and every item, so a pin is never half there. Pinning the same album twice is 409.
+    """
+    get = getattr(SOURCES[body.source], "get_album", None)
+    if get is None:
+        raise HTTPException(status_code=404, detail="This source has no albums")
+    try:
+        album = await get(body.source_id)
+    except SourceUnavailable as e:
+        logger.warning("%s unavailable while pinning album %r: %s", body.source, body.source_id, e)
+        raise HTTPException(status_code=502, detail=f"{body.source} is unavailable right now")
+    if album is None or not album.songs:
+        raise HTTPException(status_code=404, detail="Album not found")
+    async with request.app.state.pool.connection() as conn:
+        async with conn.transaction():
+            try:
+                playlist_id = await library.pin_album(conn, user.id, body.source, body.source_id,
+                                                      album.title, album.songs)
+            except errors.UniqueViolation:      # the (user_id, source, source_id) pin index
+                raise HTTPException(status_code=409, detail="You already pinned this album")
+        return await library.get_playlist_metadata(conn, user.id, playlist_id)
+
 
 @app.get("/play/{source}/{source_id}")
 async def play(request: Request, user: Signed, source: SourceName, source_id: str, serve_fresh: bool = False) -> RedirectResponse:
@@ -227,6 +343,33 @@ async def prefetch_urls(body: PrefetchRequest, request: Request, user: Annotated
     where the queue lives (asyncio.Queue is not thread-safe, and a plain def would run on another thread)."""
     request.app.state.url_cache.prefetch(user.id, body.listings)     # replaces YOUR waiting list only
     return Response(status_code = 202)
+
+
+# ---------- radio (MUS-3) ----------
+
+@app.post("/radio")
+async def radio(body: RadioRequest, request: Request,
+                user: Annotated[User, Depends(per_account("radio"))]) -> RadioResponse:
+    """More songs to keep playing, seeded from the last song in the queue (MUS-3).
+
+    Only the seed's own source is asked: a JioSaavn id means nothing to YouTube Music, and vice
+    versa. The station's reply is ranked with the same machinery as search (group duplicates, keep
+    the source's order), then the seed itself, the app's exclude list and the account's last 50
+    played songs are dropped. 200 with fewer songs (possibly none: the app stops asking) is a
+    normal answer; only the source being unreachable is 502, same as /play.
+    """
+    try:
+        # one extra listing: every station leads with its own seed
+        listings = await SOURCES[body.seed.source].radio(body.seed.source_id, body.limit + 1)
+    except SourceUnavailable as e:
+        logger.warning("%s unavailable while seeding radio from %r: %s", body.seed.source, body.seed.source_id, e)
+        raise HTTPException(status_code=502, detail=f"{body.seed.source} is unavailable right now")
+    exclude = {(ref.source, ref.source_id) for ref in body.exclude}
+    exclude.add((body.seed.source, body.seed.source_id))
+    async with request.app.state.pool.connection() as conn:
+        exclude |= await library.recent_listing_refs(conn, user.id)
+    kept = [listing for listing in listings if (listing.source, listing.id) not in exclude][: body.limit]
+    return RadioResponse(songs = rank_songs([kept]))
 
 
 # ---------- library ----------

@@ -12,7 +12,7 @@ from fractional_indexing import FIError, generate_key_between, generate_n_keys_b
 from psycopg import AsyncConnection
 
 from music_backend.services.matching import normalise, pick_best, same_recording
-from music_backend.models import EventType, LibrarySong, Listing, Member, PlaylistMetadata, PlaylistItem
+from music_backend.models import EventType, LibrarySong, Listing, Member, PlaylistMetadata, PlaylistItem, Song
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +117,23 @@ async def recent_songs(conn: AsyncConnection, user_id: UUID, limit: int = 50) ->
     return await _with_listings(conn, rows)
 
 
+async def recent_listing_refs(conn: AsyncConnection, user_id: UUID, songs: int = 50) -> set[tuple[str, str]]:
+    """(source, source_id) of every listing of your last `songs` played songs — POST /radio's server-side
+    exclusion, so the station skips what you just played even if the app's exclude list was cut short."""
+    rows = await (await conn.execute(
+        """SELECT l.source, l.source_id
+             FROM listings l
+            WHERE l.song_id IN (
+                SELECT song_id FROM (
+                    SELECT song_id, max(at) AS last_at FROM events
+                     WHERE user_id = %s AND type = 'play'
+                     GROUP BY song_id ORDER BY last_at DESC LIMIT %s
+                ) recent)""",
+        [user_id, songs],
+    )).fetchall()
+    return {(r["source"], r["source_id"]) for r in rows}
+
+
 async def _with_listings(conn: AsyncConnection, rows: list[dict]) -> list[LibrarySong]:
     """Attach each song's stored listings and show it through its best listing (display != identity)."""
     if not rows:
@@ -160,6 +177,10 @@ class NotAllowed(Exception):
 class NoSuchUser(Exception):
     """No account with that username (inviting someone): the endpoint's 404."""
 
+class IsAlbum(Exception):
+    """A pinned album is a read-only copy of a source's album: rename, public, share, and editing its songs do not
+    apply (the endpoint's 400). Delete it to unpin."""
+
 # the role expression, shared by every query that needs it: owner, else your membership, else viewer if public
 _ROLE_SQL = """CASE WHEN pl.user_id = %(user)s THEN 'owner'
                     ELSE coalesce(m.role, CASE WHEN pl.public THEN 'viewer' END) END"""
@@ -186,8 +207,15 @@ async def _lock_playlist_list(conn: AsyncConnection, user_id: UUID) -> None:
     or move of YOUR list waits; other people's never do."""
     await conn.execute("SELECT 1 FROM users WHERE id = %s FOR UPDATE", [user_id])
 
+async def _reject_album(conn: AsyncConnection, playlist_id: UUID) -> None:
+    """IsAlbum when this playlist is a pinned album. Called AFTER _require, so it never reveals an album you cannot
+    see: invisible is still 404, someone else's is still 403, only the owner of an album reaches here (400)."""
+    row = await (await conn.execute("SELECT kind FROM playlists WHERE id = %s", [playlist_id])).fetchone()
+    if row is not None and row["kind"] == "album":
+        raise IsAlbum(playlist_id)
+
 # one playlist with its totals and your role; the same columns for one playlist and for the list
-_SUMMARY_SQL = f"""SELECT pl.id, pl.name, pl.public, {_ROLE_SQL} AS role,
+_SUMMARY_SQL = f"""SELECT pl.id, pl.name, pl.public, pl.kind, pl.source, pl.source_id, {_ROLE_SQL} AS role,
                           count(i.id) AS song_count, coalesce(sum(s.duration), 0) AS duration
                      FROM playlists pl
                      LEFT JOIN playlist_members m ON m.playlist_id = pl.id AND m.user_id = %(user)s
@@ -206,6 +234,34 @@ async def create_playlist(conn: AsyncConnection, user_id: UUID, name : str) -> U
         [user_id, name, generate_key_between(last, None)],
     )).fetchone()
     return row["id"]
+
+async def pin_album(conn: AsyncConnection, user_id: UUID, source: str, source_id: str,
+                    album_title: str, songs: list[Song]) -> UUID:
+    """A source's album copied into your list: a row of kind 'album' at the bottom, then its tracks as items in
+    order — a snapshot; the source's later edits do not follow. Each track resolves through resolve_song, so a
+    recording you already stored stays itself (and gains a listing), instead of a duplicate row.
+
+    One pin per album per person: the partial unique index (user_id, source, source_id) where kind='album' raises
+    UniqueViolation, which the endpoint answers 409. The caller holds no lock yet: _lock_playlist_list here takes
+    your list's turn (BUG-6), so two pins of yours never pick the same position."""
+    await _lock_playlist_list(conn, user_id)
+    last = (await (await conn.execute("SELECT max(position) AS last FROM playlists WHERE user_id = %s",
+                                      [user_id])).fetchone())["last"]
+    playlist_id = (await (await conn.execute(
+        """INSERT INTO playlists (user_id, name, position, kind, source, source_id)
+           VALUES (%s, %s, %s, 'album', %s, %s) RETURNING id""",
+        [user_id, album_title, generate_key_between(last, None), source, source_id],
+    )).fetchone())["id"]
+    # evenly spaced keys up front, one per track: the album's own order, and room between any two to reorder
+    # (reordering is rejected while pinned, but the keys are already correct if that ever changes)
+    keys = generate_n_keys_between(None, None, len(songs))
+    for key, song in zip(keys, songs):
+        song_id = await resolve_song(conn, song.listings)
+        await conn.execute(
+            "INSERT INTO playlist_items (playlist_id, song_id, position, added_by) VALUES (%s, %s, %s, %s)",
+            [playlist_id, song_id, key, user_id],
+        )
+    return playlist_id
 
 async def get_playlists(conn: AsyncConnection, user_id: UUID) -> list[PlaylistMetadata]:
     """Yours, in your order, then those shared with you, with totals and your role: one query. Each half of the union
@@ -253,6 +309,7 @@ async def get_playlist_items(conn: AsyncConnection, user_id: UUID, playlist_id :
 async def add_to_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, song_id: UUID) -> UUID:
     """At the bottom; editors and the owner. Records who added it."""
     await _require(conn, user_id, playlist_id, "editor", lock=True)
+    await _reject_album(conn, playlist_id)
     # this playlist's last position: the (playlist_id, position) index answers it without reading other playlists
     last = (await (await conn.execute("SELECT max(position) AS last FROM playlist_items WHERE playlist_id = %s",
                                       [playlist_id])).fetchone())["last"]
@@ -263,17 +320,20 @@ async def add_to_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UU
 async def remove_from_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, item_id : UUID) -> bool:
     """Editors and the owner. False when the playlist has no such item (an item of another playlist is not one)."""
     await _require(conn, user_id, playlist_id, "editor", lock=True)
+    await _reject_album(conn, playlist_id)
     return (await conn.execute("DELETE FROM playlist_items WHERE id = %s AND playlist_id = %s",
                                [item_id, playlist_id])).rowcount > 0
 
 async def rename_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, name : str) -> None:
     """The owner only. A name you already use raises UniqueViolation."""
     await _require(conn, user_id, playlist_id, "owner")
+    await _reject_album(conn, playlist_id)
     await conn.execute("UPDATE playlists SET name = %s WHERE id = %s", [name, playlist_id])
 
 async def set_public(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, public: bool) -> None:
     """The owner only: public = anyone signed in can view it by its id."""
     await _require(conn, user_id, playlist_id, "owner")
+    await _reject_album(conn, playlist_id)
     await conn.execute("UPDATE playlists SET public = %s WHERE id = %s", [public, playlist_id])
 
 async def delete_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID) -> None:
@@ -285,6 +345,7 @@ async def share_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUI
     """The owner invites someone by username, or changes their role ("viewer" or "editor"). NoSuchUser when there is
     no such account; inviting yourself does nothing (you own it)."""
     await _require(conn, user_id, playlist_id, "owner")
+    await _reject_album(conn, playlist_id)
     row = await (await conn.execute("SELECT id FROM users WHERE lower(username) = lower(%s)", [username])).fetchone()
     if row is None:
         raise NoSuchUser(username)
@@ -341,6 +402,7 @@ async def move_item(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, it
     """Moves one song of a playlist to between two of its songs; editors and the owner. One row changes (the whole
     playlist only when it held a tie: see `_move`)."""
     await _require(conn, user_id, playlist_id, "editor", lock=True)
+    await _reject_album(conn, playlist_id)
     await _move(conn, "playlist_items", "playlist_id = %s", [playlist_id], item_id, top_id, bottom_id)
 
 async def move_playlist(conn: AsyncConnection, user_id: UUID, playlist_id : UUID, top_id : UUID | None,

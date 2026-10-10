@@ -1,7 +1,7 @@
 import statistics
 import unicodedata
 from rapidfuzz import fuzz
-from music_backend.models import Listing, Song
+from music_backend.models import Album, AlbumRef, Artist, ArtistRef, Listing, Song
 
 # same recording differs 0-4 s across sources and releases in real data (200/201/202/204 for
 # Blinding Lights, 261/262/263 for Tum Hi Ho); different edits were further apart (Rosalia remix 206 vs 217)
@@ -10,8 +10,9 @@ DURATION_TOLERANCE = 5
 RRF_K = 60
 FUZZ_THRESHOLD = 90
 # lower = preferred: JioSaavn serves 320 kbps AAC from URLs that do not expire;
-# YouTube Music serves ~133 kbps Opus from URLs that expire and only work from one IP
-SOURCE_PREFERENCE = {"jiosaavn" : 0, "ytmusic" : 1}
+# YouTube Music serves ~133 kbps Opus from URLs that expire and only work from one IP;
+# plain YouTube is last (MUS-13: raw titles, fan uploads rank below the music sources)
+SOURCE_PREFERENCE = {"jiosaavn" : 0, "ytmusic" : 1, "youtube" : 2}
 
 def normalise(title : str) -> str:
     title = unicodedata.normalize("NFKD", title.lower())
@@ -32,6 +33,26 @@ def artists_match(a: list[str], b: list[str]) -> bool:
 
 def same_recording(a : Listing, b : Listing) -> bool:
     return normalise(a.title) == normalise(b.title) and artists_match(a.artists, b.artists) and abs(a.duration - b.duration) <= DURATION_TOLERANCE
+
+
+# official videos drift ~1 min from the album cut (Blinding Lights: 4:23 video vs 3:20 song), so plain
+# YouTube matching is looser than same_recording's 5 s; loops and full concerts sit well beyond this
+YOUTUBE_DURATION_TOLERANCE = 90
+
+
+def same_video(song : Song, video : Song) -> bool:
+    """Is this plain-YouTube video the same recording as an already-found song?
+
+    Video titles carry prefixes and suffixes the album title does not ("The Weeknd - Blinding Lights
+    (Official Video)"), so equality never matches: one normalised title must contain the other on word
+    boundaries, the artist and the YouTube channel must match, and the durations must be close.
+    """
+    a, b = normalise(song.title), normalise(video.title)
+    if not a or not b or not (f" {a} " in f" {b} " or f" {b} " in f" {a} "):
+        return False
+    if not song.artists or not video.artists or not artists_match(song.artists, video.artists):
+        return False
+    return abs(song.duration - video.duration) <= YOUTUBE_DURATION_TOLERANCE
 
 def interleave(by_source : list[list[Listing]]) -> list[Listing]:
     """Alternate between the sources' ranked lists: #1 of each, then #2 of each, ...
@@ -102,3 +123,82 @@ def to_song(group: list[Listing], score: float = 0.0) -> Song:
     """One song from a group: shown with the best listing's details, every listing kept as a fallback."""
     best = pick_best(group)
     return Song(title = best.title, artists = best.artists, duration = best.duration, score = score, best = best, listings = group)
+
+
+def merge_youtube(songs: list[Song], videos: list[Listing]) -> list[Song]:
+    """Plain-YouTube results (MUS-13), ranked below every music-source song.
+
+    A video that is the same recording as an already-found song becomes one more listing on it —
+    a playback fallback, not a second row. Anything new is appended after all music songs (score 0,
+    below every RRF score), keeping the music ranking untouched.
+    """
+    for group in group_listings(videos):
+        video = to_song(group)
+        target = next((song for song in songs if same_video(song, video)), None)
+        if target is None:
+            songs.append(video)
+        else:
+            # appended last: the app falls back to it only after the music sources' copies fail
+            target.listings.append(video.best)
+    return songs
+
+
+# ---------- albums and artists (MUS-20): the same pipeline, over AlbumRefs and ArtistRefs ----------
+
+def same_album(a: AlbumRef, b: AlbumRef) -> bool:
+    """The same album on two sources: identical normalised title and matching artists. Year is not
+    compared (an edition's year can differ between stores without it being a different album)."""
+    return normalise(a.title) == normalise(b.title) and bool(a.artists) and bool(b.artists) and artists_match(a.artists, b.artists)
+
+
+def same_artist(a: ArtistRef, b: ArtistRef) -> bool:
+    """The same artist: the name is the whole identity (a plain-YouTube "The Weeknd - Topic" channel
+    still word-matches "The Weeknd")."""
+    return bool(a.name) and bool(b.name) and artists_match([a.name], [b.name])
+
+
+def group_refs(items: list, same) -> list[list]:
+    """Group items that are the same thing (same_album / same_artist): first match wins, order kept."""
+    groups = []
+    for item in items:
+        for group in groups:
+            if same(group[0], item):
+                group.append(item)
+                break
+        else:
+            groups.append([item])
+    return groups
+
+
+def rank_albums(by_source: list[list[AlbumRef]]) -> list[Album]:
+    """Interleave, group the same album across sources, order by RRF — the songs pipeline (rank_songs)."""
+    positions = {(ref.source, ref.id) : position
+                 for refs in by_source for position, ref in enumerate(refs)}
+    groups = group_refs(interleave(by_source), same_album)
+    albums = [to_album(group, sum(1 / (RRF_K + positions[(ref.source, ref.id)] + 1) for ref in group))
+              for group in groups]
+    return sorted(albums, key = lambda album: album.score, reverse = True)
+
+
+def to_album(group: list[AlbumRef], score: float = 0.0) -> Album:
+    """One album from a group: shown with the preferred source's copy, every copy kept."""
+    best = min(group, key = lambda ref: SOURCE_PREFERENCE[ref.source])
+    return Album(title = best.title, artists = best.artists, year = best.year, image = best.image,
+                 song_count = best.song_count, explicit = best.explicit, score = score,
+                 best = best, listings = group)
+
+
+def rank_artists(by_source: list[list[ArtistRef]]) -> list[Artist]:
+    """The same pipeline for artists."""
+    positions = {(ref.source, ref.id) : position
+                 for refs in by_source for position, ref in enumerate(refs)}
+    groups = group_refs(interleave(by_source), same_artist)
+    artists = [to_artist(group, sum(1 / (RRF_K + positions[(ref.source, ref.id)] + 1) for ref in group))
+               for group in groups]
+    return sorted(artists, key = lambda artist: artist.score, reverse = True)
+
+
+def to_artist(group: list[ArtistRef], score: float = 0.0) -> Artist:
+    """One artist from a group: shown with the preferred source's copy."""
+    best = min(group, key = lambda ref: SOURCE_PREFERENCE[ref.source])
+    return Artist(name = best.name, image = best.image, score = score, best = best, listings = group)

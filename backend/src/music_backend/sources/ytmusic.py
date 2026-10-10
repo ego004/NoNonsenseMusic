@@ -1,12 +1,15 @@
 import asyncio
 import logging
 import re
-
+import threading
 import time
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
+from ytmusicapi import YTMusic
+from ytmusicapi.exceptions import YTMusicServerError
 from music_backend.core.settings import settings
-from music_backend.models import Listing
+from music_backend.models import AlbumDetail, AlbumRef, ArtistDetail, ArtistRef, Listing
+from music_backend.services.matching import normalise, to_song
 from music_backend.core.http_client import SharedClient
 from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable
 
@@ -40,6 +43,297 @@ async def search(query: str) -> list[Listing]:
         except (KeyError, IndexError, ValueError) as e:
             logger.warning("skipped a YouTube Music row for %r: %r", query, e)
     return listings
+
+
+# Album and artist search go through ytmusicapi (its parsers handle reply shapes we would otherwise
+# hand-parse); its calls block (requests), so each runs in a thread. One client per thread: a
+# requests.Session is not thread-safe, and a client is never shared between threads (no web request
+# when made, measured 6 Oct).
+_thread_local = threading.local()
+
+
+def client() -> YTMusic:
+    if not hasattr(_thread_local, "yt"):
+        _thread_local.yt = YTMusic()
+    return _thread_local.yt
+
+
+async def search_albums(query: str) -> list[AlbumRef]:
+    """YouTube Music's albums (filter="albums"), parsed by ytmusicapi in a thread."""
+    return await asyncio.to_thread(search_albums_blocking, query)
+
+
+def search_albums_blocking(query: str) -> list[AlbumRef]:
+    albums = []
+    for row in client().search(query, filter="albums", limit=20):
+        try:
+            albums.append(AlbumRef(
+                source = "ytmusic",
+                id = row["browseId"],
+                title = row["title"],
+                artists = [a["name"] for a in row.get("artists") or []],
+                year = row.get("year"),
+                image = thumbnail_of(row),
+                # the search reply carries no track count; the album page (Phase 3) will
+                song_count = None,
+                explicit = row.get("isExplicit"),
+            ))
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning("YouTube Music: skipped a bad album row for %r: %r", query, e)
+    return albums
+
+
+async def search_artists(query: str) -> list[ArtistRef]:
+    """YouTube Music's artists (filter="artists"), parsed by ytmusicapi in a thread."""
+    return await asyncio.to_thread(search_artists_blocking, query)
+
+
+def search_artists_blocking(query: str) -> list[ArtistRef]:
+    artists = []
+    for row in client().search(query, filter="artists", limit=20):
+        try:
+            artists.append(ArtistRef(
+                source = "ytmusic",
+                id = row["browseId"],
+                name = row.get("artist") or row["title"],
+                image = thumbnail_of(row),
+            ))
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning("YouTube Music: skipped a bad artist row for %r: %r", query, e)
+    return artists
+
+
+def thumbnail_of(row: dict) -> str | None:
+    """ytmusicapi's thumbnails are ordered smallest first: the last is the largest."""
+    thumbnails = row.get("thumbnails") or []
+    return thumbnails[-1].get("url") if thumbnails else None
+
+
+def thumb_url(thumbnails) -> str | None:
+    """Same, for a raw thumbnail list (detail pages put it in different keys), resized to 544 px."""
+    if not thumbnails:
+        return None
+    url = thumbnails[-1].get("url") if isinstance(thumbnails[-1], dict) else None
+    if not url:
+        return None
+    # the size lives in the URL itself: ...=w120-h120 → ...=w544-h544
+    return re.sub(r"=w\d+-h\d+", "=w544-h544", url)
+
+
+def int_or_none(value) -> int | None:
+    """A year or count that arrives as a string ("2020", "") or is missing: parse it, else None."""
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def count_or_none(text) -> int | None:
+    """'40.1M' -> 40100000 (subscribers, monthly listeners); unparseable → None."""
+    if not text:
+        return None
+    try:
+        return to_count(str(text))
+    except (ValueError, IndexError):
+        return None
+
+
+async def radio(source_id: str, limit: int = 25) -> list[Listing]:
+    """The watch-playlist radio seeded from one video (ytmusicapi get_watch_playlist, in a thread).
+
+    The reply's first track is the seed itself; the caller drops it. Continuations are pointless:
+    re-fetching with the playlistId returns the same 50, so the app re-seeds from the queue tail.
+    """
+    return await asyncio.to_thread(radio_blocking, source_id, limit)
+
+
+def radio_blocking(source_id: str, limit: int) -> list[Listing]:
+    try:
+        d = client().get_watch_playlist(videoId = source_id, limit = limit)
+    except (KeyError, YTMusicServerError):
+        # unknown video: ytmusicapi answers "No content returned… RDAMVM<id>" (measured live)
+        return []
+    except Exception as e:
+        raise SourceUnavailable(f"YouTube Music: {e}") from e
+    listings = []
+    # one extra track: the reply leads with the seed, which the endpoint drops
+    for row in (d.get("tracks") or [])[: limit + 1]:
+        try:
+            if not row.get("videoId") or not row.get("length"):
+                continue
+            listings.append(Listing(
+                source = "ytmusic",
+                id = row["videoId"],
+                title = row["title"],
+                artists = [a["name"] for a in row.get("artists") or []],
+                album = (row.get("album") or {}).get("name"),
+                duration = to_seconds(row["length"]),
+                popularity = None,
+                image = thumb_url(row.get("thumbnail")),   # watch-playlist rows say "thumbnail" (singular)
+                # watch-playlist rows carry no isExplicit badge: unknown, not clean
+                explicit = None,
+            ))
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning("YouTube Music: skipped a bad radio track: %r", e)
+    return listings
+
+
+async def get_album(album_id: str) -> AlbumDetail | None:
+    """One album's page (ytmusicapi get_album, in a thread): tracks in track order.
+
+    None: a browse id that does not exist makes ytmusicapi's nav() raise KeyError (measured).
+    """
+    return await asyncio.to_thread(get_album_blocking, album_id)
+
+
+def get_album_blocking(album_id: str) -> AlbumDetail | None:
+    try:
+        d = client().get_album(album_id)
+    except KeyError:
+        return None
+    except Exception as e:
+        raise SourceUnavailable(f"YouTube Music: {e}") from e
+    if not d.get("title"):
+        return None
+    album_artists = [a["name"] for a in d.get("artists") or []]
+    songs = []
+    for row in d.get("tracks") or []:
+        try:
+            duration = row.get("duration_seconds")
+            if not row.get("videoId") or not duration:
+                logger.warning("YouTube Music: skipped album track without id/duration: %r", row.get("title"))
+                continue
+            songs.append(to_song([Listing(
+                source = "ytmusic",
+                id = row["videoId"],
+                title = row["title"],
+                artists = [a["name"] for a in row.get("artists") or []] or album_artists,
+                album = d["title"],
+                duration = duration,
+                popularity = to_count(row["views"]) if row.get("views") else None,
+                image = thumb_url(row.get("thumbnails")),
+                explicit = row.get("isExplicit"),
+            )]))
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning("YouTube Music: skipped a bad album track: %r", e)
+    # the album-level flag is often False while tracks are explicit: any track wins, else the flag
+    explicit = any(song.best.explicit for song in songs) or d.get("isExplicit")
+    return AlbumDetail(
+        source = "ytmusic",
+        id = album_id,
+        title = d["title"],
+        artists = album_artists,
+        year = int_or_none(d.get("year")),
+        image = thumb_url(d.get("thumbnails")),
+        explicit = explicit,
+        songs = songs,
+    )
+
+
+async def get_artist(artist_id: str) -> ArtistDetail | None:
+    """One artist's page (ytmusicapi get_artist, in a thread): top songs, then albums and singles.
+
+    The reply has NO duration on song rows (measured, even in the raw flexColumns), so each song's
+    own album is fetched in parallel and its duration found by title match inside that album
+    (5/5 exact on 10 Oct). A song whose album cannot be read gets duration 0 and a warning: the
+    track still plays and prefills fine, only the display shows 0:00.
+    """
+    d = await asyncio.to_thread(get_artist_page, artist_id)
+    if d is None:
+        return None
+    name = d["name"]
+
+    song_rows_list = (d.get("songs") or {}).get("results") or []
+    # the song's own album (row.album.id) is the only place its duration is known
+    album_ids: list[str] = []
+    for row in song_rows_list:
+        album_id = (row.get("album") or {}).get("id")
+        if album_id and album_id not in album_ids:
+            album_ids.append(album_id)
+    durations = dict(zip(album_ids, await asyncio.gather(*(asyncio.to_thread(album_durations, a) for a in album_ids))))
+
+    songs = []
+    for row in song_rows_list:
+        try:
+            album_id = (row.get("album") or {}).get("id")
+            duration = durations.get(album_id, {}).get(normalise(row["title"])) if album_id else 0
+            if not duration:
+                logger.warning("YouTube Music: no duration for %r (%s): album fetch or title match failed",
+                               row["title"], row.get("videoId"))
+            songs.append(to_song([Listing(
+                source = "ytmusic",
+                id = row["videoId"],
+                title = row["title"],
+                artists = [a["name"] for a in row.get("artists") or []] or [name],
+                album = (row.get("album") or {}).get("name"),
+                duration = duration or 0,
+                popularity = None,
+                image = thumb_url(row.get("thumbnails")),
+                explicit = row.get("isExplicit"),
+            )]))
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning("YouTube Music: skipped a bad artist song: %r", e)
+
+    # albums then singles, as one list; an id in both lists is shown once
+    rows = list((d.get("albums") or {}).get("results") or []) + list((d.get("singles") or {}).get("results") or [])
+    albums, seen = [], set()
+    for row in rows:
+        try:
+            browse_id = row.get("browseId")
+            if not browse_id or browse_id in seen:
+                continue
+            seen.add(browse_id)
+            albums.append(AlbumRef(
+                source = "ytmusic",
+                id = browse_id,
+                title = row["title"],
+                artists = [a["name"] for a in row.get("artists") or []] or [name],
+                year = int_or_none(row.get("year")),
+                image = thumb_url(row.get("thumbnails")),
+                song_count = None,
+                explicit = row.get("isExplicit"),
+            ))
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning("YouTube Music: skipped a bad artist album: %r", e)
+
+    return ArtistDetail(
+        source = "ytmusic",
+        id = artist_id,
+        name = name,
+        image = thumb_url(d.get("thumbnails")),
+        bio = d.get("description") or None,
+        followers = count_or_none(d.get("subscribers")),
+        monthly_listeners = count_or_none(d.get("monthlyListeners")),
+        songs = songs,
+        albums = albums,
+    )
+
+
+def get_artist_page(artist_id: str) -> dict | None:
+    """The blocking get_artist call: None for a channel id that does not exist."""
+    try:
+        d = client().get_artist(artist_id)
+    except KeyError:
+        return None
+    except Exception as e:
+        raise SourceUnavailable(f"YouTube Music: {e}") from e
+    if not d.get("name"):
+        return None
+    return d
+
+
+def album_durations(album_id: str) -> dict[str, int]:
+    """{normalised track title: duration_seconds} for one album — {} whenever it cannot be read."""
+    try:
+        page = get_album_blocking(album_id)
+    except Exception as e:
+        logger.warning("YouTube Music: no durations from album %s: %r", album_id, e)
+        return {}
+    if page is None:
+        return {}
+    return {normalise(song.title) : song.duration for song in page.songs}
 
 
 def song_rows(response: dict) -> list[dict]:

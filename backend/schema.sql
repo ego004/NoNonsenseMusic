@@ -130,13 +130,23 @@ CREATE TABLE IF NOT EXISTS playlists (
     -- path of an uploaded cover (MUS-2, cover image part 2); empty means "build a 2x2 grid from the first songs"
     image      text,
     position   text        COLLATE "C" NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    -- a name is taken per person: two people can each have "Gym"
-    CONSTRAINT playlists_user_id_name_key UNIQUE (user_id, name)
+    created_at timestamptz NOT NULL DEFAULT now()
+    -- a name is taken per person across PLAYLISTS, enforced below by a partial index (albums may share a title)
 );
 
 -- "my playlists, in my order"
 CREATE INDEX IF NOT EXISTS playlists_user_order_idx ON playlists (user_id, position);
+
+-- Pinned albums (MUS-20): a source's album copied into your list as a playlist-shaped row (kind 'album'), tracks
+-- materialized as items when you pin it. kind/source/source_id came later: add them to older databases too.
+ALTER TABLE playlists DROP CONSTRAINT IF EXISTS playlists_user_id_name_key;
+ALTER TABLE playlists ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'playlist';
+ALTER TABLE playlists ADD COLUMN IF NOT EXISTS source text;
+ALTER TABLE playlists ADD COLUMN IF NOT EXISTS source_id text;
+-- Two constraints replace the old (user_id, name): your playlist names stay unique (and album names may collide
+-- with them), and one pin per album per person (the endpoint's 409)
+CREATE UNIQUE INDEX IF NOT EXISTS playlists_user_name_key ON playlists (user_id, name) WHERE kind = 'playlist';
+CREATE UNIQUE INDEX IF NOT EXISTS playlists_album_pin_key ON playlists (user_id, source, source_id) WHERE kind = 'album';
 
 CREATE TABLE IF NOT EXISTS playlist_items (
     -- its own id: the same song may appear twice in one playlist

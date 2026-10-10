@@ -1,0 +1,3699 @@
+{
+ "0": {
+  "song": {
+   "id": "JQRv4yRH",
+   "title": "All The Stars",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/all-the-stars/all-the-stars/Ojk5R0BJZXs",
+   "image": "https://c.saavncdn.com/942/All-The-Stars-English-2018-20180104160830-150x150.jpg",
+   "language": "english",
+   "year": "2018",
+   "play_count": 11710943,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Kendrick Lamar, M. Spears, Alexander Shuckburgh, SZA, Anthony Tiffith",
+    "album_id": "12031408",
+    "album": "All The Stars",
+    "label": "Black Panther (TDE/DMG) PS",
+    "label_id": "1016850",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyQckcFX8JYncL3U/JK1HHOH/q0crXx+9J429ijNkP/B6mmrEBpv/Kyhw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8OTOusgOu6+XphlQqJ+wm7Y+wcP37bDZ6F2Bge/sidD009+X3v5BG6492mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/all-the-stars-/3TUMWTX25QA_",
+    "duration": "235",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "The beat for 'All the Stars' was born from a creative process that started with producer Al Shux experimenting with weird sounds in his studio. Later, Sounwave added drums and strings."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2018 Aftermath Records",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "612060",
+       "name": "Kendrick Lamar",
+       "role": "primary_artists",
+       "image": "https://c-origin.saavncdn.com/artists/Kendrick_Lamar_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "859314",
+       "name": "SZA",
+       "role": "primary_artists",
+       "image": "https://c-origin.saavncdn.com/artists/SZA_20200218144820_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "612060",
+       "name": "Kendrick Lamar",
+       "role": "music",
+       "image": "https://c-origin.saavncdn.com/artists/Kendrick_Lamar_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "614449",
+       "name": "M. Spears",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1214691",
+       "name": "Alexander Shuckburgh",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "859314",
+       "name": "SZA",
+       "role": "music",
+       "image": "https://c-origin.saavncdn.com/artists/SZA_20200218144820_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "3214559",
+       "name": "Anthony Tiffith",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "612060",
+       "name": "Kendrick Lamar",
+       "role": "lyricist",
+       "image": "https://c-origin.saavncdn.com/artists/Kendrick_Lamar_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "614449",
+       "name": "M. Spears",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1214691",
+       "name": "Alexander Shuckburgh",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "859314",
+       "name": "SZA",
+       "role": "lyricist",
+       "image": "https://c-origin.saavncdn.com/artists/SZA_20200218144820_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "3214559",
+       "name": "Anthony Tiffith",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2018-01-04",
+    "vcode": "010912291154220",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912291110427.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "false"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "1": {
+  "song": {
+   "id": "WGc8ueF_",
+   "title": "We Don't Talk Anymore (feat. Selena Gomez)",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/nine-track-mind/we-dont-talk-anymore-feat.-selena-gomez/Jy8ICQFVcWw",
+   "image": "https://c.saavncdn.com/850/Nine-Track-Mind-English-2016-20190607044034-150x150.webp",
+   "language": "english",
+   "year": "2016",
+   "play_count": 50931543,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "",
+    "album_id": "16236794",
+    "album": "Nine Track Mind",
+    "label": "Artist Partner",
+    "label_id": "349259",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDy28vhvZbSkC5agkICUoeW1vtfx5TePeNioKueRXBu+wuWm2W9EcQC2hw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8amQSWX9ri67SZWn6BGZt8+Kl5dlX10i34L8ubp2QBuSEJchd4mkbb492mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/nine-track-mind-/gKg6W3wtKsA_",
+    "duration": "217",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "Charlie Puth has perfect pitch, which means he can identify or produce a note without any reference!"
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2016 Atlantic Records Group LLC",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "755042",
+       "name": "Charlie Puth",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Charlie_Puth_004_20221012071125_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [
+      {
+       "id": "603812",
+       "name": "Selena Gomez",
+       "role": "featured_artists",
+       "image": "https://c.saavncdn.com/artists/Selena_Gomez_003_20231023065157_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "artists": [
+      {
+       "id": "755042",
+       "name": "Charlie Puth",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Charlie_Puth_004_20221012071125_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "570206",
+       "name": "Jacob Kasher Hindlin",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "603812",
+       "name": "Selena Gomez",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Selena_Gomez_003_20231023065157_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2016-01-29",
+    "vcode": "010912582081309",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912582039107.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "2": {
+  "song": {
+   "id": "G5LMYLiK",
+   "title": "Starboy",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/starboy/starboy/N10nfC18Xng",
+   "image": "https://c.saavncdn.com/358/Starboy-English-2016-20261007033841-150x150.webp",
+   "language": "english",
+   "year": "2016",
+   "play_count": 13585794,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Abel Tesfaye, Thomas Bangalter, Guy-Manuel De Homem-Christo, Martin Mckinney, Henry Walter, Jason Quenneville",
+    "album_id": "3089706",
+    "album": "Starboy",
+    "label": "The Weeknd/Lyric",
+    "label_id": "7799962",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDye77sRH0m2+slkEsDKD31zzoWP5bSyEKlz1mGhvdWzFwKy6Puk2SllRw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8M5F0MCTsIg+45dhZISaJi1n8ce0ZNPAHM9Au2TruCyKsCrzlFRhVKY92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/starboy-/lNJtsq9ekWE_",
+    "duration": "230",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "In the music video, Weeknd tries to destroy evidence of his previous self, including his awards from his previous album, 'Beauty Behind The Madness.'"
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2016 The Weeknd XO, Inc., Manufactured and Marketed by Republic Records, a Division of UMG Recordings, Inc.",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "615155",
+       "name": "The Weeknd",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/The_Weeknd_002_20241003071400_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [
+      {
+       "id": "652969",
+       "name": "Daft Punk",
+       "role": "featured_artists",
+       "image": "https://c.saavncdn.com/artists/Daft_Punk_20170921122444_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "artists": [
+      {
+       "id": "615156",
+       "name": "Abel Tesfaye",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "576815",
+       "name": "Thomas Bangalter",
+       "role": "music",
+       "image": "https://c.saavncdn.com/228/Climax-English-2018-20180907042403-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "583858",
+       "name": "Guy-Manuel De Homem-Christo",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "517744",
+       "name": "Martin Mckinney",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "573597",
+       "name": "Henry Walter",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "677918",
+       "name": "Jason Quenneville",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "615156",
+       "name": "Abel Tesfaye",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "576815",
+       "name": "Thomas Bangalter",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/228/Climax-English-2018-20180907042403-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "583858",
+       "name": "Guy-Manuel De Homem-Christo",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "517744",
+       "name": "Martin Mckinney",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "573597",
+       "name": "Henry Walter",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "677918",
+       "name": "Jason Quenneville",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2016-11-25",
+    "vcode": "010912292260250",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912292216834.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "3": {
+  "song": {
+   "id": "ln4f3sJf",
+   "title": "Let Me Love You",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/encore/let-me-love-you/HAZfV0dDfVU",
+   "image": "https://c.saavncdn.com/738/Encore-English-2016-20190419222433-150x150.webp",
+   "language": "english",
+   "year": "2016",
+   "play_count": 138650823,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Andrew Watt, Louis Bell, Justin Bieber, William Grigahcine, Ali Tamposi, Carl Rosen, Lumidee Cedeno, Steven Marsden, Teddy Mendez, Edwin Perez, Brian Lee",
+    "album_id": "3338879",
+    "album": "Encore",
+    "label": "DJ Snake Def Jam",
+    "label_id": "1016853",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyzBibrMTJpjWSJ76m50b13TYt1HmL7PrNxvNo+54gECVNfvtRWjbB7hw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD83gRopIdMKZzYREV6ElOqMtogcmrRedTi/pWE7DVpqfzqIyoN4TA4mY92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/encore-/DqQtwN7LwvA_",
+    "duration": "205",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "As a teen, DJ Snake made graffiti and got the name 'Snake' for always slipping past the cops."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2016 DJ Snake Music",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "568648",
+       "name": "DJ Snake",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Dj_Snake_005_20200822045249_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [
+      {
+       "id": "568565",
+       "name": "Justin Bieber",
+       "role": "featured_artists",
+       "image": "https://c.saavncdn.com/artists/Justin_Bieber_005_20201127112218_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "artists": [
+      {
+       "id": "777522",
+       "name": "Andrew Watt",
+       "role": "music",
+       "image": "https://c.saavncdn.com/848/Wild-Youth-English-2016-20170826004007-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1256967",
+       "name": "Louis Bell",
+       "role": "music",
+       "image": "https://c.saavncdn.com/997/All-Power-EP-English-2016-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "568565",
+       "name": "Justin Bieber",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Justin_Bieber_005_20201127112218_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "568648",
+       "name": "William Grigahcine",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Dj_Snake_005_20200822045249_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "566701",
+       "name": "Ali Tamposi",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "2224689",
+       "name": "Carl Rosen",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "623341",
+       "name": "Lumidee Cedeno",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "623344",
+       "name": "Steven Marsden",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "623342",
+       "name": "Teddy Mendez",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "616976",
+       "name": "Edwin Perez",
+       "role": "music",
+       "image": "https://c.saavncdn.com/852/La-Voz-del-Pueblo-Spanish-2017-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "606421",
+       "name": "Brian Lee",
+       "role": "music",
+       "image": "https://c.saavncdn.com/893/Milk-Honey-English-2010-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "568648",
+       "name": "DJ Snake",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/artists/Dj_Snake_005_20200822045249_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "777522",
+       "name": "Andrew Watt",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/848/Wild-Youth-English-2016-20170826004007-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1256967",
+       "name": "Louis Bell",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/997/All-Power-EP-English-2016-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "568565",
+       "name": "Justin Bieber",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Justin_Bieber_005_20201127112218_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "568648",
+       "name": "William Grigahcine",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Dj_Snake_005_20200822045249_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "566701",
+       "name": "Ali Tamposi",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "2224689",
+       "name": "Carl Rosen",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "623341",
+       "name": "Lumidee Cedeno",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "623344",
+       "name": "Steven Marsden",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "623342",
+       "name": "Teddy Mendez",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "616976",
+       "name": "Edwin Perez",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/852/La-Voz-del-Pueblo-Spanish-2017-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "606421",
+       "name": "Brian Lee",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/893/Milk-Honey-English-2010-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2016-08-05",
+    "vcode": "010912291156078",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912291112421.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "4": {
+  "song": {
+   "id": "fy8dN2I_",
+   "title": "Heat Waves",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/dreamland/heat-waves/FhFTVToCfmw",
+   "image": "https://c.saavncdn.com/173/Dreamland-English-2020-20260423220101-150x150.webp",
+   "language": "english",
+   "year": "2020",
+   "play_count": 35748302,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Dave Bayley",
+    "album_id": "21888520",
+    "album": "Dreamland",
+    "label": "Polydor Records",
+    "label_id": "828118",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDy4mAotTmd8xqbE+IWG1NmT9JALKmUSfYsHsI0g0dG8bkZf6b2qHuFqhw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8a76lHd/sYI4MYhrElLyqItbJFmTH0UL4nWhJLGwLI24/IVxCOIq8ao92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/dreamland-/XSOIyjGxMnU_",
+    "duration": "239",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "The band recorded the music video for the song during the COVID-19 pandemic. Their neighbours filmed it on their own phones."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2020 Wolf Tone Records, a division of Universal Music Operations Limited",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "716111",
+       "name": "Glass Animals",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Glass_Animals_000_20220916090321_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "1853209",
+       "name": "Dave Bayley",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1853209",
+       "name": "Dave Bayley",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2020-08-07",
+    "vcode": "010912291229434",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912291185810.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "5": {
+  "song": {
+   "id": "bf02U3tC",
+   "title": "Ordinary",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/youll-be-alright-kid-chapter-1/ordinary/Eg5bAyEDQ3A",
+   "image": "https://c.saavncdn.com/797/You-ll-Be-Alright-Kid-Chapter-1-English-2024-20250709133247-150x150.webp",
+   "language": "english",
+   "year": "2024",
+   "play_count": 4604612,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "",
+    "album_id": "63211489",
+    "album": "You'll Be Alright, Kid (Chapter 1)",
+    "label": "Atlantic Records",
+    "label_id": "37093",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDy3ExHPhkGBRC3YhMKax/ebjzXCud7jr91dNPvQXW30LXjYpSOHlevWhw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8sLIHm9yoiY4/fju1aHk6ul+buL0p824YPCjbyiAtbDRSftB8Bb98EY92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/youll-be-alright-kid-chapter-1-/UsRolygaLYg_",
+    "duration": "186",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "Artist Alex Warren is known to refer to his distinctive soundscape as \u201cdead people music.\u201d"
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2025 Atlantic Recording Corporation",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "1007201",
+       "name": "Alex Warren",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Alex_Warren_002_20260815081540_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "1007201",
+       "name": "Alex Warren",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/artists/Alex_Warren_002_20260815081540_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1007201",
+       "name": "Alex Warren",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Alex_Warren_002_20260815081540_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "5021283",
+       "name": "Adam Yaron",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "914314",
+       "name": "Cal Shapiro",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "2625122",
+       "name": "Mags Duval",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/261/Stay-Lonely-English-2017-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2024-09-26",
+    "vcode": "010912582928202",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912582885004.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "6": {
+  "song": {
+   "id": "7WiJwj-y",
+   "title": "Dracula",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/dracula/dracula/Rz8CewNaGko",
+   "image": "https://c.saavncdn.com/074/Dracula-English-2025-20250922221132-150x150.webp",
+   "language": "english",
+   "year": "2025",
+   "play_count": 2014828,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Kevin Parker, Sarah Aarons",
+    "album_id": "68265402",
+    "album": "Dracula",
+    "label": "Columbia",
+    "label_id": "35301",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyNJLTBmuGLE5G8stEjFpvz06XxhUqwYT2N3kmWvCIaHHo2d94mW8Bjxw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD86SyYClbjAlio8cBKjBQK0cWDscHaEJrlnHXtZKz2MwpyqAr14FK6II92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/dracula-/54K3QNmWmhw_",
+    "duration": "205",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": false,
+    "trivia": [],
+    "starred": "false",
+    "copyright_text": "(P) 2025 Columbia Records, a Division of Sony Music Entertainment, under exclusive license from Tame Impala",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "617132",
+       "name": "Tame Impala",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Tame_Impala_001_20200305094636_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "657585",
+       "name": "Kevin Parker",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1233086",
+       "name": "Sarah Aarons",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "657585",
+       "name": "Kevin Parker",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1233086",
+       "name": "Sarah Aarons",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2025-09-26",
+    "vcode": "010912023685662",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912023642047.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "7": {
+  "song": {
+   "id": "SN6M4gLa",
+   "title": "Levitating",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/future-nostalgia-the-moonlight-edition/levitating/IyZdfEBXe1I",
+   "image": "https://c.saavncdn.com/639/Future-Nostalgia-The-Moonlight-Edition-English-2021-20231110075157-150x150.webp",
+   "language": "english",
+   "year": "2021",
+   "play_count": 21204991,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "",
+    "album_id": "25198958",
+    "album": "Future Nostalgia (The Moonlight Edition)",
+    "label": "Warner Records",
+    "label_id": "1606707",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyMDAG1PwGJWTTrxGPC3z+84yTSimzdymc1E0RI91mnzVW6ktlbW8MVBw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8fSUaI8RggkYluSr1XNGhqtapJuI0L7QLMX0mMtURbka3818OkX8lT492mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/future-nostalgia-the-moonlight-edition-/tiYu0-HDkeM_",
+    "duration": "203",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "Dua Lipa, Clarence Coffee Jr., Sarah Hudson, and Stephen Kozmeniuk wrote the song during a studio session where they were inspired by eating donuts and the feeling of levitation that comes with sugar."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2020  Dua Lipa Limited under exclusive license to Warner Records UK, a division of Warner Music UK Limited",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "1274170",
+       "name": "Dua Lipa",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Dua_Lipa_004_20231120090922_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "573802",
+       "name": "Clarence Coffee Jr",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1274170",
+       "name": "Dua Lipa",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Dua_Lipa_004_20231120090922_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "702498",
+       "name": "Sarah Hudson",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/587/Gypsy-Girl-A-Cappella--English-2017-20191123100913-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "599533",
+       "name": "Stephen Kozmeniuk",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2020-03-27",
+    "vcode": "010912582260286",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912582216415.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "8": {
+  "song": {
+   "id": "-rq378sI",
+   "title": "S\u00e3o Paulo",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/hurry-up-tomorrow/sao-paulo/XRoaAkMIRHo",
+   "image": "https://c.saavncdn.com/627/Hurry-Up-Tomorrow-English-2025-20260430023429-150x150.webp",
+   "language": "english",
+   "year": "2025",
+   "play_count": 7575778,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Mike Dean, Sean Solymar, Abel Tesfaye, Larissa De Macedo Machado, Flavio Seraphim De Almeida, Everton Ramos De Araujo, Marcelo Nei Leal, Tatiana Dos Santos Louren\u00e7o, Agustinho Raphael Dos Santos, Washington Luis Costa Vaz, Andr\u00e9 Luiz Viegas",
+    "album_id": "61647399",
+    "album": "Hurry Up Tomorrow",
+    "label": "XO / Republic Records",
+    "label_id": "2766028",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyN6biGNKazdYfSgeSaCHLtE8OKYzRerIhHzMBZ1xuNXT3FonsmpUGnBw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8URE0pWCwMYcnYQyEXewQ2781/UOmJrXUv+0ynrA4s/5fPUSoUunOco92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/hurry-up-tomorrow-/3OuYItoVwYo_",
+    "duration": "302",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "The song 'S\u00e3o Paulo' features an interpolation of \"Montagem Pidona\" by the Brazilian artist Tati Quebra Barraco."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2024 The Weeknd XO Music ULC, marketed by Republic Records, a division of UMG Recordings, Inc.",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "615155",
+       "name": "The Weeknd",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/The_Weeknd_002_20241003071400_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "723462",
+       "name": "Anitta",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Anitta_000_20220427061606_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "526434",
+       "name": "Mike Dean",
+       "role": "music",
+       "image": "https://c.saavncdn.com/233/Closer-to-Eternity-English-2009-20170916133436-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "8712454",
+       "name": "Sean Solymar",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "615156",
+       "name": "Abel Tesfaye",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "2263674",
+       "name": "Larissa de Macedo Machado",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "14231782",
+       "name": "flavio seraphim de almeida",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "3357228",
+       "name": "Everton Ramos De Araujo",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20937150",
+       "name": "Marcelo Nei Leal",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1028862",
+       "name": "Tatiana Dos Santos Louren\u00e7o",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20937151",
+       "name": "Agustinho Raphael Dos Santos",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "10808369",
+       "name": "Washington Luis Costa Vaz",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1960395",
+       "name": "Andr\u00e9 Luiz Viegas",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "526434",
+       "name": "Mike Dean",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/233/Closer-to-Eternity-English-2009-20170916133436-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "8712454",
+       "name": "Sean Solymar",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "615156",
+       "name": "Abel Tesfaye",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "2263674",
+       "name": "Larissa de Macedo Machado",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "14231782",
+       "name": "flavio seraphim de almeida",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "3357228",
+       "name": "Everton Ramos De Araujo",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20937150",
+       "name": "Marcelo Nei Leal",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1028862",
+       "name": "Tatiana Dos Santos Louren\u00e7o",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20937151",
+       "name": "Agustinho Raphael Dos Santos",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "10808369",
+       "name": "Washington Luis Costa Vaz",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1960395",
+       "name": "Andr\u00e9 Luiz Viegas",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2025-01-31",
+    "vcode": "010912292744192",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912292700592.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "9": {
+  "song": {
+   "id": "n3D96OBP",
+   "title": "As It Was",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/as-it-was/as-it-was/HlsvCEJ-dWM",
+   "image": "https://c.saavncdn.com/720/As-It-Was-English-2022-20220401035858-150x150.webp",
+   "language": "english",
+   "year": "2022",
+   "play_count": 17754266,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Kid Harpoon, Harry Styles, Tyler Johnson",
+    "album_id": "33942263",
+    "album": "As It Was",
+    "label": "Columbia",
+    "label_id": "35301",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyxX8xUnAVHEvOBVlu+NjxJASAOqdsFn7cI+f2m2E5stf1SAKimwl8rRw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8DkNgNnpeJcq8UdiZXE50TyLDIW74OjymK+wh3bS18Q3bQXCOwM9fk492mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/as-it-was-/1qFCMrTM6vE_",
+    "duration": "167",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "The voice of a young girl at the beginning of the song is a voicemail left by artist Harry Styles's Goddaughter, Ruby."
+    },
+    "starred": "false",
+    "copyright_text": "(P) 2022 Erskine Records Limited, under exclusive license to Columbia Records, a Division of Sony Music Entertainment",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "577199",
+       "name": "Harry Styles",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Harry_Styles_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "658396",
+       "name": "Kid Harpoon",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577199",
+       "name": "Harry Styles",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Harry_Styles_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "672872",
+       "name": "Tyler Johnson",
+       "role": "music",
+       "image": "https://c.saavncdn.com/252/Grenade-Acoustic-Guitar--English-2010-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577199",
+       "name": "Harry Styles",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/artists/Harry_Styles_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "658396",
+       "name": "Kid Harpoon",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577199",
+       "name": "Harry Styles",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Harry_Styles_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "672872",
+       "name": "Tyler Johnson",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/252/Grenade-Acoustic-Guitar--English-2010-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2022-03-31",
+    "vcode": "010910142260523",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010910142216605.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "10": {
+  "song": {
+   "id": "SixiaL6R",
+   "title": "Timeless",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/hurry-up-tomorrow/timeless/IwETWBV8AWE",
+   "image": "https://c.saavncdn.com/079/Hurry-Up-Tomorrow-English-2025-20260430023430-150x150.webp",
+   "language": "english",
+   "year": "2025",
+   "play_count": 1052913,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Pharrell Williams, Mike Dean, Abel Tesfaye, JORDAN TERRELL CARTER, Mark Williams (Oji), Raul Cubina (Volta), Tariq &quot;BL$$D\u201d Sharrieff, Kobe \u201cBbyKobe\u201d Hood, Devon Chisolm (Lawson), Blessed, Jarrod &quot;Twisco&quot; Morgan",
+    "album_id": "61648120",
+    "album": "Hurry Up Tomorrow",
+    "label": "XO / Republic Records",
+    "label_id": "2766028",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyXfPu0YJE5oUe+4gLvGlv0gslnFnN/YqDiDKC+jks5Xf87kBhEHM4tBw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD88LLtGu9cCejYQNA8/T4Jr4MmOTk4cVbom8VNQ2bcAgwEyZU7kTocwI92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/hurry-up-tomorrow-/2nTK7tn7PrU_",
+    "duration": "256",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "According to sources, The Weeknd is inspired by Japanese culture."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2024 The Weeknd XO Music ULC, marketed by Republic Records, a division of UMG Recordings, Inc.",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "615155",
+       "name": "The Weeknd",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/The_Weeknd_002_20241003071400_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1659238",
+       "name": "Playboi Carti",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/831/Playboi-Carti-English-2017-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "522132",
+       "name": "Pharrell Williams",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Pharrell_Williams_002_20260618193651_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "526434",
+       "name": "Mike Dean",
+       "role": "music",
+       "image": "https://c.saavncdn.com/233/Closer-to-Eternity-English-2009-20170916133436-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "615156",
+       "name": "Abel Tesfaye",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "3829951",
+       "name": "JORDAN TERRELL CARTER",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20722641",
+       "name": "Mark Williams (Oji)",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20722642",
+       "name": "Raul Cubina (Volta)",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20699866",
+       "name": "Tariq &quot;BL$$D\u201d Sharrieff",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "17210148",
+       "name": "Kobe \u201cBbyKobe\u201d Hood",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20722643",
+       "name": "Devon Chisolm (Lawson)",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1004597",
+       "name": "Blessed",
+       "role": "music",
+       "image": "https://c.saavncdn.com/512/Sorrows-Single-English-2016-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "11328837",
+       "name": "Jarrod &quot;Twisco&quot; Morgan",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "522132",
+       "name": "Pharrell Williams",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Pharrell_Williams_002_20260618193651_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "526434",
+       "name": "Mike Dean",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/233/Closer-to-Eternity-English-2009-20170916133436-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "615156",
+       "name": "Abel Tesfaye",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "3829951",
+       "name": "JORDAN TERRELL CARTER",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20722641",
+       "name": "Mark Williams (Oji)",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20722642",
+       "name": "Raul Cubina (Volta)",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20699866",
+       "name": "Tariq &quot;BL$$D\u201d Sharrieff",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "17210148",
+       "name": "Kobe \u201cBbyKobe\u201d Hood",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20722643",
+       "name": "Devon Chisolm (Lawson)",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1004597",
+       "name": "Blessed",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/512/Sorrows-Single-English-2016-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "11328837",
+       "name": "Jarrod &quot;Twisco&quot; Morgan",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2025-01-31",
+    "vcode": "010912292707133",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912292663805.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "11": {
+  "song": {
+   "id": "R35H6BI-",
+   "title": "Attention",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/attention/attention/IlteeUJyfh4",
+   "image": "https://c.saavncdn.com/292/Attention-English-2017-20190607043124-150x150.webp",
+   "language": "english",
+   "year": "2017",
+   "play_count": 95545770,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "",
+    "album_id": "16230273",
+    "album": "Attention",
+    "label": "Artist Partner",
+    "label_id": "349259",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDybV2U4taMx5wZoH6N+1c7NzHIU0DPfMtTvxH5ghuHC+a9IvEx/DVophw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD856ixi989z5P5ua2kfXpZdiKtS3H4lC7sgOTS00B4lE+Dh4spdOYejI92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/attention-/0nyB8F2NcJI_",
+    "duration": "211",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "The music video was shot by Emil Nava, who left school at 16 and started his career as a chef."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2017 Artist Partner Group, Inc.",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "755042",
+       "name": "Charlie Puth",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Charlie_Puth_004_20221012071125_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "755042",
+       "name": "Charlie Puth",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/artists/Charlie_Puth_004_20221012071125_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2017-04-21",
+    "vcode": "010910140662752",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010910140629200.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "12": {
+  "song": {
+   "id": "BhKP6P-H",
+   "title": "Espresso",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/espresso/espresso/MgAgYUJgGns",
+   "image": "https://c.saavncdn.com/111/Espresso-English-2024-20240412064803-150x150.webp",
+   "language": "english",
+   "year": "2024",
+   "play_count": 18714988,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Julian Bunetta, Sabrina Carpenter, Steph Jones, Amy Allen",
+    "album_id": "53344805",
+    "album": "Espresso",
+    "label": "Island Records",
+    "label_id": "190550",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyV6VkM+rwbvAtsP8Nd+VT9HRgFwRqP1KBkmC+Xfn9Drvey47IELV+nhw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8a/1OdGX01pv2VBiJGOreJZ+WYOVa/nqLwHtzRVGg7tmnJhbIbanIXY92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/espresso-/G6QuXHETjXc_",
+    "duration": "175",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "In the line 'soft skin and I perfumed it for ya', Sabrina Carpenter indirectly references her fragrance brand, Sweet Tooth."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2024 Island Records, a division of UMG Recordings, Inc.",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "603814",
+       "name": "Sabrina Carpenter",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Sabrina_Carpenter_001_20250313025519_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "564808",
+       "name": "Julian Bunetta",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "603814",
+       "name": "Sabrina Carpenter",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Sabrina_Carpenter_001_20250313025519_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "816764",
+       "name": "Steph Jones",
+       "role": "music",
+       "image": "https://c.saavncdn.com/568/How-Ya-English-2019-20191019095039-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1662162",
+       "name": "Amy Allen",
+       "role": "music",
+       "image": "https://c.saavncdn.com/966/Love-Won-English-2015-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "564808",
+       "name": "Julian Bunetta",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "603814",
+       "name": "Sabrina Carpenter",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Sabrina_Carpenter_001_20250313025519_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "816764",
+       "name": "Steph Jones",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/568/How-Ya-English-2019-20191019095039-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1662162",
+       "name": "Amy Allen",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/966/Love-Won-English-2015-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2024-04-12",
+    "vcode": "010912292396160",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912292352797.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "13": {
+  "song": {
+   "id": "_J5iTI6U",
+   "title": "Night Changes",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/four-deluxe/night-changes/LyJeWCB5AWY",
+   "image": "https://c.saavncdn.com/851/FOUR-Deluxe--English-2014-150x150.webp",
+   "language": "english",
+   "year": "2014",
+   "play_count": 39371139,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "John Ryan, Julian Bunetta, Jamie Scott, Liam Payne, Louis Tomlinson, Niall Horan, Zayn Malik, Harry Styles",
+    "album_id": "1215569",
+    "album": "FOUR (Deluxe)",
+    "label": "Syco Music",
+    "label_id": "35337",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyd9VyJw06bY2gAl1NIBgxFfJYUI8HxENb1qIuzpWXPFe+ErK2u4w8VRw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8Q8aaKwfatPgA558esXj6gAAmlTMkXAMlAb5IgqhcGuQheeMCj5wTaI92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/four-deluxe-/tbBfBMWGM6E_",
+    "duration": "226",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": false,
+    "trivia": [],
+    "starred": "false",
+    "copyright_text": "(P) 2014 Simco Limited under exclusive license to Sony Music Entertainment UK Limited",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "573768",
+       "name": "One Direction",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/One_Direction_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "644904",
+       "name": "John Ryan",
+       "role": "music",
+       "image": "https://c.saavncdn.com/717/Fade-Away-English-2017-20171207155556-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "564808",
+       "name": "Julian Bunetta",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "572762",
+       "name": "Jamie Scott",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Jamie_Scott_20191203114054_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577200",
+       "name": "Liam Payne",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Liam_Payne_002_20201127112540_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577201",
+       "name": "Louis Tomlinson",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Louis_Tomlinson_001_20240221124021_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577202",
+       "name": "Niall Horan",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Niall_Horan_006_20260624075327_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577203",
+       "name": "Zayn Malik",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Zayn_Malik_004_20260619190432_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577199",
+       "name": "Harry Styles",
+       "role": "music",
+       "image": "https://c.saavncdn.com/artists/Harry_Styles_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "644904",
+       "name": "John Ryan",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/717/Fade-Away-English-2017-20171207155556-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "564808",
+       "name": "Julian Bunetta",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "572762",
+       "name": "Jamie Scott",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Jamie_Scott_20191203114054_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577200",
+       "name": "Liam Payne",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Liam_Payne_002_20201127112540_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577201",
+       "name": "Louis Tomlinson",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Louis_Tomlinson_001_20240221124021_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577202",
+       "name": "Niall Horan",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Niall_Horan_006_20260624075327_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577203",
+       "name": "Zayn Malik",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Zayn_Malik_004_20260619190432_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "577199",
+       "name": "Harry Styles",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Harry_Styles_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2014-11-17",
+    "vcode": "010910140238397",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010910140251041.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "14": {
+  "song": {
+   "id": "IvEXjfoP",
+   "title": "FE!N",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/utopia/fen/OR4uaR5WWGM",
+   "image": "https://c.saavncdn.com/899/UTOPIA-English-2023-20231118040929-150x150.webp",
+   "language": "english",
+   "year": "2023",
+   "play_count": 1777193,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Jacques Webster, Jahaan Sweet, Jordan Carter, Khadimou Fall",
+    "album_id": "49836812",
+    "album": "UTOPIA",
+    "label": "Cactus Jack/Epic",
+    "label_id": "5852170",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDy+mhuvOaRQBZlwDQhfOdeJ8R0fEaI754x2rxhY6hfaCTN0sz9gH/GKhw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD87MHtwr6cTlqldwiC49RrgC8u5kjP034snAc5dKMD3XE6rYAAd56cqY92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/utopia-/VvbIu20sEB4_",
+    "duration": "191",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": false,
+    "trivia": [],
+    "starred": "false",
+    "copyright_text": "(P) 2023 Cactus Jack Records under exclusive license to Epic Records, a division of Sony Music Entertainment",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "614647",
+       "name": "Travis Scott",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Travis_Scott_20190823072138_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [
+      {
+       "id": "1659238",
+       "name": "Playboi Carti",
+       "role": "featured_artists",
+       "image": "https://c.saavncdn.com/831/Playboi-Carti-English-2017-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "artists": [
+      {
+       "id": "677940",
+       "name": "Jacques Webster",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1396681",
+       "name": "Jahaan Sweet",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1445580",
+       "name": "Jordan Carter",
+       "role": "music",
+       "image": "https://c.saavncdn.com/522/Tats-English-2017-20171006173253-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "5895722",
+       "name": "Khadimou Fall",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "677940",
+       "name": "Jacques Webster",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1396681",
+       "name": "Jahaan Sweet",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1445580",
+       "name": "Jordan Carter",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/522/Tats-English-2017-20171006173253-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "5895722",
+       "name": "Khadimou Fall",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2023-07-26",
+    "vcode": "010910143686088",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010910143643579.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "15": {
+  "song": {
+   "id": "-YoqQDRQ",
+   "title": "Show Me Love",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/show-me-love/show-me-love/XTEEQCV0ZWI",
+   "image": "https://c.saavncdn.com/794/Show-Me-Love-English-2025-20250731140243-150x150.webp",
+   "language": "english",
+   "year": "2025",
+   "play_count": 2345507,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Sanele David Sydow, Jonas Kalisch, Alexej Vlasenko, Jeremy Chacon, Henrik Meinke",
+    "album_id": "63211663",
+    "album": "Show Me Love",
+    "label": "Bamboo Artists",
+    "label_id": "6171596",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyqdbvGd8xE6oxxr5HWQ44ZtPNbmweCFlKm40/8jz0uIR9jB0k5phXPhw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8YTmaDmaFTAlPkrrWQqTgFIvzu7uPGLFSHVJV/0FQJdugl/q2KlqbI492mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/show-me-love-/2f4vIIVCfME_",
+    "duration": "176",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": false,
+    "trivia": [],
+    "starred": "false",
+    "copyright_text": "\u00a9 2025 Bamboo Artists",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "2040824",
+       "name": "WizTheMc",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/878/On-My-Mind-English-2019-20200216034937-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "22025331",
+       "name": "bees &amp; honey",
+       "role": "primary_artists",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "9790280",
+       "name": "Sanele David Sydow",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1888852",
+       "name": "Jonas Kalisch",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "13751228",
+       "name": "Alexej Vlasenko",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1888853",
+       "name": "Jeremy Chacon",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1888851",
+       "name": "Henrik Meinke",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "2040824",
+       "name": "WizTheMc",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/878/On-My-Mind-English-2019-20200216034937-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "22025331",
+       "name": "bees &amp; honey",
+       "role": "singer",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "9790280",
+       "name": "Sanele David Sydow",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1888852",
+       "name": "Jonas Kalisch",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "13751228",
+       "name": "Alexej Vlasenko",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1888853",
+       "name": "Jeremy Chacon",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1888851",
+       "name": "Henrik Meinke",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2025-02-07",
+    "vcode": "010912023480242",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912023438033.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "16": {
+  "song": {
+   "id": "Hvma-gqd",
+   "title": "Safari",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/safari/safari/OB4GUFlXRlc",
+   "image": "https://c.saavncdn.com/292/Safari-English-2017-20240919033905-150x150.webp",
+   "language": "english",
+   "year": "2017",
+   "play_count": 45752154,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Radu Baisan, Nicolae Stan, Diana V. Serban",
+    "album_id": "14133744",
+    "album": "Safari",
+    "label": "Roton Music",
+    "label_id": "286991",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDykC3fttbcwW9iTag/648YWNN7MNMv9buUDr4J+1G+XRHGWNGzwK4uzRw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD856ixi989z5MplTB5F2CIiQsrQBfCk9uxkp/Hmsqhtbktd2XPzwyNQI92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/safari-/UjuB7h2mdUw_",
+    "duration": "187",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "true",
+    "lyrics_snippet": "Lyrics",
+    "has_trivia": false,
+    "trivia": [],
+    "starred": "false",
+    "copyright_text": "\u2117 2017 ROTON MUSIC & MUSIC PINK ELEPHANT",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "978512",
+       "name": "Serena",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Serena_000_20191129100951_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "1298553",
+       "name": "Radu Baisan",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1294286",
+       "name": "Nicolae Stan",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "12046333",
+       "name": "Diana V. Serban",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "978512",
+       "name": "Serena",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/artists/Serena_000_20191129100951_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "2600114",
+       "name": "Mircea Nistor",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2017-11-28",
+    "vcode": "010912262133617",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912262090551.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "17": {
+  "song": {
+   "id": "zIuXF49R",
+   "title": "Infinity",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/feel-something/infinity/CiEeaTIEDmE",
+   "image": "https://c.saavncdn.com/197/Feel-Something-English-2017-20190607043125-150x150.webp",
+   "language": "english",
+   "year": "2017",
+   "play_count": 19486743,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "",
+    "album_id": "16231974",
+    "album": "Feel Something",
+    "label": "Atlantic Records",
+    "label_id": "37093",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyqn4aq9x8njdxgoLOKCWYFJJpLHhRZxlwLW7rJ8l13GLYI0ivt+VExxw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD86XeLjeGDT1OXcSzpAl4E/PlISP7SaGtSeGWHrJu6aidc5BaiqFa5ko92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/feel-something-/NHonHbWhVKI_",
+    "duration": "237",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "Artist Jaymes Young never liked traditional schooling and dropped out of high school to pursue a career in music."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2017 Please Rewind / Atlantic Recording Corporation",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "724786",
+       "name": "Jaymes Young",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Jaymes_Young_000_20230814150535_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "724786",
+       "name": "Jaymes Young",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/artists/Jaymes_Young_000_20230814150535_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "570205",
+       "name": "Billboard",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/239/Shapes-English-2016-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "724786",
+       "name": "Jaymes Young",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Jaymes_Young_000_20230814150535_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2017-06-23",
+    "vcode": "010912582260328",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912582216775.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "18": {
+  "song": {
+   "id": "Y6r8v5Xu",
+   "title": "I Think They Call This Love (Cover)",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/i%e2%80%99ll-be-home-for-christmas-i-think-they-call-this-love-cover/i-think-they-call-this-love-cover/KV4ZCQIFb0Y",
+   "image": "https://c.saavncdn.com/864/I-ll-Be-Home-For-Christmas-I-Think-They-Call-This-Love-Cover-English-2024-20241127183502-150x150.webp",
+   "language": "english",
+   "year": "2024",
+   "play_count": 9316926,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Glen Joseph Roberts, ELLIOT JAMES REAY, Annielle Lisiuk",
+    "album_id": "60023980",
+    "album": "I\u2019ll Be Home For Christmas / I Think They Call This Love (Cover)",
+    "label": "EMI Recorded Music Australia Pty Ltd",
+    "label_id": "852500",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDy6rsighYhsg5/QnHmaNBV6kRQw7rTxwgKZmgIFRexJdaM0M9ggi9BSBw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8Eb027g2Tc3yAFqI7BwBwdADf16gZtUNdXSSO/ouPvXxmQnei1SmMyo92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/i%e2%80%99ll-be-home-for-christmas-i-think-they-call-this-love-cover-/QTPRbNkK,E4_",
+    "duration": "196",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "Matthew Ifield began singing at the age of eight in the Sydney Children's Choir."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2024 Universal Music Australia Pty Ltd.",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "11167878",
+       "name": "Matthew Ifield",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Matthew_Ifield_002_20260505095133_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "4870923",
+       "name": "Glen Joseph Roberts",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "12575749",
+       "name": "ELLIOT JAMES REAY",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20826988",
+       "name": "Annielle Lisiuk",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "11167878",
+       "name": "Matthew Ifield",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/artists/Matthew_Ifield_002_20260505095133_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "4870923",
+       "name": "Glen Joseph Roberts",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "12575749",
+       "name": "ELLIOT JAMES REAY",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "20826988",
+       "name": "Annielle Lisiuk",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2024-11-28",
+    "vcode": "010912292872664",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912292829141.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "19": {
+  "song": {
+   "id": "lvyoa4FM",
+   "title": "One Of The Girls",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/the-idol-episode-4-music-from-the-hbo-original-series/one-of-the-girls/HB4SXhUEcX4",
+   "image": "https://c.saavncdn.com/262/The-Idol-Episode-4-Music-from-the-HBO-Original-Series-English-2023-20260801052018-150x150.webp",
+   "language": "english",
+   "year": "2023",
+   "play_count": 9931826,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Mike Dean, Abel Tesfaye, Sage Skofield, Lily-Rose Depp, Sam Levinson, Ramsey",
+    "album_id": "46128795",
+    "album": "The Idol Episode 4 (Music from the HBO Original Series)",
+    "label": "XO / Republic Records",
+    "label_id": "2766028",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyVL3+kwpuC0RlGNyKzwUgTxXKhFQqd69Q1Dj+01lylpU0eY+ItjItExw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8ms8M9PiQdlMqDcS0wptm56Fh4mL9ykVddiC3ABojK8k973NwMCq/2Y92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/the-idol-episode-4-music-from-the-hbo-original-series-/7w7s0yk76aM_",
+    "duration": "244",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": false,
+    "trivia": [],
+    "starred": "false",
+    "copyright_text": "\u2117 2023 The Weeknd XO, Inc., Marketed by Republic Records, a Division of UMG Recordings, Inc.",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "615155",
+       "name": "The Weeknd",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/The_Weeknd_002_20241003071400_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "717977",
+       "name": "Jennie",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Jennie_001_20260618192607_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "763328",
+       "name": "Lily Rose Depp",
+       "role": "primary_artists",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "526434",
+       "name": "Mike Dean",
+       "role": "music",
+       "image": "https://c.saavncdn.com/233/Closer-to-Eternity-English-2009-20170916133436-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "615156",
+       "name": "Abel Tesfaye",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "9500274",
+       "name": "Sage Skofield",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "3007571",
+       "name": "Lily-Rose Depp",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "12294273",
+       "name": "Sam Levinson",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "712813",
+       "name": "Ramsey",
+       "role": "music",
+       "image": "https://c.saavncdn.com/448/Love-Surrounds-You-English-2017-20191027073542-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "526434",
+       "name": "Mike Dean",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/233/Closer-to-Eternity-English-2009-20170916133436-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "615156",
+       "name": "Abel Tesfaye",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "9500274",
+       "name": "Sage Skofield",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "3007571",
+       "name": "Lily-Rose Depp",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "12294273",
+       "name": "Sam Levinson",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "712813",
+       "name": "Ramsey",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/448/Love-Surrounds-You-English-2017-20191027073542-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2023-06-23",
+    "vcode": "010912291992614",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912291949269.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "20": {
+  "song": {
+   "id": "m63pgFGa",
+   "title": "Cry For Me",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/hurry-up-tomorrow/cry-for-me/HV5YQRN2cFI",
+   "image": "https://c.saavncdn.com/627/Hurry-Up-Tomorrow-English-2025-20260430023429-150x150.webp",
+   "language": "english",
+   "year": "2025",
+   "play_count": 5625604,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Mike Dean, Abel Tesfaye, Ahmad Balshe, Leland Wayne, Curtis Fitzgerald Williams, Karen Patterson",
+    "album_id": "61647399",
+    "album": "Hurry Up Tomorrow",
+    "label": "XO / Republic Records",
+    "label_id": "2766028",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDy4GYQGFORLXNErdISnKnRZvJkPRwE8PBuvL8nauCozDKiQQW6EMD9Uxw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8URE0pWCwMYff1ek+bRayH3cI7QFVMr1nWxsh+BWdMaHzobktWKmOG492mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/hurry-up-tomorrow-/3OuYItoVwYo_",
+    "duration": "224",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "The Weeknd's birth name is Abel Makkonen Tesfaye."
+    },
+    "starred": "false",
+    "copyright_text": "\u2117 2025 The Weeknd XO Music ULC, marketed by Republic Records, a division of UMG Recordings, Inc.",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "615155",
+       "name": "The Weeknd",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/The_Weeknd_002_20241003071400_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "526434",
+       "name": "Mike Dean",
+       "role": "music",
+       "image": "https://c.saavncdn.com/233/Closer-to-Eternity-English-2009-20170916133436-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "615156",
+       "name": "Abel Tesfaye",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "677917",
+       "name": "Ahmad Balshe",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "700267",
+       "name": "Leland Wayne",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "597406",
+       "name": "Curtis Fitzgerald Williams",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "4119226",
+       "name": "Karen Patterson",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "526434",
+       "name": "Mike Dean",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/233/Closer-to-Eternity-English-2009-20170916133436-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "615156",
+       "name": "Abel Tesfaye",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "677917",
+       "name": "Ahmad Balshe",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "700267",
+       "name": "Leland Wayne",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "597406",
+       "name": "Curtis Fitzgerald Williams",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "4119226",
+       "name": "Karen Patterson",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2025-01-31",
+    "vcode": "010912292948961",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010912292908856.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "21": {
+  "song": {
+   "id": "3mm7qF4u",
+   "title": "KU LO SA",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/ku-lo-sa/ku-lo-sa/QwUGBgV2A0Y",
+   "image": "https://c.saavncdn.com/109/KU-LO-SA-English-2022-20221207081653-150x150.webp",
+   "language": "english",
+   "year": "2022",
+   "play_count": 4520865,
+   "explicit_content": "0",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Ozedikus",
+    "album_id": "40589474",
+    "album": "KU LO SA",
+    "label": "Troniq Inc",
+    "label_id": "5845434",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyJLRkhcRUKRI/FuPVlwSdrcE0zN9F8IoZjgLy3VREW5uL74o/SJXJrBw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8AlKqDaKjicRtv8OmwmU7C7rjQ9p9XZhft+6YqN5jC078ewFSMynneI92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/ku-lo-sa-/MqBrZYz6Mq8_",
+    "duration": "149",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "Oxlade recorded his first demo at age 11 with his uncle's help and was inspired by artists like Wande Coal."
+    },
+    "starred": "false",
+    "copyright_text": "(P) 2023 TRONIQ INC., under exclusive licence to Epic Records France",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "1736915",
+       "name": "Oxlade",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/496/Shugar-English-2018-20181214214452-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1342580",
+       "name": "Camila Cabello",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/artists/Camila_Cabello_001_20240530122029_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "7289471",
+       "name": "Ozedikus",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1736915",
+       "name": "Oxlade",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/496/Shugar-English-2018-20181214214452-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1342580",
+       "name": "Camila Cabello",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/artists/Camila_Cabello_001_20240530122029_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "14788740",
+       "name": "Oxlade &amp; Camila Cabello",
+       "role": "singer",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1736915",
+       "name": "Oxlade",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/496/Shugar-English-2018-20181214214452-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1342580",
+       "name": "Camila Cabello",
+       "role": "lyricist",
+       "image": "https://c.saavncdn.com/artists/Camila_Cabello_001_20240530122029_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2022-12-09",
+    "vcode": "010910142141837",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010910142099024.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "22": {
+  "song": {
+   "id": "8Ti1DvzG",
+   "title": "Sweater Weather",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/i-love-you./sweater-weather/SDwCADBGTXQ",
+   "image": "https://c.saavncdn.com/834/I-Love-You--English-2013-20220323205211-150x150.webp",
+   "language": "english",
+   "year": "2013",
+   "play_count": 6411939,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Jesse James Rutherford, Zachary Abels, Jeremiah Freedman",
+    "album_id": "12795036",
+    "album": "I Love You.",
+    "label": "Columbia",
+    "label_id": "35301",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDy9hu3bS6NbvlfnPtd8idp5xvKSNTjf1XKoF3hhivPaFnfR1ZZxwRVsBw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8QNO7sQ4KlMXn58qASD/dgZ8xPzmYf+9XY5dkNznwWt001hmBLlqGOI92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/i-love-you.-/w5YTCcUNfbw_",
+    "duration": "240",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "Sweater Weather' was The Neighbourhood's first song that the band ever wrote!"
+    },
+    "starred": "false",
+    "copyright_text": "(P) 2013 Columbia Records, a Division of Sony Music Entertainment",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "582471",
+       "name": "The Neighbourhood",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/264/I-m-Sorry-2012-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "582473",
+       "name": "Jesse James Rutherford",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "582472",
+       "name": "Zachary Abels",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "944622",
+       "name": "Jeremiah Freedman",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "582471",
+       "name": "The Neighbourhood",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/264/I-m-Sorry-2012-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "582473",
+       "name": "Jesse James Rutherford",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2013-04-19",
+    "vcode": "010910140730780",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010910140689094.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "23": {
+  "song": {
+   "id": "H-56B2xz",
+   "title": "Reflections",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/hard-to-imagine-the-neighbourhood-ever-changing/reflections/OEVeBzYCT0k",
+   "image": "https://c.saavncdn.com/545/Hard-to-imagine-the-neighbourhood-ever-changing-English-2018-20181030171333-150x150.webp",
+   "language": "english",
+   "year": "2018",
+   "play_count": 836771,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Lars Stalfors, Jesse James Rutherford, Zachary Abels, Jeremiah Freedman, Brandon Fried, Michael Margott, Evan Bogart",
+    "album_id": "14229099",
+    "album": "Hard To Imagine The Neighbourhood Ever Changing",
+    "label": "Columbia",
+    "label_id": "35301",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyFPLCw+c60+W/D1I+J53yGylGDLskkZac7vuxZlrpyr6zyYaAfcQVXBw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8F7Ai4rRNpPF4Rz58oWDCmgerUar2FpQKwWR7X4W9qTIqwPpPnE7I6Y92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/hard-to-imagine-the-neighbourhood-ever-changing-/D1mEO1PuDtQ_",
+    "duration": "244",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": false,
+    "trivia": [],
+    "starred": "false",
+    "copyright_text": "(P) 2018 Columbia Records, a Division of Sony Music Entertainment",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "582471",
+       "name": "The Neighbourhood",
+       "role": "primary_artists",
+       "image": "https://c.saavncdn.com/264/I-m-Sorry-2012-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "824924",
+       "name": "Lars Stalfors",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "582473",
+       "name": "Jesse James Rutherford",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "582472",
+       "name": "Zachary Abels",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "944622",
+       "name": "Jeremiah Freedman",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1198092",
+       "name": "Brandon Fried",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "659254",
+       "name": "Michael Margott",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "568097",
+       "name": "Evan Bogart",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "582471",
+       "name": "The Neighbourhood",
+       "role": "singer",
+       "image": "https://c.saavncdn.com/264/I-m-Sorry-2012-150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "582473",
+       "name": "Jesse James Rutherford",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2018-11-02",
+    "vcode": "010910140784276",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010910140742808.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "24": {
+  "song": {
+   "id": "oXXeN4Gv",
+   "title": "Under The Influence",
+   "subtitle": "",
+   "header_desc": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/english/under-the-influence/under-the-influence/HzAzVDoEcEU",
+   "image": "https://c.saavncdn.com/449/Under-The-Influence-English-2022-20220909043530-150x150.webp",
+   "language": "english",
+   "year": "2022",
+   "play_count": 13183051,
+   "explicit_content": "1",
+   "list_count": "0",
+   "list_type": "",
+   "list": "",
+   "more_info": {
+    "music": "Ayoola &quot;Kiddominant&quot; Agboola, Tiffany McKie, David Adeleke",
+    "album_id": "37988529",
+    "album": "Under The Influence",
+    "label": "Chris Brown Entertainment/RCA Records",
+    "label_id": "1313088",
+    "origin": "radio",
+    "is_dolby_content": false,
+    "320kbps": "true",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyzMDh/zlax71CRev5sCh4gnz+a12iozB2ocDnlmxSl6ztZqrfHLi+xRw7tS9a8Gtq",
+    "encrypted_cache_url": "",
+    "encrypted_drm_cache_url": "",
+    "encrypted_drm_media_url": "ID2ieOjCrwdjlkMElYlzWCptgNdUpWD8ZM92uXAtHHqi+NZu9MyQrlU3MfZqJlM4V6S3qYspceFyfWDrSH4yAo92mytrdt3FDnQW0nglPS4=",
+    "album_url": "https://www.jiosaavn.com/s/album/english/under-the-influence-/dZ,L5RDI1R0_",
+    "duration": "184",
+    "rights": {
+     "code": "0",
+     "reason": "",
+     "cacheable": "true",
+     "delete_cached_object": "false"
+    },
+    "cache_state": "false",
+    "has_lyrics": "false",
+    "lyrics_snippet": "",
+    "has_trivia": true,
+    "trivia": {
+     "title": "",
+     "text": "Chris Brown underwent training for parkour and martial arts to prepare for his role in the film 'Takers'."
+    },
+    "starred": "false",
+    "copyright_text": "(P) 2019 Chris Brown Entertainment, LLC, under exclusive license to RCA Records.",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "567587",
+       "name": "Chris Brown",
+       "role": "primary_artists",
+       "image": "https://c-origin.saavncdn.com/artists/Chris_Brown_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "7010988",
+       "name": "Ayoola &quot;Kiddominant&quot; Agboola",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "7010989",
+       "name": "Tiffany McKie",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1062627",
+       "name": "David Adeleke",
+       "role": "music",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "567587",
+       "name": "Chris Brown",
+       "role": "singer",
+       "image": "https://c-origin.saavncdn.com/artists/Chris_Brown_150x150.jpg",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "7010988",
+       "name": "Ayoola &quot;Kiddominant&quot; Agboola",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "7010989",
+       "name": "Tiffany McKie",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      },
+      {
+       "id": "1062627",
+       "name": "David Adeleke",
+       "role": "lyricist",
+       "image": "",
+       "type": "artist",
+       "perma_url": ""
+      }
+     ]
+    },
+    "release_date": "2022-09-06",
+    "vcode": "010910141565750",
+    "vlink": "https://jiotunepreview.jio.com/content/Converted/010910141523312.mp3",
+    "triller_available": false,
+    "request_jiotune_flag": false,
+    "webp": "true"
+   },
+   "button_tooltip_info": [],
+   "pro_hva_campaigns": []
+  }
+ },
+ "stationid": "jceEngj7,Y1V0w5ksuEsBEFNHLU,mnzxyp,Z62w4LwYv2ZakhFQcTg__"
+}

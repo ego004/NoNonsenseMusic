@@ -30,6 +30,9 @@ LIMITS: dict[str, tuple[int, int]] = {
     "friends": (30, 60),
     "friend_request": (20, 60),
     "notifications": (60, 60),          # /ws-ticket: stops ticket-minting floods
+    "album": (60, 60),                  # GET /album: each one asks a source for a full track list
+    "artist": (60, 60),                 # GET /artist: each one may fan out to several album pages
+    "radio": (30, 60),                  # POST /radio: each one asks a source for a station batch
 }
 LOCAL = {"127.0.0.1", "::1", "localhost"}
 
