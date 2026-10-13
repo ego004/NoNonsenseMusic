@@ -287,18 +287,24 @@ class Player extends ChangeNotifier implements JamPlayer {
     }
   }
 
+  /// [v] is the slider's place, 0…1; the player is given [gain] of it.
   void setVolume(double v) {
     volume = v.clamp(0, 1);
-    _audio.setVolume(_jamSilent ? 0 : volume);
+    _audio.setVolume(_jamSilent ? 0 : gain(volume));
     notifyListeners();
   }
+
+  /// The gain for a slider place: its cube. Players take a linear gain, but loudness is heard in ratios, so a straight
+  /// line put nearly all of the change in the slider's last stretch (a quarter of the way was still -12 dB, barely
+  /// quieter than full). The cube spreads it out: half is -18 dB, a quarter -36 dB, a tenth -60 dB.
+  static double gain(double place) => place * place * place;
 
   bool _jamSilent = false;
   @override
   void jamSetSilent(bool silent) {
     if (silent == _jamSilent) return;
     _jamSilent = silent;
-    _audio.setVolume(silent ? 0 : volume);
+    _audio.setVolume(silent ? 0 : gain(volume));
   }
 
   void setPanel(String p) => _set(() => panel = panel == p ? 'none' : p);
