@@ -49,6 +49,8 @@ struct PlayQueue {
     var current: Track? { entries.indices.contains(index) ? entries[index].track : nil }
     var currentKey: String? { entries.indices.contains(index) ? entries[index].key : nil }
     var upNext: [Track] { upcoming.map(\.track) }
+    /// The song after the current one, without building Up Next to read its first (#12).
+    var nextTrack: Track? { entries.indices.contains(index + 1) ? entries[index + 1].track : nil }
     /// The entries after the current one, in play order: what Up Next shows (each with its own key, for a list).
     var upcoming: [Entry] { entries.indices.contains(index + 1) ? Array(entries[(index + 1)...]) : [] }
 

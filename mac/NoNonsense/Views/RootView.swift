@@ -234,10 +234,10 @@ struct RootView: View {
         }
         // Settings › Lyrics › when a song starts: this song's lyrics, and the next one's, so Lyrics opens ready.
         // Each song is asked for once (LyricsStore); the id also changes when Up Next is reordered
-        .task(id: [player.current?.id, player.upNext.first?.id, lyricsFetch.rawValue]) {
+        .task(id: [player.current?.id, player.nextTrack?.id, lyricsFetch.rawValue]) {
             guard lyricsFetch == .songStart, let current = player.current else { return }
             lyrics.fetch(current)
-            if let next = player.upNext.first { lyrics.fetch(next) }
+            if let next = player.nextTrack { lyrics.fetch(next) }
         }
     }
 }

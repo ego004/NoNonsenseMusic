@@ -191,6 +191,10 @@ final class Presence {
 
     @ObservationIgnored private let ipc = DiscordIPC()
     @ObservationIgnored private var attempts = 0          // only the newest attempt may set `status`
+    /// The status waiting to be sent: a newer one replaces it. Discord takes about 5 status changes in 20 s and drops the
+    /// rest, possibly the last: holding ⏭ sent one per song and could leave a skipped song showing (#12).
+    @ObservationIgnored private var pending: Task<Void, Never>?
+    static let settle: Duration = .seconds(1)
 
     @ObservationIgnored private var last: (isPlaying: Bool, position: Double) = (false, 0)
 
@@ -264,7 +268,10 @@ final class Presence {
         let id = clientID
         attempts += 1
         let attempt = attempts
-        Task {
+        pending?.cancel()
+        pending = Task {
+            try? await Task.sleep(for: Self.settle)                // the latest, once the changes settle
+            guard !Task.isCancelled else { return }
             let result: String
             do {
                 try await ipc.setActivity(activity, clientID: id)

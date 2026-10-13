@@ -64,7 +64,7 @@ struct HomeView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .scrollTitle("Home")
-        .task { await library.refresh() }
+        .task { await library.refreshIfStale() }
         .onAppear { appeared = true }
     }
 
@@ -189,7 +189,9 @@ struct PlaylistCard: View {
         }
         VStack(alignment: .leading, spacing: 9) {
             TiltCard(side: side, play: play) {
-                PlaylistCover(images: PlaylistCover.images(of: detail?.tracks ?? []), size: side, seed: playlist.name)
+                PlaylistCover(images: PlaylistCover.images(of: (detail?.items ?? []).lazy.map {
+                    Track.coverURL(image: $0.song.image, listings: [$0.song.best] + $0.song.listings)
+                }), size: side, seed: playlist.name)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(playlist.name).textStyle(.callout, weight: .medium).lineLimit(1)

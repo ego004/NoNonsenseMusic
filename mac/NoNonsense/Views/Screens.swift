@@ -322,7 +322,7 @@ struct SongListView: View {
             Text("They stay in your library and still play from the internet.")
         }
         .scrollTitle(item.title)
-        .task { await library.refresh() }
+        .task { await library.refreshIfStale() }
     }
 
     /// "1 song", "12 songs".

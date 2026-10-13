@@ -54,6 +54,7 @@ struct PlaylistView: View {
 
     private func songs(_ detail: PlaylistDetail) -> some View {
         let tracks = detail.tracks
+        let keys = detail.keys                  // once: each row, the animation and the tick read it (#12: per row before)
         return List(selection: $selection) {
             header(detail, tracks)
                 .listRowSeparator(.hidden)
@@ -70,7 +71,7 @@ struct PlaylistView: View {
             ForEach(Array(shown.enumerated()), id: \.element) { row, i in
                 let entry = detail.items[i]
                 SongRow(track: tracks[i], queue: filter.isEmpty ? tracks : shownTracks, index: filter.isEmpty ? i : row,
-                        keys: filter.isEmpty ? detail.keys : nil, source: filter.isEmpty ? detail.queueSource : nil,
+                        keys: filter.isEmpty ? keys : nil, source: filter.isEmpty ? detail.queueSource : nil,
                         removeLabel: "Remove from “\(detail.name)”", remove: canEdit ? {
                     Task { await library.remove(entry, from: detail.id) }
                 } : nil, doubleClickPlays: false)
@@ -104,17 +105,17 @@ struct PlaylistView: View {
         // (SongRow.doubleClickPlays, 8 Oct). The rows keep their own right-click menus (an empty one here)
         .contextMenu(forSelectionType: UUID.self) { _ in } primaryAction: { ids in
             guard let id = ids.first, let i = detail.items.firstIndex(where: { $0.itemID == id }) else { return }
-            player.play(tracks, startAt: i, keys: detail.keys, source: detail.queueSource)
+            player.play(tracks, startAt: i, keys: keys, source: detail.queueSource)
         }
         .scrollContentBackground(.hidden)
         .scrollTitle(detail.name)
-        .animation(.snappy(duration: 0.3), value: detail.keys)          // rows slide when one is removed or added
-        .sensoryFeedback(.levelChange, trigger: detail.keys)            // a light tick as the order changes (Force Touch trackpads)
+        .animation(.snappy(duration: 0.3), value: keys)          // rows slide when one is removed or added
+        .sensoryFeedback(.levelChange, trigger: keys)            // a light tick as the order changes (Force Touch trackpads)
     }
 
     private func header(_ detail: PlaylistDetail, _ tracks: [Track]) -> some View {
         HStack(alignment: .bottom, spacing: 22) {
-            PlaylistCover(images: PlaylistCover.images(of: tracks), size: 172, seed: detail.name)
+            PlaylistCover(images: PlaylistCover.images(of: tracks.lazy.map(\.image)), size: 172, seed: detail.name)
                 .shadow(color: .black.opacity(0.22), radius: 18, y: 10)
             VStack(alignment: .leading, spacing: 6) {
                 Text("Playlist").textStyle(.caption, weight: .semibold).foregroundStyle(.secondary).textCase(.uppercase)
@@ -193,9 +194,10 @@ struct PlaylistCover: View {
     }
 
     /// The first four different covers, in playlist order.
-    static func images(of tracks: [Track]) -> [URL] {
+    /// The first four different covers, read lazily: a long playlist stops at its fourth cover.
+    static func images(of covers: some Sequence<URL?>) -> [URL] {
         var seen = Set<URL>()
-        return tracks.compactMap(\.image).filter { seen.insert($0).inserted }.prefix(4).map { $0 }
+        return Array(covers.lazy.compactMap { $0 }.filter { seen.insert($0).inserted }.prefix(4))
     }
 
     var body: some View {

@@ -58,6 +58,9 @@ struct Backdrop: View {
     var underNowPlaying = false
     /// Now Playing's own: kept, hidden, while Now Playing is closed, so it moves only while open.
     var inNowPlaying = false
+    /// False while it is drawn invisible (the title bar's copy before the page scrolls under it): it holds still (#12:
+    /// at opacity 0 it still drew 10 frames a second).
+    var visible = true
     @AppStorage("animateBackdrop") private var animate = Look.animateBackdrop
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.controlActiveState) private var windowState      // .inactive when another app is in front
@@ -87,7 +90,7 @@ struct Backdrop: View {
         #endif
         // and only while it can be seen: Now Playing's while open, the window's while Now Playing does not cover it
         let seen = inNowPlaying ? player.showNowPlaying : !(underNowPlaying && player.showNowPlaying)
-        return animate && seen && !reduceMotion && player.isPlaying && windowState != .inactive
+        return animate && visible && seen && !reduceMotion && player.isPlaying && windowState != .inactive
             && !ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
@@ -204,6 +207,7 @@ struct IsolatedBackdrop: NSViewRepresentable {
     var strength: Double
     var underNowPlaying = false                                         // the main window's (see Backdrop)
     var inNowPlaying = false                                            // Now Playing's (see Backdrop)
+    var visible = true                                                  // (see Backdrop)
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
 
@@ -218,7 +222,7 @@ struct IsolatedBackdrop: NSViewRepresentable {
     func updateNSView(_ host: Host, context: Context) { host.rootView = content }
 
     private var content: AnyView {
-        AnyView(Backdrop(track: track, strength: strength, underNowPlaying: underNowPlaying, inNowPlaying: inNowPlaying)
+        AnyView(Backdrop(track: track, strength: strength, underNowPlaying: underNowPlaying, inNowPlaying: inNowPlaying, visible: visible)
             .environment(player).environment(theme))
     }
 }
@@ -768,7 +772,7 @@ struct TitleBarStrip: View {
         let shown = TitleBarState.shared.scrolled && !WindowMode.shared.fullScreen
         ZStack {
             Color(nsColor: .windowBackgroundColor)
-            IsolatedBackdrop(track: track, strength: strength, underNowPlaying: true)
+            IsolatedBackdrop(track: track, strength: strength, underNowPlaying: true, visible: shown)
         }
         // a little more solid than the window, so text under the title bar does not show through it
         .opacity(shown ? max(windowOpacity, 0.85) : 0)

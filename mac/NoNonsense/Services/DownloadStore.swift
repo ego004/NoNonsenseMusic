@@ -21,7 +21,16 @@ final class DownloadStore {
     }
 
     /// Newest first.
-    private(set) var items: [Item] = []
+    private(set) var items: [Item] = [] { didSet { index() } }
+    /// The downloads by copy key and by cover address: every song row asks (twice) whether it is downloaded, and every
+    /// cover not in memory whether a download kept it; a scan of every download each time (#12).
+    @ObservationIgnored private var byKey: [String: Item] = [:]
+    @ObservationIgnored private var byCover: [String: Item] = [:]
+
+    private func index() {
+        byKey = Dictionary(items.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        byCover = Dictionary(items.compactMap { item in item.image.map { ($0, item) } }, uniquingKeysWith: { first, _ in first })
+    }
     /// Songs being downloaded now (by Track.id): rows show a spinner.
     private(set) var inProgress: Set<String> = []
 
@@ -50,9 +59,8 @@ final class DownloadStore {
 
     /// The downloaded item for this song, if any of its copies is downloaded.
     func item(for track: Track) -> Item? {
-        // every row asks (twice), so no set is built: `listings` holds `best` too, and there are few downloads
-        guard !items.isEmpty else { return nil }
-        return items.first { item in track.listings.contains { $0.key == item.key } }
+        // `listings` holds `best` too
+        track.listings.lazy.compactMap { self.byKey[$0.key] }.first
     }
 
     func isDownloaded(_ track: Track) -> Bool { item(for: track) != nil }
@@ -67,7 +75,7 @@ final class DownloadStore {
 
     /// The file for one copy, if that copy is the downloaded one.
     func localURL(for listing: Listing) -> URL? {
-        items.first { $0.key == listing.key }.map { folder.appending(path: $0.file) }
+        byKey[listing.key].map { folder.appending(path: $0.file) }
     }
 
     /// Downloads the song: its best copy, else the others in turn. Says so when done or when no copy works.
@@ -90,7 +98,8 @@ final class DownloadStore {
                     let fetch = AudioDownload(key: listing.key, link: try await API.audioURL(listing), caches: false)
                     await fetch.whole()
                     guard let data = await fetch.contents() else { continue }
-                    try data.write(to: target, options: .atomic)
+                    // a whole song, off the main thread (#12); a copy from the cache above is an APFS clone, instant
+                    try await Task.detached(priority: .utility) { try data.write(to: target, options: .atomic) }.value
                 }
                 let bytes = (try? FileManager.default.attributesOfItem(atPath: target.path)[.size] as? Int) ?? 0
                 items.insert(Item(key: listing.key, file: file, best: track.best, listings: track.listings,
@@ -161,7 +170,7 @@ final class DownloadStore {
     /// The kept cover for this cover address, if a download has it.
     func keptCover(for image: URL) -> URL? {
         let address = image.absoluteString
-        guard let item = items.first(where: { $0.image == address }) else { return nil }
+        guard let item = byCover[address] else { return nil }
         let url = coverURL(item)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }

@@ -25,7 +25,7 @@ struct SpotifyImportGroup: Codable, Sendable {
     enum CodingKeys: String, CodingKey { case name, songs; case playlistID = "playlist_id"; case youtubePlaylist = "youtube_playlist" }
 }
 
-struct SpotifyImportStatus: Decodable, Sendable {
+nonisolated struct SpotifyImportStatus: Decodable, Sendable {
     let id: UUID
     let total: Int
     let done: Int

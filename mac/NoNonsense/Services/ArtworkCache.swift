@@ -19,10 +19,12 @@ final class ArtworkCache {
     var keptCover: ((URL) -> URL?)?
     private var grids: [URL: [Color]] = [:]
 
-    /// Two sizes. A cover shown at up to 128 pt (lists, shelves, the bar) is decoded at 256 px, about 0.25 MB; a larger
-    /// one (Now Playing, cards) at up to 1,200 px. Every cover used to be decoded at full size, ~1.1 MB, even for a
-    /// 44 pt row (7 Oct: the app held 185 MB).
-    private static func pixels(for points: CGFloat) -> Int { points <= 128 ? 256 : 1200 }
+    /// Three sizes, each twice the points it is shown at (a Retina screen): up to 128 pt (lists, the bar) at 256 px,
+    /// about 0.25 MB; up to 256 pt (cards, an album's header) at 512 px, 1 MB; larger (Now Playing) at up to 1,200 px.
+    /// Every cover used to be decoded at full size, even for a 44 pt row (7 Oct: the app held 185 MB). Cards went to the
+    /// 1,200 px size; covers are smaller than that (measured 13 Oct: JioSaavn 500 px, YouTube Music 544 px, a video's
+    /// thumbnail 720 × 404), so 512 px halves a thumbnail card (1.16 → 0.59 MB) and trims a YouTube Music one (#12).
+    private static func pixels(for points: CGFloat) -> Int { points <= 128 ? 256 : points <= 256 ? 512 : 1200 }
     private static func key(_ url: URL, _ pixels: Int) -> String { "\(pixels)|\(url.absoluteString)" }
 
     func cached(_ url: URL, size points: CGFloat = 1000) -> NSImage? {
@@ -36,14 +38,15 @@ final class ArtworkCache {
         if let running = loading[key] { return await running.value }
         let kept = keptCover?(url)
         let task = Task { () -> NSImage? in
-            let data: Data
-            if let kept, let local = try? Data(contentsOf: kept) {
-                data = local
-            } else {
-                guard let (fetched, _) = try? await URLSession.shared.data(from: url) else { return nil }
-                data = fetched
+            // a kept cover is read off the main thread, with the decoding (#12: this Task runs on the main thread)
+            if let kept, let image = await Task.detached(priority: .utility, operation: { () -> NSImage? in
+                guard let local = try? Data(contentsOf: kept) else { return nil }
+                return Self.decoded(local, maxPixels: pixels)
+            }).value {
+                return image
             }
-            return await Task.detached(priority: .utility) { Self.decoded(data, maxPixels: pixels) }.value
+            guard let (fetched, _) = try? await URLSession.shared.data(from: url) else { return nil }
+            return await Task.detached(priority: .utility) { Self.decoded(fetched, maxPixels: pixels) }.value
         }
         loading[key] = task
         let image = await task.value

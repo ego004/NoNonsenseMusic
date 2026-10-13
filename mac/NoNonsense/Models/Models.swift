@@ -330,7 +330,7 @@ struct Track: Identifiable, Hashable {
         self.title = best.title
         self.artists = best.artists
         self.duration = best.duration
-        self.image = (image ?? Track.cover(of: [best] + listings)).flatMap(URL.init(string:))
+        self.image = Track.coverURL(image: image, listings: [best] + listings)
         self.best = best
         // the default copy first, then copies from the same source, then the rest, most popular first.
         // The listings list shows this order, and a failed copy falls back in this order.
@@ -348,6 +348,12 @@ struct Track: Identifiable, Hashable {
 
     /// The cover when the server sent none (a server older than songs.image): its rule, matching.pick_cover, so the
     /// choice depends only on the set of copies, never on their order.
+    /// The cover a song shows: its own image, else its copies' best (cover(of:)). Home's playlist cards read it from the
+    /// entries, without building every Track for four covers on each redraw (#12).
+    static func coverURL(image: String?, listings: [Listing]) -> URL? {
+        (image ?? cover(of: listings)).flatMap(URL.init(string:))
+    }
+
     static func cover(of listings: [Listing]) -> String? {
         let order = ["ytmusic", "jiosaavn", "youtube"]
         func rank(_ l: Listing) -> (Int, Int, String) { (order.firstIndex(of: l.source) ?? 3, -(l.popularity ?? 0), l.id) }
