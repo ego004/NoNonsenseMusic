@@ -13,8 +13,18 @@ nonisolated struct JamMember: Codable, Hashable, Identifiable, Sendable {
 nonisolated struct JamEntry: Codable, Hashable, Identifiable, Sendable {
     let entryID: UUID
     let listing: Listing
+    /// The song's other copies, best first: this Mac's player falls back on them when `listing` will not play here (one
+    /// member's copy failing left that member silent while the others heard it). None from an app that sent none.
+    let copies: [Listing]
     var id: UUID { entryID }
-    enum CodingKeys: String, CodingKey { case listing; case entryID = "entry_id" }
+    enum CodingKeys: String, CodingKey { case listing, copies; case entryID = "entry_id" }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entryID = try c.decode(UUID.self, forKey: .entryID)
+        listing = try c.decode(Listing.self, forKey: .listing)
+        copies = try c.decodeIfPresent([Listing].self, forKey: .copies) ?? []
+    }
 }
 
 nonisolated struct JamState: Codable, Equatable, Sendable {
@@ -27,9 +37,30 @@ nonisolated struct JamState: Codable, Equatable, Sendable {
     let isPlaying: Bool
     let positionSeconds: Double
     let queue: [JamEntry]
+    /// The host plays the room on their device alone: every other member's player follows without sound.
+    let onlyHostPlays: Bool
+    /// The host controls the room alone: members may only add songs to the end of the queue.
+    let onlyHostControls: Bool
     enum CodingKeys: String, CodingKey {
         case code, name, members, current, queue
         case roomID = "room_id"; case hostID = "host_id"; case isPlaying = "is_playing"; case positionSeconds = "position_seconds"
+        case onlyHostPlays = "only_host_plays"; case onlyHostControls = "only_host_controls"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        roomID = try c.decode(UUID.self, forKey: .roomID)
+        code = try c.decode(String.self, forKey: .code)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        hostID = try c.decode(UUID.self, forKey: .hostID)
+        members = try c.decode([JamMember].self, forKey: .members)
+        current = try c.decodeIfPresent(JamEntry.self, forKey: .current)
+        isPlaying = try c.decode(Bool.self, forKey: .isPlaying)
+        positionSeconds = try c.decode(Double.self, forKey: .positionSeconds)
+        queue = try c.decode([JamEntry].self, forKey: .queue)
+        // a server from before sends neither
+        onlyHostPlays = try c.decodeIfPresent(Bool.self, forKey: .onlyHostPlays) ?? false
+        onlyHostControls = try c.decodeIfPresent(Bool.self, forKey: .onlyHostControls) ?? false
     }
 }
 
@@ -38,12 +69,18 @@ private nonisolated struct JamCommand: Encodable, Sendable {
     let type: String
     var seconds: Double? = nil
     var listings: [Listing]? = nil
+    /// add: each song's other copies, in the order of `listings`, for members whose device cannot play the first
+    var copies: [[Listing]]? = nil
     var entryID: UUID? = nil
     /// add: "end", "next" or "now" (Play: at once, the song playing dropped)
     var placement: String? = nil
     /// move: the entry's new place in the room's queue
     var toIndex: Int? = nil
-    enum CodingKeys: String, CodingKey { case type, seconds, listings, placement; case entryID = "entry_id"; case toIndex = "to_index" }
+    /// only_host_plays, only_host_controls: the setting's new value
+    var on: Bool? = nil
+    enum CodingKeys: String, CodingKey {
+        case type, seconds, listings, copies, placement, on; case entryID = "entry_id"; case toIndex = "to_index"
+    }
 }
 
 extension API {
@@ -75,10 +112,12 @@ extension API {
 
 // MARK: - The session
 
-/// A jam: one room, one host whose Mac plays, everyone else a remote. While you are in one, the room decides what
-/// plays: the player's ⏯ ⏭ ⏮, seeks, and Play on any song become the room's commands (playing a song adds it to the
-/// jam), and the host's player follows the room's state as it arrives. One WebSocket carries the commands and the
-/// state; it pings every 25 s and the host reports the playhead every 15 s while playing, so an idle jam costs no CPU.
+/// A jam: listening together. Every member's device plays the room's song in step and every member controls it; the
+/// host may choose to play the room on their Mac alone (`onlyHostPlays`) or to control it alone (`onlyHostControls`). While you are in one, the room decides
+/// what plays: the player's ⏯ ⏭ ⏮, seeks, and Play on any song become the room's commands (playing a song adds it to the
+/// jam), and every member's player follows the room's state as it arrives. One WebSocket carries the commands and the
+/// state; it pings every 25 s and the host reports the playhead every 15 s while playing, which every member moves to
+/// when it has drifted. An idle jam costs no CPU.
 @MainActor
 @Observable
 final class JamSession {
@@ -105,7 +144,20 @@ final class JamSession {
     var isHost: Bool { state != nil && state?.hostID == me }
     /// A member's device plays the room's song in step with the host. Off: it follows silently (friends in one room
     /// would hear an echo). The host always plays.
-    var playHere = true { didSet { player?.jamSetSilent(!isHost && !playHere) } }
+    var playHere = true { didSet { if let state { player?.jamSetSilent(silentHere(state)) } } }
+
+    /// Whether this Mac follows `room` without sound: a member's, when the host plays the room alone or the member
+    /// turned Play here off. The host's always plays.
+    private func silentHere(_ room: JamState) -> Bool { room.hostID != me && (room.onlyHostPlays || !playHere) }
+
+    /// At most this many other copies go with a song (the server's MAX_JAM_COPIES).
+    private static let maxCopies = 4
+
+    /// `track`'s copies other than the one that plays, best first, as an add sends them.
+    private static func otherCopies(_ track: Track, playing: Listing? = nil) -> [Listing] {
+        let first = (playing ?? track.best).key
+        return Array(track.listings.filter { $0.key != first }.prefix(maxCopies))
+    }
     var inJam: Bool { state != nil }
 
     // MARK: joining and leaving
@@ -114,12 +166,15 @@ final class JamSession {
     func start(named name: String?) async -> String? {
         // the song playing now carries into the room, from where it is, and keeps playing (it stopped before)
         let carried = player.flatMap { player in
-            player.current.map { (listing: player.playingListing ?? $0.best, at: player.livePosition, playing: player.isPlaying) }
+            player.current.map { track -> (listing: Listing, copies: [Listing], at: Double, playing: Bool) in
+                let listing = player.playingListing ?? track.best
+                return (listing, Self.otherCopies(track, playing: listing), player.livePosition, player.isPlaying)
+            }
         }
         carrying = carried != nil
         let problem = await enter { try await API.createJam(named: name?.isEmpty == true ? nil : name) }
         if problem == nil, let carried {
-            send(JamCommand(type: "add", listings: [carried.listing]))
+            send(JamCommand(type: "add", listings: [carried.listing], copies: [carried.copies]))
             if carried.at > 1 { send(JamCommand(type: "seek", seconds: carried.at)) }
             if !carried.playing { send(JamCommand(type: "pause")) }
         } else {
@@ -170,7 +225,20 @@ final class JamSession {
         player?.jam = nil
     }
 
-    /// The current host chooses which member's Mac plays. A member cannot silently take over somebody else's speakers.
+    /// The host plays the room on this Mac alone (on), or on every member's device (off, the default).
+    func setOnlyHostPlays(_ on: Bool) {
+        guard isHost else { return }
+        send(JamCommand(type: "only_host_plays", on: on))
+    }
+
+    /// The host controls the room alone (on): members may only add songs to the end of the queue; or everyone does.
+    func setOnlyHostControls(_ on: Bool) {
+        guard isHost else { return }
+        send(JamCommand(type: "only_host_controls", on: on))
+    }
+
+    /// The current host makes another member the host: the room's clock, and its only device when it plays alone. A
+    /// member cannot silently take over somebody else's room.
     func giveSpeakers(to member: JamMember) async {
         guard isHost, let room = state?.roomID else { return }
         do { try await API.setJamHost(room, member: member.userID) } catch { problem = error.localizedDescription }
@@ -199,28 +267,46 @@ final class JamSession {
 
     // MARK: commands (the player calls these while in a jam)
 
-    func togglePlay() { send(JamCommand(type: state?.isPlaying == true ? "pause" : "play")) }
-    func skip() { send(JamCommand(type: "skip")) }
-    func seek(to seconds: Double) { send(JamCommand(type: "seek", seconds: max(0, seconds))) }
+    func togglePlay() { if !locked() { send(JamCommand(type: state?.isPlaying == true ? "pause" : "play")) } }
+    func skip() { if !locked() { send(JamCommand(type: "skip")) } }
+    func seek(to seconds: Double) { if !locked() { send(JamCommand(type: "seek", seconds: max(0, seconds))) } }
+
+    /// Whether you may control the room: everyone may, unless the host chose to control it alone.
+    var canControl: Bool { isHost || state?.onlyHostControls != true }
+    static let lockedNotice = "The host controls this jam. You can add songs to the queue."
+
+    /// A control you may not use while the host controls the room: you are told, and nothing is sent (the server would
+    /// refuse it).
+    private func locked() -> Bool {
+        if canControl { return false }
+        onNotice?(Self.lockedNotice)
+        return true
+    }
     enum Placement: String { case end, next, now }
 
     /// Play (`.now`), Play Next (`.next`) and Add to Queue (`.end`) in a jam: one command each, placed by the server.
-    func add(_ tracks: [Track], _ placement: Placement = .end) {
+    /// While the host controls the room, your Play and Play Next add to the end instead.
+    func add(_ tracks: [Track], _ asked: Placement = .end) {
         guard !tracks.isEmpty else { return }
-        send(JamCommand(type: "add", listings: tracks.map(\.best), placement: placement.rawValue))
+        let placement = canControl ? asked : .end
+        send(JamCommand(type: "add", listings: tracks.map(\.best), copies: tracks.map { Self.otherCopies($0) },
+                        placement: placement.rawValue))
         let what = tracks.count == 1 ? "“\(tracks[0].title)”" : "\(tracks.count) songs"
         let notice = switch placement {
             case .now: "Playing \(what) in the jam"
             case .next: "\(what) plays next in the jam"
             case .end: "Added \(what) to the jam"
         }
-        onNotice?(notice)
+        onNotice?(placement == asked ? notice : notice + ": the host controls this jam")
     }
-    func remove(_ entry: JamEntry) { send(JamCommand(type: "remove", entryID: entry.entryID)) }
-    func jump(to entry: JamEntry) { send(JamCommand(type: "jump", entryID: entry.entryID)) }
-    func move(_ entry: JamEntry, to index: Int) { send(JamCommand(type: "move", entryID: entry.entryID, toIndex: index)) }
+    func remove(_ entry: JamEntry) { if !locked() { send(JamCommand(type: "remove", entryID: entry.entryID)) } }
+    func jump(to entry: JamEntry) { if !locked() { send(JamCommand(type: "jump", entryID: entry.entryID)) } }
+    func move(_ entry: JamEntry, to index: Int) {
+        if !locked() { send(JamCommand(type: "move", entryID: entry.entryID, toIndex: index)) }
+    }
 
-    /// The host's song ended: the room moves on (only the host's player plays it, so only the host says so).
+    /// The song ended, or would not play, on this Mac: the room moves on when it is the host's. Every member's player
+    /// plays it, so only one (the host's) speaks for the room; a member's song that would not play stays that member's.
     func songEnded() { if isHost { skip() } }
 
     private func send(_ command: JamCommand) {
@@ -258,7 +344,8 @@ final class JamSession {
                                                   skipRecent: Player.autoplaySkipsRecent), !songs.isEmpty,
                   state?.roomID == room.roomID else { return }
             radioSeed = last.key
-            send(JamCommand(type: "add", listings: songs.map { Track($0).best }))
+            let tracks = songs.map { Track($0) }
+            send(JamCommand(type: "add", listings: tracks.map(\.best), copies: tracks.map { Self.otherCopies($0) }))
         }
     }
 
@@ -267,12 +354,17 @@ final class JamSession {
     /// A new state: kept, and this Mac's player made to match it. Every member plays the room's song in step (a member
     /// that only controlled the room showed its own last song, paused, while the room played another, 12 Oct); only the
     /// host moves the room on, sends its position and asks for Autoplay.
-    private func apply(_ room: JamState) {
+    ///
+    /// `reported` is the host's playhead from a position push (every 15 s while it plays): this Mac moves to it when it
+    /// has drifted, so a member that started late, or stalled, catches up instead of waiting for the room's next change.
+    private func apply(_ room: JamState, reported: (seconds: Double, playing: Bool)? = nil) {
         if room != state { state = room }
-        refillIfNeeded(room)
+        if reported == nil { refillIfNeeded(room) }
         guard let player else { return }
         player.jam = self
-        player.jamSetSilent(room.hostID != me && !playHere)
+        player.jamSetSilent(silentHere(room))
+        let playing = reported?.playing ?? room.isPlaying
+        let at = reported?.seconds ?? room.positionSeconds
         guard let entry = room.current else {
             if !carrying, player.isPlaying { player.jamFollow(playing: false) }
             loadedEntry = nil
@@ -285,13 +377,15 @@ final class JamSession {
         }
         if entry.entryID != loadedEntry {
             loadedEntry = entry.entryID
-            player.jamLoad(Track(best: entry.listing, listings: [entry.listing], choosingVersion: false),
-                           at: room.positionSeconds, playing: room.isPlaying)
+            // the song's other copies come too: a copy that will not play on this Mac falls back to the next one
+            player.jamLoad(Track(best: entry.listing, listings: [entry.listing] + entry.copies, choosingVersion: false),
+                           at: at, playing: playing)
             return
         }
-        if room.isPlaying != player.isPlaying { player.jamFollow(playing: room.isPlaying) }
-        // a seek by anyone: the room's playhead and this player's differ by more than a moment
-        if abs(player.livePosition - room.positionSeconds) > 2.5 { player.jamFollow(seek: room.positionSeconds) }
+        if playing != player.isPlaying { player.jamFollow(playing: playing) }
+        // a seek by anyone, or this Mac away from the host's reported playhead, by more than a moment. A song still
+        // loading starts at its own place; the next report catches it up
+        if !(reported != nil && player.isBuffering), abs(player.livePosition - at) > 2.5 { player.jamFollow(seek: at) }
     }
 
     private func listen(_ room: UUID) async {
@@ -357,14 +451,22 @@ final class JamSession {
         let type: String
         let data: JamState?
         let detail: String?
+        let seconds: Double?                   // position
+        let isPlaying: Bool?                   // position
+        enum CodingKeys: String, CodingKey { case type, data, detail, seconds; case isPlaying = "is_playing" }
     }
 
     private func handle(_ text: String) {
         guard let envelope = try? JSONDecoder().decode(Envelope.self, from: Data(text.utf8)) else { return }
         switch envelope.type {
         case "state": if let room = envelope.data { apply(room) }
+        case "position":
+            // the host's playhead: without it a member caught up only when the room's state next changed
+            if let room = state, let seconds = envelope.seconds {
+                apply(room, reported: (seconds: seconds, playing: envelope.isPlaying ?? room.isPlaying))
+            }
         case "error": problem = envelope.detail
-        default: break                         // "pong"; "position" pushes matter only for showing a remote's playhead
+        default: break                         // "pong"
         }
     }
 }

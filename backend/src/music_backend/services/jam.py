@@ -1,7 +1,9 @@
-"""Provide jam rooms: one room, one host plays out loud, everyone else holds the remote.
+"""Provide jam rooms: listening together. Every member's device plays the room's song in step and every member
+controls it. Two host settings, both off by default: only_host_plays (the room plays on the host's device alone) and
+only_host_controls (members only add songs; playback and the queue are the host's).
 
 The room is stateless about audio: it keeps listings, the same data the apps already have from
-search, and never a song id or a URL. The host plays a listing through /play like any other song;
+search, and never a song id or a URL. Each member's player plays a listing through /play like any other song;
 the room tracks only who is host, what is current, the queue, and where the playhead is. Rooms live
 in this process's memory (app.state.jams): a position that moves every second is not worth a table,
 and a restart losing rooms matches losing in-flight YouTube links. A control command mutates the
@@ -23,12 +25,16 @@ logger = logging.getLogger(__name__)
 
 MAX_QUEUE = 200            # one person's queue, not a server-wide archive
 MAX_COMMANDS = 60          # per member per room per minute: a human cannot usefully exceed ~2/s
-MAX_FRAME_BYTES = 64 * 1024   # a command is a few hundred bytes; the largest legitimate one is 50 listings
+# a command is a few hundred bytes; the largest legitimate one is 50 songs with up to 4 other copies each (about 120 KB).
+# Below the deployment's uvicorn --ws-max-size (256 KB)
+MAX_FRAME_BYTES = 192 * 1024
 COMMAND_WINDOW = 60.0
 MAX_ROOMS_PER_USER = 20
 ROOM_IDLE_SECONDS = 2 * 60 * 60
 MAX_SOCKETS_PER_USER = 5
 SEND_TIMEOUT = 3.0
+# with only_host_controls on, what a member may not do (an add is allowed, at the end of the queue)
+MEMBER_LOCKED = {"play", "pause", "seek", "skip", "remove", "move", "jump"}
 CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # no l/1/0/o: a code read aloud or typed must not fail
 
 
@@ -65,6 +71,8 @@ class Room:
     position_at: float = field(default_factory=time.time)
     queue: list[JamQueueEntry] = field(default_factory=list)
     sockets: dict[WebSocket, UUID] = field(default_factory=dict)   # socket -> user_id
+    only_host_plays: bool = False                  # the host's device plays the room alone; the others follow silently
+    only_host_controls: bool = False               # members may only add songs to the end of the queue
     touched_at: float = field(default_factory=time.monotonic)
 
 
@@ -231,6 +239,8 @@ class JamHub:
             is_playing=room.is_playing,
             position_seconds=self.playhead(room),
             queue=list(room.queue),
+            only_host_plays=room.only_host_plays,
+            only_host_controls=room.only_host_controls,
         )
 
     # ---- commands ----
@@ -250,14 +260,19 @@ class JamHub:
     async def handle_command(self, room: Room, user_id: UUID, cmd: JamCommand, sender: WebSocket) -> None:
         """Mutate the room from one member's command, then tell everyone.
 
-        Every member controls playback, not only the host; only the position heartbeat is
-        host-only, because it is the only message that knows where the speakers actually are.
+        Every member controls playback, not only the host, unless the host turned on only_host_controls: then a
+        member may only add songs to the end of the queue. Always host-only: the position heartbeat, because the
+        host's player is the room's clock, and the two settings.
         An unknown or malformed command answers the sender alone; a successful one broadcasts
         full state, except a heartbeat, which pushes only the new position.
         """
         if user_id not in room.members:
             # membership can shrink under a live socket (left from another device)
             await sender.send_json({"type": "error", "detail": "You are not in this room."})
+            return
+        if room.only_host_controls and user_id != room.host_id and (
+                cmd.type in MEMBER_LOCKED or cmd.type == "add" and cmd.placement != "end"):
+            await sender.send_json({"type": "error", "detail": "The host controls this jam. You can add songs to the queue."})
             return
         if cmd.type == "position":
             if user_id != room.host_id:
@@ -304,7 +319,12 @@ class JamHub:
             if len(room.queue) + len(cmd.listings) > MAX_QUEUE:
                 await sender.send_json({"type": "error", "detail": f"Queue is full ({MAX_QUEUE})."})
                 return
-            entries = [JamQueueEntry(entry_id=uuid4(), listing=listing) for listing in cmd.listings]
+            if cmd.copies is not None and len(cmd.copies) != len(cmd.listings):
+                await sender.send_json({"type": "error", "detail": "The copies don't match the songs."})
+                return
+            copies = cmd.copies or [[] for _ in cmd.listings]
+            entries = [JamQueueEntry(entry_id=uuid4(), listing=listing, copies=list(others))
+                       for listing, others in zip(cmd.listings, copies)]
             if room.current is None:
                 room.current = entries[0]
                 room.queue.extend(entries[1:])
@@ -346,6 +366,14 @@ class JamHub:
                 return
             entry = room.queue.pop(index)
             room.queue.insert(cmd.to_index, entry)
+        elif cmd.type in ("only_host_plays", "only_host_controls"):
+            if user_id != room.host_id:
+                await sender.send_json({"type": "error", "detail": "Only the host changes the jam's settings."})
+                return
+            if cmd.on is None:
+                await sender.send_json({"type": "error", "detail": "On or off?"})
+                return
+            setattr(room, cmd.type, cmd.on)
         elif cmd.type == "jump":
             if cmd.entry_id is None:
                 await sender.send_json({"type": "error", "detail": "Which entry?"})

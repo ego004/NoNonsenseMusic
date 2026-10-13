@@ -171,12 +171,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(jam.inJam, isTrue);
       expect(find.text('ABC12'), findsOneWidget);
-      expect(find.text('Playing on this device'), findsOneWidget);
+      expect(find.text('Playing on every device'), findsOneWidget);
       expect(find.text('Up Next'), findsOneWidget);
       expect(find.text('Invite'), findsOneWidget);
       expect(find.text('Speakers'), findsOneWidget);
       expect(find.text('Leave Jam'), findsOneWidget);
       expect(find.textContaining("kai's Jam"), findsOneWidget);
+
+      // the host chooses where the jam plays, in the Speakers menu
+      await tester.tap(find.text('Speakers'));
+      await tester.pumpAndSettle();
+      expect(find.text('Only this device plays'), findsOneWidget);
+      expect(find.text('Only I control playback'), findsOneWidget);
+      await tester.tap(find.text('Only this device plays'));
+      await tester.pumpAndSettle();
+      expect(find.text('Only this device plays'), findsNothing, reason: 'choosing closes the menu');
 
       jam.leaveLocally();
       await tester.pumpAndSettle();
@@ -194,12 +203,23 @@ void main() {
       expect(jam.inJam, isTrue);
       await tester.pumpWidget(app(JamPanel(jam: jam, social: Social())));
       await tester.pumpAndSettle();
-      expect(find.text("Playing here and on $longName's device"), findsOneWidget);
+      expect(find.text('Playing on every device'), findsOneWidget);
       expect(find.text('Play here'), findsOneWidget, reason: 'a member can turn this device\'s sound off');
       expect(find.text('Invite'), findsNothing);
       expect(find.text('Speakers'), findsNothing);
       expect(find.text('Nothing playing. Play any song to start the jam.'), findsOneWidget);
       expect(find.byTooltip('Remove riley'), findsNothing);
+
+      // the host plays the room alone: this device follows silently, and says where the sound is
+      jam.handle(jsonEncode({'type': 'state', 'data': room(host: false, withSongs: false)..['only_host_plays'] = true}));
+      await tester.pumpAndSettle();
+      expect(find.text("Playing on $longName's device"), findsOneWidget);
+      expect(find.text('Play here'), findsNothing);
+
+      // the host controls the room: the member is told what they can still do
+      jam.handle(jsonEncode({'type': 'state', 'data': room(host: false, withSongs: false)..['only_host_controls'] = true}));
+      await tester.pumpAndSettle();
+      expect(find.text(JamSession.lockedNotice), findsOneWidget);
     });
   }
 
