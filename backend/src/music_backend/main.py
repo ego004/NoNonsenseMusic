@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import get_args, Annotated, Literal
 from uuid import UUID
@@ -32,6 +33,11 @@ from music_backend.sources import SongNotFound, SourceUnavailable, jiosaavn, ytm
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # runs once at startup (before yield) and once at shutdown (after yield)
+    # asyncio.to_thread's pool. Its default is cpu_count + 4 threads: 5 on a 1 vCPU server, shared by ytmusicapi
+    # searches (two per search), album and artist pages, radio, lyrics and imports, so one person typing could fill it
+    # and queue everyone else's requests. The threads mostly wait on the network; passwords have their own pool
+    # (auth.HASHING).
+    asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=16, thread_name_prefix="blocking"))
     pool = db.make_pool(db.DATABASE_URL)
     await pool.open()
     await db.migrate(pool)

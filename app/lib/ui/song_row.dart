@@ -8,6 +8,7 @@ import 'cover.dart';
 import 'layout.dart';
 import 'playlist_screen.dart';
 import 'scope.dart';
+import 'waiting.dart';
 
 /// A single song row: cover, title, explicit badge, artists, like button and length.
 ///
@@ -228,7 +229,9 @@ class _DownloadedMark extends StatelessWidget {
         builder: (context, _) {
           final store = DownloadStore.shared;
           if (store.isDownloading(track)) {
-            return const Padding(padding: EdgeInsets.only(right: 5), child: SizedBox(width: 11, height: 11, child: CircularProgressIndicator(strokeWidth: 1.5)));
+            // the still hourglass, not a spinner: a spinner redraws at the screen rate for as long as the song downloads, and
+            // Download All keeps one on screen for minutes (Waiting has the measurement)
+            return const Padding(padding: EdgeInsets.only(right: 5), child: Waiting(size: 11, tooltip: 'Downloading…'));
           }
           if (!store.isDownloaded(track)) return const SizedBox.shrink();
           return Padding(

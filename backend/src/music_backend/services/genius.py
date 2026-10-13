@@ -7,6 +7,7 @@ official API (api.genius.com, same data and shapes) answers instead, using GENIU
 Without a token the official API answers 401, so the website's API stays in use until one is set. The apps ask once
 per song and the server keeps the answer for everyone (GeniusCache in cache.py).
 """
+import asyncio
 import logging
 import re
 
@@ -44,9 +45,11 @@ async def find_notes(song: GeniusRequest) -> GeniusResponse:
     hit = best_hit(await search(f"{song.song_name} {song.artist_name}"), song)
     if hit is None:
         return GeniusResponse(url=None, notes=[], about=None)
-    referents = (await ask("/referents", {"song_id": hit["id"], "per_page": 50, "text_format": "plain"}))["referents"]
-    details = (await ask(f"/songs/{hit['id']}", {"text_format": "plain"}))["song"]
-    return GeniusResponse(url=hit.get("url"), notes=notes(referents), about=about(details))
+    # the notes and the song's details at once: each is a round trip to Genius
+    referents, details = await asyncio.gather(
+        ask("/referents", {"song_id": hit["id"], "per_page": 50, "text_format": "plain"}),
+        ask(f"/songs/{hit['id']}", {"text_format": "plain"}))
+    return GeniusResponse(url=hit.get("url"), notes=notes(referents["referents"]), about=about(details["song"]))
 
 
 async def search(query: str) -> list[dict]:

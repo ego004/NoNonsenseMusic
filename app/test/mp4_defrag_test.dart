@@ -1,4 +1,5 @@
 // Tests for Mp4Defrag: a fragmented MP4 like YouTube's becomes a plain one with the same samples, which Windows plays.
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -96,6 +97,23 @@ void main() {
     expect([word('stsc', 1), word('stsc', 2), word('stsc', 4), word('stsc', 5)], [1, 2, 2, 3]);
     expect([word('stco', 0), word('stco', 1), word('stco', 2)], [2, mdatAt, mdatAt + 5], reason: 'one chunk per fragment');
     expect(data.getUint32(mdia['mdhd']!.$1 + 16), 5 * 1024, reason: "the track's length, in its own timescale");
+  });
+
+  test('a file on disk is rewritten once; its headers alone show it is plain afterwards', () async {
+    final dir = await Directory.systemTemp.createTemp('defrag');
+    final file = File('${dir.path}/song.m4a')..writeAsBytesSync(fragmented([
+          [
+            [1, 2, 3]
+          ],
+          [
+            [4]
+          ]
+        ]));
+    expect(Mp4Defrag.isFragmented(file), isTrue);
+    expect(await Mp4Defrag.ensurePlain(file), isTrue, reason: 'rewritten');
+    expect(Mp4Defrag.isFragmented(file), isFalse);
+    expect(await Mp4Defrag.ensurePlain(file), isFalse, reason: 'plain already: left as it is');
+    await dir.delete(recursive: true);
   });
 
   test('a plain file is left as it is', () {

@@ -5,6 +5,7 @@ groups are ordered by Reciprocal Rank Fusion over the sources' ranked lists.
 """
 import statistics
 import unicodedata
+from functools import lru_cache
 from rapidfuzz import fuzz
 from music_backend.models import Album, AlbumRef, Artist, ArtistRef, Listing, Song
 
@@ -22,6 +23,7 @@ SOURCE_PREFERENCE = {"jiosaavn" : 0, "ytmusic" : 1, "youtube" : 2}
 # then a video thumbnail
 COVER_PREFERENCE = {"ytmusic" : 0, "jiosaavn" : 1, "youtube" : 2}
 
+@lru_cache(maxsize=16384)   # pure, and asked about the same few titles thousands of times per search's matching
 def normalise(title : str) -> str:
     """Normalise a title for comparison: lower case, strip diacritics and punctuation, collapse whitespace."""
     title = unicodedata.normalize("NFKD", title.lower())

@@ -187,7 +187,7 @@ class PlayerBar extends StatelessWidget {
                         children: [
                           const Transport(size: 18, play: 34),
                           const SizedBox(height: 2),
-                          Progress(key: ValueKey(t.id)),
+                          Progress(key: ValueKey(t.id), inBar: true),
                         ],
                       ),
                     ),
@@ -420,7 +420,9 @@ class Transport extends StatelessWidget {
 /// The seek bar with the elapsed and remaining times. Repaints once a second while a song plays and the window
 /// is in front ([inFront]). Tap or drag to seek.
 class Progress extends StatefulWidget {
-  const Progress({super.key});
+  /// The player bar's line, which Now Playing covers when it is open: it does not tick then.
+  final bool inBar;
+  const Progress({super.key, this.inBar = false});
   @override
   State<Progress> createState() => _ProgressState();
 }
@@ -455,6 +457,9 @@ class _ProgressState extends State<Progress> {
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       final p = Scope.of(context).player;
+      // Under Now Playing the bar's line is hidden, but its tick still drew a frame each second, besides Now Playing's
+      // own: two frames a second instead of one (about 8 ms each, see in_front.dart)
+      if (widget.inBar && p.showNowPlaying) return;
       if (p.isPlaying && _dragged == null) setState(() {});
     });
   }

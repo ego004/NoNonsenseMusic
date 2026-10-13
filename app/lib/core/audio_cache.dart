@@ -66,13 +66,18 @@ class AudioCache {
 
   /// Removes the least recently played files until the rest fit the limit. A file the player still has open may
   /// refuse to be deleted on Windows; it is left and goes at the next pass.
+  ///
+  /// It runs after every fetch, on the UI isolate: each file is looked at once (one stat), and a cache under its limit
+  /// stops there. Sorting with lastModifiedSync in the comparison asked the disk 2·n·log n times.
   void evict() {
-    final all = _files()..sort((a, b) => a.lastModifiedSync().compareTo(b.lastModifiedSync()));
-    var total = all.fold(0, (sum, f) => sum + f.lengthSync());
-    for (final f in all) {
+    final all = [for (final f in _files()) (file: f, stat: f.statSync())];
+    var total = all.fold(0, (sum, e) => sum + e.stat.size);
+    if (total <= limit) return;
+    all.sort((a, b) => a.stat.modified.compareTo(b.stat.modified));
+    for (final e in all) {
       if (total <= limit) break;
-      total -= f.lengthSync();
-      _delete(f);
+      total -= e.stat.size;
+      _delete(e.file);
     }
   }
 

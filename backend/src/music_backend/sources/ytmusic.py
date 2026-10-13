@@ -1,10 +1,12 @@
 """YouTube Music source: search, albums, artists, radio, and direct audio links."""
 
 import asyncio
+import functools
 import logging
 import re
 import threading
 import time
+import requests
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
 from ytmusicapi import YTMusic
@@ -58,10 +60,17 @@ async def search(query: str) -> list[Listing]:
 _thread_local = threading.local()
 
 
+# seconds: ytmusicapi's own sessions wait 30 s, so a slow YouTube Music held a search (it waits for every kind of
+# result) and a thread of the shared pool that long. Its calls answer in about 1 s; the httpx sources wait 2-8 s.
+REQUEST_TIMEOUT = 8
+
+
 def client() -> YTMusic:
     """Return this thread's YTMusic client, creating it on first use."""
     if not hasattr(_thread_local, "yt"):
-        _thread_local.yt = YTMusic()
+        session = requests.Session()
+        session.request = functools.partial(session.request, timeout=REQUEST_TIMEOUT)   # ytmusicapi's documented way
+        _thread_local.yt = YTMusic(requests_session=session)
     return _thread_local.yt
 
 

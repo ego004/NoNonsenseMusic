@@ -8,6 +8,7 @@ import asyncio
 import logging
 from uuid import UUID
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from music_backend.core.settings import settings
 from argon2 import PasswordHasher
 from fastapi import Header, HTTPException, Request
@@ -29,6 +30,16 @@ hasher = PasswordHasher()
 # username costs about the same time as a wrong password.
 DUMMY_HASH = hasher.hash("anything")
 
+# Argon2 runs here, not in asyncio's shared pool: each hash takes 64 MiB and ~0.15 s of CPU (measured 11 Oct on a 1 vCPU
+# server), so a burst of sign-ins from many addresses would otherwise fill the threads that searches and lyrics wait
+# on, and its memory would grow with every thread. Two at a time bounds it at 128 MiB; more would only share the CPU.
+HASHING = ThreadPoolExecutor(max_workers=2, thread_name_prefix="argon2")
+
+
+async def _hashing(fn, *args):
+    """Run a password hash or check on the HASHING threads."""
+    return await asyncio.get_running_loop().run_in_executor(HASHING, fn, *args)
+
 def hash_token(token: str) -> bytes:
     """Return the SHA-256 digest of a token, which is the form stored in the database."""
     return hashlib.sha256(token.encode('utf-8')).digest()
@@ -39,7 +50,7 @@ async def create_user(conn, username:str, password:str) -> User:
     The password is hashed off the event loop. Raises UsernameTaken when the
     username is already registered.
     """
-    h = await asyncio.to_thread(hasher.hash, password)
+    h = await _hashing(hasher.hash, password)
     try:
         row = await (await conn.execute("INSERT INTO users (username, password_hash) VALUES (%s, %s) RETURNING id", (username, h))).fetchone()
     except errors.UniqueViolation as e:
@@ -71,11 +82,11 @@ async def check_password(conn, username:str, password:str) -> User:
         [username])).fetchone()
     if row is None:
         try:
-            await asyncio.to_thread(hasher.verify,DUMMY_HASH, password)
+            await _hashing(hasher.verify, DUMMY_HASH, password)
         finally:
             raise WrongCredentials("Invalid username or password")
     try:
-        if await asyncio.to_thread(hasher.verify,row["password_hash"], password):
+        if await _hashing(hasher.verify, row["password_hash"], password):
             return User(username=row["username"], id=row["id"])
     except VerifyMismatchError as e:
         raise WrongCredentials("Invalid username or password") from e
@@ -237,7 +248,7 @@ async def recover(conn: AsyncConnection, username: str, code: str, new_password:
                 [row["id"], hash_recovery_code(code)])).fetchone()
         if used is None:
             raise WrongRecovery()
-        password_hash = await asyncio.to_thread(hasher.hash, new_password)
+        password_hash = await _hashing(hasher.hash, new_password)
         await conn.execute("UPDATE users SET password_hash = %s WHERE id = %s", [password_hash, row["id"]])
         await conn.execute("DELETE FROM sessions WHERE user_id = %s", [row["id"]])
     return User(id=row["id"], username=row["username"])

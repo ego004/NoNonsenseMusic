@@ -16,9 +16,43 @@ import 'dart:typed_data';
 class Mp4Defrag {
   /// Rewrites [file] in place as a plain MP4 when it is a fragmented one; any other file is left as it is. Returns
   /// whether it rewrote the file. Runs on another isolate: a song is a few MB, read and written whole.
-  static Future<bool> ensurePlain(File file) {
+  static Future<bool> ensurePlain(File file) async {
+    // Most files are plain already (rewritten on an earlier play, or not YouTube's): their top-level box headers say so
+    // in a few small reads, without reading the song.
+    if (!isFragmented(file)) return false;
     final path = file.path;
     return Isolate.run(() => _ensurePlainSync(path));
+  }
+
+  /// Whether [file]'s top-level boxes include a `moof` before the first `mdat`: a fragmented MP4. Reads box headers
+  /// only (ftyp, moov, … : usually four reads of 16 bytes). Synchronous on purpose: four small reads take a fraction of a
+  /// millisecond, where each asynchronous read is a round trip to the I/O thread (slower than reading the whole file).
+  static bool isFragmented(File file) {
+    final raf = file.openSync();
+    try {
+      final length = raf.lengthSync();
+      var at = 0;
+      while (at + 8 <= length) {
+        raf.setPositionSync(at);
+        final header = ByteData.sublistView(raf.readSync(16));
+        if (header.lengthInBytes < 8) return false;
+        var size = header.getUint32(0);
+        final type = String.fromCharCodes([for (var i = 4; i < 8; i++) header.getUint8(i)]);
+        if (type == 'moof') return true;
+        if (type == 'mdat') return false; // the samples came before any fragment: a plain file
+        if (size == 1) {
+          if (header.lengthInBytes < 16) return false;
+          size = header.getUint64(8);
+        } else if (size == 0) {
+          return false; // the last box runs to the end of the file
+        }
+        if (size < 8) return false;
+        at += size;
+      }
+      return false;
+    } finally {
+      raf.closeSync();
+    }
   }
 
   static bool _ensurePlainSync(String path) {
