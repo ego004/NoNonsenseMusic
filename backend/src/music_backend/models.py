@@ -32,6 +32,7 @@ class Listing(BaseModel):
 # only stop one request from filling the database or the memory of a server on the internet.
 MAX_DURATION = 86_400                       # seconds: a day. Also keeps the value inside Postgres' integer
 MAX_LISTINGS = 50                           # one song's copies, or one batch of songs
+MAX_JAM_COPIES = 4                          # a jam song's other copies: enough fallbacks, and a command stays small
 NAME_MAX = 100                              # a playlist's name
 
 
@@ -468,10 +469,13 @@ class JamQueueEntry(BaseModel):
     """One song waiting in a jam room's queue.
 
     The listing is the app's own search result, sent as-is: the room never writes to the
-    database, and the host plays it through /play like any other song.
+    database, and every member's player plays it through /play like any other song. `copies` are the song's other
+    copies, best first: a member whose device cannot play `listing` (a copy that will not load there) plays one of
+    those instead of going silent. Apps from before copies send none.
     """
     entry_id: UUID
     listing: Listing
+    copies: list[Listing] = []
 
 
 class JamMember(BaseModel):
@@ -495,6 +499,9 @@ class JamState(BaseModel):
     is_playing: bool
     position_seconds: float
     queue: list[JamQueueEntry]
+    # the host chose to play the room on their own device only (friends in one room): every other member's player
+    # follows the room without sound. Off by default: every member hears the room's song, in step.
+    host_only: bool = False
 
 
 class JamCreateRequest(BaseModel):
@@ -516,9 +523,13 @@ class JamHostRequest(BaseModel):
 
 # One shape for every control message over /ws/jam; the handler checks which fields the type needs.
 class JamCommand(BaseModel):
-    type: Literal["play", "pause", "seek", "skip", "add", "remove", "move", "jump", "position"]
+    type: Literal["play", "pause", "seek", "skip", "add", "remove", "move", "jump", "position", "host_only"]
     seconds: float | None = None                 # seek, position
     listings: list[ListingIn] | None = Field(default=None, max_length=MAX_LISTINGS)    # add
+    # add: each song's other copies, in the order of `listings` (the same length when sent); best first
+    copies: list[Annotated[list[ListingIn], Field(max_length=MAX_JAM_COPIES)]] | None = Field(
+        default=None, max_length=MAX_LISTINGS)
+    on: bool | None = None                       # host_only: the host plays the room alone (true) or everyone does
     entry_id: UUID | None = None                 # remove, move, jump
     to_index: int | None = None                  # move: 0-based index in the queue
     # add: "end" queues the songs last; "next" puts them first in the queue; "now" plays the first at once (the song

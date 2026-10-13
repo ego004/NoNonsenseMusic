@@ -458,3 +458,93 @@ def test_leave_cleans_code_lookup_and_command_counters():
     assert hub.leave(room.host_id, room.id) is None
     assert room.code not in hub._by_code
     assert not any(k[0] == room.id for k in hub._command_hits)
+
+
+# ---------- every member plays: copies to fall back on, and the host's "only my device" ----------
+
+@pytest.mark.anyio
+async def test_add_keeps_each_songs_other_copies_for_the_members():
+    hub, room, sender = fresh_room()
+    cmd = JamCommand(type="add", listings=[make_listing(1), make_listing(2)],
+                     copies=[[make_listing(11), make_listing(12)], []])
+    await hub.handle_command(room, room.host_id, cmd, sender)
+    assert [c.title for c in room.current.copies] == ["Song 11", "Song 12"]
+    assert room.queue[0].copies == []
+    state = sender.last()["data"]
+    assert [c["title"] for c in state["current"]["copies"]] == ["Song 11", "Song 12"]
+
+
+@pytest.mark.anyio
+async def test_an_app_that_sends_no_copies_still_adds():
+    hub, room, sender = fresh_room()
+    await hub.handle_command(room, room.host_id, JamCommand(type="add", listings=[make_listing(1)]), sender)
+    assert room.current.copies == [] and sender.last()["data"]["current"]["copies"] == []
+
+
+@pytest.mark.anyio
+async def test_copies_that_do_not_match_the_songs_are_refused():
+    hub, room, sender = fresh_room()
+    cmd = JamCommand(type="add", listings=[make_listing(1), make_listing(2)], copies=[[make_listing(11)]])
+    await hub.handle_command(room, room.host_id, cmd, sender)
+    assert sender.last()["type"] == "error" and room.current is None
+
+
+def test_a_song_brings_at_most_four_other_copies():
+    with pytest.raises(ValueError):
+        JamCommand(type="add", listings=[make_listing(1)], copies=[[make_listing(i) for i in range(10, 15)]])
+
+
+@pytest.mark.anyio
+async def test_every_member_plays_until_the_host_chooses_only_their_device():
+    hub, room, sender = fresh_room()
+    assert hub.state(room).host_only is False
+    await hub.handle_command(room, room.host_id, JamCommand(type="host_only", on=True), sender)
+    assert room.host_only and sender.last()["data"]["host_only"] is True
+    await hub.handle_command(room, room.host_id, JamCommand(type="host_only", on=False), sender)
+    assert not room.host_only and sender.last()["data"]["host_only"] is False
+
+
+@pytest.mark.anyio
+async def test_only_the_host_chooses_where_the_jam_plays():
+    hub, room, sender = fresh_room()
+    member = uuid4()
+    room.members[member] = "bob"
+    room.join_order.append(member)
+    await hub.handle_command(room, member, JamCommand(type="host_only", on=True), sender)
+    assert sender.last()["type"] == "error" and not room.host_only
+    await hub.handle_command(room, room.host_id, JamCommand(type="host_only"), sender)
+    assert sender.last()["type"] == "error" and not room.host_only, "on or off must be said"
+
+
+@pytest.mark.anyio
+async def test_host_only_stays_with_the_room_when_the_host_changes():
+    hub, room, sender = fresh_room()
+    member = uuid4()
+    room.members[member] = "bob"
+    room.join_order.append(member)
+    await hub.handle_command(room, room.host_id, JamCommand(type="host_only", on=True), sender)
+    hub.set_host(room.host_id, room.id, member)
+    assert room.host_id == member and hub.state(room).host_only
+
+
+def test_ws_the_apps_messages_for_copies_and_host_only_reach_every_member(client):
+    """The JSON the Mac and Windows apps send, through the real socket: copies travel with the song to the other member,
+    the host's host_only reaches everyone, and a member's own host_only is refused to that member alone."""
+    alice, bob = Person(client), Person(client)
+    room = alice("POST", "/jam", json={}).json()
+    bob("POST", "/jam/join", json={"code": room["code"]})
+    ticket_a = alice("POST", "/ws-ticket").json()["ticket"]
+    ticket_b = bob("POST", "/ws-ticket").json()["ticket"]
+    with client.websocket_connect(f"/ws/jam?ticket={ticket_a}&room_id={room['room_id']}") as ws_a:
+        assert ws_a.receive_json()["data"]["host_only"] is False, "every device plays by default"
+        with client.websocket_connect(f"/ws/jam?ticket={ticket_b}&room_id={room['room_id']}") as ws_b:
+            ws_b.receive_json()
+            ws_a.send_json({"type": "add", "listings": [listing(1)], "copies": [[listing(11), listing(12)]], "placement": "end"})
+            for ws in (ws_a, ws_b):
+                current = ws.receive_json()["data"]["current"]
+                assert [c["title"] for c in current["copies"]] == ["Song 11", "Song 12"]
+            ws_b.send_json({"type": "host_only", "on": True})
+            assert ws_b.receive_json()["type"] == "error"
+            ws_a.send_json({"type": "host_only", "on": True})
+            for ws in (ws_a, ws_b):
+                assert ws.receive_json()["data"]["host_only"] is True

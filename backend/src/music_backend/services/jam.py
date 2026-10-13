@@ -1,7 +1,8 @@
-"""Provide jam rooms: one room, one host plays out loud, everyone else holds the remote.
+"""Provide jam rooms: listening together. Every member's device plays the room's song in step and every member
+controls it; the host may choose to play the room on their own device alone (host_only).
 
 The room is stateless about audio: it keeps listings, the same data the apps already have from
-search, and never a song id or a URL. The host plays a listing through /play like any other song;
+search, and never a song id or a URL. Each member's player plays a listing through /play like any other song;
 the room tracks only who is host, what is current, the queue, and where the playhead is. Rooms live
 in this process's memory (app.state.jams): a position that moves every second is not worth a table,
 and a restart losing rooms matches losing in-flight YouTube links. A control command mutates the
@@ -23,7 +24,9 @@ logger = logging.getLogger(__name__)
 
 MAX_QUEUE = 200            # one person's queue, not a server-wide archive
 MAX_COMMANDS = 60          # per member per room per minute: a human cannot usefully exceed ~2/s
-MAX_FRAME_BYTES = 64 * 1024   # a command is a few hundred bytes; the largest legitimate one is 50 listings
+# a command is a few hundred bytes; the largest legitimate one is 50 songs with up to 4 other copies each (about 120 KB).
+# Below the deployment's uvicorn --ws-max-size (256 KB)
+MAX_FRAME_BYTES = 192 * 1024
 COMMAND_WINDOW = 60.0
 MAX_ROOMS_PER_USER = 20
 ROOM_IDLE_SECONDS = 2 * 60 * 60
@@ -65,6 +68,7 @@ class Room:
     position_at: float = field(default_factory=time.time)
     queue: list[JamQueueEntry] = field(default_factory=list)
     sockets: dict[WebSocket, UUID] = field(default_factory=dict)   # socket -> user_id
+    host_only: bool = False                        # the host plays the room alone; everyone else follows silently
     touched_at: float = field(default_factory=time.monotonic)
 
 
@@ -231,6 +235,7 @@ class JamHub:
             is_playing=room.is_playing,
             position_seconds=self.playhead(room),
             queue=list(room.queue),
+            host_only=room.host_only,
         )
 
     # ---- commands ----
@@ -250,8 +255,8 @@ class JamHub:
     async def handle_command(self, room: Room, user_id: UUID, cmd: JamCommand, sender: WebSocket) -> None:
         """Mutate the room from one member's command, then tell everyone.
 
-        Every member controls playback, not only the host; only the position heartbeat is
-        host-only, because it is the only message that knows where the speakers actually are.
+        Every member controls playback, not only the host. Two messages are host-only: the position heartbeat,
+        because the host's player is the room's clock, and host_only, where the room plays.
         An unknown or malformed command answers the sender alone; a successful one broadcasts
         full state, except a heartbeat, which pushes only the new position.
         """
@@ -304,7 +309,12 @@ class JamHub:
             if len(room.queue) + len(cmd.listings) > MAX_QUEUE:
                 await sender.send_json({"type": "error", "detail": f"Queue is full ({MAX_QUEUE})."})
                 return
-            entries = [JamQueueEntry(entry_id=uuid4(), listing=listing) for listing in cmd.listings]
+            if cmd.copies is not None and len(cmd.copies) != len(cmd.listings):
+                await sender.send_json({"type": "error", "detail": "The copies don't match the songs."})
+                return
+            copies = cmd.copies or [[] for _ in cmd.listings]
+            entries = [JamQueueEntry(entry_id=uuid4(), listing=listing, copies=list(others))
+                       for listing, others in zip(cmd.listings, copies)]
             if room.current is None:
                 room.current = entries[0]
                 room.queue.extend(entries[1:])
@@ -346,6 +356,14 @@ class JamHub:
                 return
             entry = room.queue.pop(index)
             room.queue.insert(cmd.to_index, entry)
+        elif cmd.type == "host_only":
+            if user_id != room.host_id:
+                await sender.send_json({"type": "error", "detail": "Only the host chooses where the jam plays."})
+                return
+            if cmd.on is None:
+                await sender.send_json({"type": "error", "detail": "On or off?"})
+                return
+            room.host_only = cmd.on
         elif cmd.type == "jump":
             if cmd.entry_id is None:
                 await sender.send_json({"type": "error", "detail": "Which entry?"})
