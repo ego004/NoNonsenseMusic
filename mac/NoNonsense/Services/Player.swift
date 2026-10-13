@@ -34,6 +34,7 @@ final class Player {
     /// The playing copy's length in seconds, as it will play: nil until it has loaded (and for audio with no fixed length)
     private(set) var audioLength: Double?
     var upNext: [Track] { order.upNext }
+    var nextTrack: Track? { order.nextTrack }
     /// The playlist the queue came from ("Gym"), for Now Playing and Discord; nil for other queues.
     var playingFrom: String? {
         guard let source = order.origin, source.hasPrefix("playlist:"),

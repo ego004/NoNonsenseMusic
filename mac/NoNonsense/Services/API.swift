@@ -63,7 +63,7 @@ enum API {
         let seed: RadioRef; let exclude: [RadioRef]; let limit: Int; let skipRecent: Bool
         enum CodingKeys: String, CodingKey { case seed, exclude, limit; case skipRecent = "skip_recent" }
     }
-    private struct RadioReply: Decodable { let songs: [SearchSong] }
+    private nonisolated struct RadioReply: Decodable { let songs: [SearchSong] }
 
     /// `POST /radio`: songs like `seed`, leaving out `exclude` and, with `skipRecent`, what you played lately.
     static func radio(seed: Listing, exclude: [Listing], limit: Int = 20, skipRecent: Bool) async throws -> [SearchSong] {
@@ -367,7 +367,7 @@ enum API {
         return try JSONDecoder().decode(SessionReply.self, from: data)
     }
 
-    private struct CodesLeft: Decodable { let left: Int }
+    private nonisolated struct CodesLeft: Decodable { let left: Int }
     private struct Codes: Decodable { let codes: [String] }
     private struct PasswordBody: Encodable { let password: String }
 
@@ -410,10 +410,16 @@ enum API {
         return (data, response)
     }
 
-    static func get<T: Decodable>(_ url: URL) async throws -> T {
+    static func get<T: Decodable & Sendable>(_ url: URL) async throws -> T {
         let (data, response) = try await perform(URLRequest(url: url))
         try check(response, data: data)
-        return try JSONDecoder().decode(T.self, from: data)
+        return try await decoded(T.self, from: data)
+    }
+
+    /// A reply, decoded off the main thread: the library is a few hundred songs with all their copies, and this app's code
+    /// runs on the main thread by default (SWIFT_DEFAULT_ACTOR_ISOLATION), where the window draws (#12).
+    private nonisolated static func decoded<T: Decodable & Sendable>(_ type: T.Type, from data: Data) async throws -> T {
+        try await Task.detached(priority: .userInitiated) { try JSONDecoder().decode(T.self, from: data) }.value
     }
 
     /// For 204 answers: nothing to decode.
@@ -434,22 +440,22 @@ enum API {
     }
 
     /// A POST with no body that answers JSON.
-    static func post<T: Decodable>(_ path: String) async throws -> T {
+    static func post<T: Decodable & Sendable>(_ path: String) async throws -> T {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = "POST"
         let (data, response) = try await perform(request)
         try check(response, data: data)
-        return try JSONDecoder().decode(T.self, from: data)
+        return try await decoded(T.self, from: data)
     }
 
-    static func send<B: Encodable, T: Decodable>(_ method: String, path: String, body: B) async throws -> T {
+    static func send<B: Encodable, T: Decodable & Sendable>(_ method: String, path: String, body: B) async throws -> T {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
         let (data, response) = try await perform(request)
         try check(response, data: data)
-        return try JSONDecoder().decode(T.self, from: data)
+        return try await decoded(T.self, from: data)
     }
 
     /// Throws for a status outside `allow`, carrying the server's `detail` sentence when there is one.

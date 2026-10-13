@@ -508,7 +508,7 @@ enum SelfTest {
             check("create", await library.createPlaylist(named: name) == nil)
             guard let summary = library.playlists.first(where: { $0.name == name }) else { report("playlists: not in the list"); NSApp.terminate(nil); return }
             let again = await library.createPlaylist(named: name)
-            check("the same name again: the server's reason comes back", again == "A playlist with this name already exists", again ?? "nil")
+            check("the same name again: the server's reason comes back", again == "You already have a playlist with this name", again ?? "nil")
 
             // the empty playlist first: is "No songs yet" centred in the screen beside the sidebar?
             NotificationCenter.default.post(name: .selfTestOpen, object: summary.id)
@@ -594,7 +594,7 @@ enum SelfTest {
                 HStack(alignment: .top, spacing: 20) {
                     ForEach(Array(library.recent.prefix(3)), id: \.id) { CoverTile(track: $0) {} }
                     ForEach(library.playlists.prefix(2)) { PlaylistCard(playlist: $0, side: Look.cardSize) {} }
-                    PlaylistCover(images: PlaylistCover.images(of: library.liked + library.recent), size: Look.cardSize, seed: "grid")
+                    PlaylistCover(images: PlaylistCover.images(of: (library.liked + library.recent).lazy.map(\.image)), size: Look.cardSize, seed: "grid")
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(library.liked.prefix(3)), id: \.id) { CompactSongTile(track: $0, width: 300) {} }
@@ -1258,8 +1258,10 @@ enum SelfTest {
                 return (Double(bytes) / 1_048_576, side)
             }
             let s = await pixelsMB(44)
+            let c = await pixelsMB(Look.cardSize)
             let l = await pixelsMB(560)
-            report(String(format: "covers: decoded pixels held: list size %.1f MB (largest %d px), Now Playing size %.1f MB (largest %d px)", s.mb, s.side, l.mb, l.side))
+            report(String(format: "covers: decoded pixels held: list size %.1f MB (largest %d px), card size %.1f MB (largest %d px), Now Playing size %.1f MB (largest %d px), %d covers",
+                          s.mb, s.side, c.mb, c.side, l.mb, l.side, urls.count))
             NSApp.terminate(nil)
         }
     }

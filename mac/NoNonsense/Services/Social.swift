@@ -52,7 +52,7 @@ nonisolated struct NotificationsReply: Codable, Sendable {
 extension API {
     private struct Username: Encodable { let username: String }
     private struct Respond: Encodable { let username: String; let action: String }
-    private struct Ticket: Decodable { let ticket: String }
+    private nonisolated struct Ticket: Decodable { let ticket: String }
 
     static func friends() async throws -> [Friend] { try await get(baseURL.appending(path: "friends")) }
     static func friendRequests() async throws -> FriendRequests { try await get(baseURL.appending(path: "friends/requests")) }

@@ -20,7 +20,19 @@ final class LibraryStore {
     @ObservationIgnored private var lastRecent: [LibrarySong]?
     @ObservationIgnored private var builtExplicit = Track.prefersExplicit
 
+    /// When `refresh` last asked: a list appearing within refreshFresh seconds of it shows what it has (#12: Home, Liked, Recent
+    /// and Downloads each asked for the whole library, three requests, every time they appeared).
+    @ObservationIgnored private var refreshed: Date?
+    static let refreshFresh: TimeInterval = 30
+
+    /// For a list appearing: the library again, unless it was asked moments ago.
+    func refreshIfStale() async {
+        if let refreshed, Date.now.timeIntervalSince(refreshed) < Self.refreshFresh { return }
+        await refresh()
+    }
+
     func refresh() async {
+        refreshed = .now
         do {
             async let likedSongs = API.liked()
             async let recentSongs = API.recent()
@@ -36,6 +48,12 @@ final class LibraryStore {
     func refreshRecent() async {
         guard let r = try? await API.recent() else { return }
         apply(liked: nil, recent: r)
+    }
+
+    /// After a ♥: only the liked songs can have changed (#12: the whole library was asked again).
+    private func refreshLiked() async {
+        guard let l = try? await API.liked() else { return }
+        apply(liked: l, recent: nil)
     }
 
     /// nil: not asked this time, keep the last answer.
@@ -111,7 +129,7 @@ final class LibraryStore {
         // only the last turn refreshes: an earlier one's refresh would undo the heart of a newer press for a moment
         guard likeTurns[track.id] == turn else { return }
         likeTurns[track.id] = nil
-        await refresh()
+        await refreshLiked()
     }
     @ObservationIgnored private var likeTurns: [String: Task<Void, Never>] = [:]
 
