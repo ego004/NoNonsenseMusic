@@ -57,7 +57,7 @@ final class Player {
     /// Shuffle on or off for the next queue too, and repeat: both remembered between launches, as in Apple Music.
     @ObservationIgnored private var shufflePreferred = UserDefaults.standard.bool(forKey: "shuffle")
     private(set) var playingListing: Listing?                         // the copy AVPlayer is playing right now
-    private(set) var volume: Float = UserDefaults.standard.object(forKey: "volume") as? Float ?? 1   // 0...1, remembered
+    private(set) var volume: Float = Player.savedVolume()   // 0...1: the slider's place, remembered; AVPlayer gets `gain`
     private(set) var isMuted = false
     /// A jam member with Play here off: the room's song follows along without sound. Apart from your own mute.
     private(set) var jamSilent = false
@@ -71,7 +71,7 @@ final class Player {
         self.presence = presence
         // start as soon as audio arrives, instead of first buffering several seconds (the CDN answers in ~0.26 s)
         player.automaticallyWaitsToMinimizeStalling = false
-        player.volume = volume
+        player.volume = Self.gain(volume)
         order.repeatMode = UserDefaults.standard.string(forKey: "repeat").flatMap(PlayQueue.Repeat.init(rawValue:)) ?? .off
         // No periodic time observer: it set `position` twice a second and every view reading it redrew, the app's
         // biggest steady cost while playing (7 Oct). `position` now changes only on events; the progress line and
@@ -284,10 +284,10 @@ final class Player {
         go(to: i)
     }
 
-    /// 0...1. The app's own volume, under the Mac's; remembered between launches.
+    /// 0...1: the slider's place. The app's own volume, under the Mac's; remembered between launches.
     func setVolume(_ level: Float) {
         volume = min(1, max(0, level))
-        player.volume = volume
+        player.volume = Self.gain(volume)
         if isMuted { isMuted = false; player.isMuted = jamSilent }
         // saved once the slider settles, not on every pointer move of a drag
         volumeSave?.cancel()
@@ -297,6 +297,23 @@ final class Player {
         }
     }
     @ObservationIgnored private var volumeSave: Task<Void, Never>?
+
+    /// The gain for a slider place: its cube. AVPlayer's volume is linear, but loudness is heard in ratios, so a straight
+    /// line put nearly all of the change in the slider's last stretch (a quarter of the way was still -12 dB, barely
+    /// quieter than full). The cube spreads it out: half is -18 dB, a quarter -36 dB, a tenth -60 dB.
+    nonisolated static func gain(_ place: Float) -> Float { place * place * place }
+
+    /// The remembered slider place. Until the cube (13 Oct) the place was the gain itself: a place saved then is moved
+    /// once to the cube root, so the music plays exactly as loud as before the update.
+    nonisolated private static func savedVolume() -> Float {
+        let defaults = UserDefaults.standard
+        guard let saved = defaults.object(forKey: "volume") as? Float else { return 1 }
+        if defaults.bool(forKey: "volumeIsPlace") { return saved }
+        let place = Float(pow(Double(saved), 1.0 / 3.0))
+        defaults.set(place, forKey: "volume")
+        defaults.set(true, forKey: "volumeIsPlace")
+        return place
+    }
 
     func toggleMute() {
         isMuted.toggle()
