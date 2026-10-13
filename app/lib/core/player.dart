@@ -338,7 +338,9 @@ class Player extends ChangeNotifier implements JamPlayer {
   @override
   JamCarry? get jamCarry {
     final t = current;
-    return t == null || !isPlaying ? null : JamCarry(t.listings[_copy.clamp(0, t.listings.length - 1)], position);
+    if (t == null || !isPlaying) return null;
+    final playing = t.listings[_copy.clamp(0, t.listings.length - 1)];
+    return JamCarry(playing, position, JamCommand.otherCopies(t, playing: playing));
   }
 
   @override
@@ -567,7 +569,10 @@ class Player extends ChangeNotifier implements JamPlayer {
       return;
     }
     _show("Couldn't play “${t.title}”.");
-    if (jam != null) return jam!.skip(); // the room moves on rather than waiting on a song that will not play
+    // In a jam every member's device plays the room's song: one device's copies failing is that device's alone. A skip
+    // here moved the whole room on for everyone; the room moves on only when it is the host's song that will not play
+    // (as Player.giveUp does on the Mac)
+    if (jam != null) return jam!.songEnded();
     _go(queue.indexAfterNext());
   }
 

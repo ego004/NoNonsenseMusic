@@ -287,5 +287,70 @@ void main() {
       expect(jam.inJam, isFalse);
       expect(await jam.join('  '), "Enter the jam's code.");
     });
+
+    test("a member plays the room's song with its other copies to fall back on, and sends copies with what it adds", () async {
+      roomAnswer = roomJson(host: 'u2');
+      await jam.join('abc12');
+      await pumpEventQueue(times: 60);
+      final withCopies = entry('e1', listing('a'))..['copies'] = [listing('b').toJson(), listing('c').toJson()];
+      await push(stateMessage(roomJson(host: 'u2', current: withCopies)));
+      expect(player.calls.single, startsWith('load a'));
+      expect([for (final l in JamEntry.fromJson(withCopies).track.listings) l.id], ['a', 'b', 'c']);
+      expect([for (final l in JamEntry.fromJson(entry('e2', listing('d'))).track.listings) l.id], ['d'],
+          reason: 'an entry from an app that sent no copies has the one');
+
+      jam.add([Track(listing('x'), [listing('x'), listing('y')])]);
+      await pumpEventQueue();
+      final add = sent().last;
+      expect(add['type'], 'add');
+      expect(add['copies'], [
+        [listing('y').toJson()]
+      ], reason: "the song's other copy goes with it");
+    });
+
+    test('every member hears the room until the host plays it alone; then the others follow silently', () async {
+      roomAnswer = roomJson(host: 'u2');
+      await jam.join('abc12');
+      await pumpEventQueue(times: 60);
+      final song = entry('e1', listing('a'));
+      await push(stateMessage(roomJson(host: 'u2', current: song)));
+      expect(player.silent, isFalse, reason: 'every device plays by default');
+      await push(stateMessage(roomJson(host: 'u2', current: song)..['host_only'] = true));
+      expect((jam.state!.hostOnly, player.silent), (true, true));
+      jam.playHere = true;
+      expect(player.silent, isTrue, reason: "Play here cannot override the host's choice");
+      await push(stateMessage(roomJson(host: 'u2', current: song)));
+      expect(player.silent, isFalse);
+      jam.playHere = false;
+      expect(player.silent, isTrue, reason: 'a member may still mute this device');
+      jam.leaveLocally();
+    });
+
+    test("the host chooses where the jam plays, and the host's own device is never silent", () async {
+      roomAnswer = roomJson();
+      await jam.start();
+      await pumpEventQueue(times: 60);
+      jam.setHostOnly(true);
+      await pumpEventQueue();
+      expect(sent().last, {'type': 'host_only', 'on': true});
+      await push(stateMessage(roomJson(current: entry('e1', listing('a')))..['host_only'] = true));
+      expect(player.silent, isFalse);
+      jam.leaveLocally();
+    });
+
+    test("a member that has drifted moves to the host's playhead when it is reported", () async {
+      roomAnswer = roomJson(host: 'u2');
+      await jam.join('abc12');
+      await pumpEventQueue(times: 60);
+      await push(stateMessage(roomJson(host: 'u2', current: entry('e1', listing('a')), position: 10)));
+      player.isPlaying = true;
+      player.position = 11;
+      await push(jsonEncode({'type': 'position', 'seconds': 12.0, 'is_playing': true}));
+      expect(player.calls.last, startsWith('load'), reason: 'within a moment of the room: left alone');
+      player.position = 4;
+      await push(jsonEncode({'type': 'position', 'seconds': 27.0, 'is_playing': true}));
+      expect(player.calls.last, 'seek 27.0');
+      jam.leaveLocally();
+    });
   });
 }

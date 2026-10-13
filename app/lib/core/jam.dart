@@ -25,12 +25,22 @@ class JamMember {
 /// A song in the room, current or queued. [entryId] names the place in the queue: a song added twice is two entries.
 @immutable
 class JamEntry {
-  const JamEntry(this.entryId, this.listing);
+  const JamEntry(this.entryId, this.listing, [this.copies = const []]);
   final String entryId;
   final Listing listing;
 
-  factory JamEntry.fromJson(Map<String, dynamic> j) =>
-      JamEntry(j['entry_id'] as String, Listing.fromJson(j['listing'] as Map<String, dynamic>));
+  /// The song's other copies, best first (none from an app that sent none).
+  final List<Listing> copies;
+
+  factory JamEntry.fromJson(Map<String, dynamic> j) => JamEntry(
+        j['entry_id'] as String,
+        Listing.fromJson(j['listing'] as Map<String, dynamic>),
+        [for (final c in (j['copies'] as List?) ?? const []) Listing.fromJson(c as Map<String, dynamic>)],
+      );
+
+  /// The song as this device's player plays it: [listing] first, then the other copies, which the player tries when
+  /// [listing] will not play here (one member's copy failing left that member silent while the others heard it).
+  Track get track => Track(listing, [listing, ...copies], choosingVersion: false);
 
   @override
   bool operator ==(Object other) => other is JamEntry && other.entryId == entryId;
@@ -51,9 +61,13 @@ class JamState {
     required this.isPlaying,
     required this.positionSeconds,
     required this.queue,
+    this.hostOnly = false,
   });
 
   final String roomId, code, hostId;
+
+  /// The host chose to play the room on their device alone: every other member's player follows without sound.
+  final bool hostOnly;
   final String? name;
   final List<JamMember> members;
   final JamEntry? current;
@@ -73,7 +87,21 @@ class JamState {
         isPlaying: j['is_playing'] as bool? ?? false,
         positionSeconds: (j['position_seconds'] as num?)?.toDouble() ?? 0,
         queue: [for (final e in (j['queue'] as List?) ?? const []) JamEntry.fromJson(e as Map<String, dynamic>)],
+        hostOnly: j['host_only'] as bool? ?? false,
       );
+
+  /// This room with the playhead the host last reported (a `position` push), the rest unchanged.
+  JamState withPosition(double seconds, {required bool playing}) => JamState(
+      roomId: roomId,
+      code: code,
+      name: name,
+      hostId: hostId,
+      members: members,
+      current: current,
+      isPlaying: playing,
+      positionSeconds: seconds,
+      queue: queue,
+      hostOnly: hostOnly);
 
   /// The host's name, or "Someone" when the host is not in the member list.
   String get hostName => members.where((m) => m.userId == hostId).firstOrNull?.username ?? 'Someone';
@@ -91,16 +119,18 @@ class JamState {
       other.current == current &&
       other.isPlaying == isPlaying &&
       other.positionSeconds == positionSeconds &&
+      other.hostOnly == hostOnly &&
       listEquals(other.members, members) &&
       listEquals(other.queue, queue);
   @override
-  int get hashCode => Object.hash(roomId, code, name, hostId, current, isPlaying, positionSeconds);
+  int get hashCode => Object.hash(roomId, code, name, hostId, current, isPlaying, positionSeconds, hostOnly);
 }
 
 /// One control message for the room (`JamCommand` on the server). Only the fields a command uses are sent.
 @immutable
 class JamCommand {
-  const JamCommand._(this.type, {this.seconds, this.listings, this.entryId, this.placement, this.toIndex});
+  const JamCommand._(this.type,
+      {this.seconds, this.listings, this.copies, this.entryId, this.placement, this.toIndex, this.on});
 
   const JamCommand.play() : this._('play');
   const JamCommand.pause() : this._('pause');
@@ -110,7 +140,12 @@ class JamCommand {
   /// The host's playhead, sent every 15 s while its song plays.
   const JamCommand.position(double seconds) : this._('position', seconds: seconds);
   /// [placement]: 'end' (Add to Queue), 'next' (Play Next) or 'now' (Play: at once, the song playing dropped).
-  const JamCommand.add(List<Listing> listings, {String placement = 'end'}) : this._('add', listings: listings, placement: placement);
+  /// [copies]: each song's other copies, in the order of [listings], for members whose device cannot play the first.
+  const JamCommand.add(List<Listing> listings, {String placement = 'end', List<List<Listing>>? copies})
+      : this._('add', listings: listings, copies: copies, placement: placement);
+
+  /// The host plays the room on their device alone (true), or every member's device plays it (false, the default).
+  const JamCommand.hostOnly(bool on) : this._('host_only', on: on);
   const JamCommand.remove(String entryId) : this._('remove', entryId: entryId);
   const JamCommand.jump(String entryId) : this._('jump', entryId: entryId);
   const JamCommand.move(String entryId, int toIndex) : this._('move', entryId: entryId, toIndex: toIndex);
@@ -118,18 +153,31 @@ class JamCommand {
   final String type;
   final double? seconds;
   final List<Listing>? listings;
+  final List<List<Listing>>? copies;
   final String? entryId;
   final String? placement;
   final int? toIndex;
+  final bool? on;
 
   Map<String, dynamic> toJson() => {
         'type': type,
         'seconds': ?seconds,
         if (listings != null) 'listings': [for (final l in listings!) l.toJson()],
+        if (copies != null) 'copies': [for (final c in copies!) [for (final l in c) l.toJson()]],
         'entry_id': ?entryId,
         'placement': ?placement,
         'to_index': ?toIndex,
+        'on': ?on,
       };
+
+  /// At most this many other copies go with a song (the server's MAX_JAM_COPIES).
+  static const maxCopies = 4;
+
+  /// [t]'s copies other than the one that plays, best first, as [JamCommand.add] sends them.
+  static List<Listing> otherCopies(Track t, {Listing? playing}) {
+    final first = playing ?? t.best;
+    return t.listings.where((l) => l.key != first.key).take(maxCopies).toList();
+  }
 
   String encode() => jsonEncode(toJson());
 }
@@ -137,11 +185,14 @@ class JamCommand {
 /// The song a player is playing when a jam starts, so the room can take it over.
 @immutable
 class JamCarry {
-  const JamCarry(this.listing, this.position);
+  const JamCarry(this.listing, this.position, [this.copies = const []]);
 
   /// The copy that plays.
   final Listing listing;
   final double position;
+
+  /// The song's other copies, sent with it so every member has one to fall back on.
+  final List<Listing> copies;
 }
 
 /// What the jam needs from the player. The player implements it; tests use a fake.
@@ -176,7 +227,8 @@ abstract interface class JamPlayer {
   /// Moves to the room's playhead, without telling the room.
   void jamFollowSeek(double seconds);
 
-  /// A member with Play here off: the room's song follows along without sound, apart from the user's own volume.
+  /// A member whose device follows without sound (Play here off, or the host playing the room alone): the room's song
+  /// follows along silently, apart from the user's own volume.
   void jamSetSilent(bool silent);
 }
 
@@ -226,12 +278,13 @@ JamPlan planJamFollow(
   );
 }
 
-/// A jam: one room, one host whose device plays, everyone else a remote.
+/// A jam: listening together. Every member's device plays the room's song in step and every member controls it; the
+/// host may choose to play the room on their device alone ([JamState.hostOnly]).
 ///
 /// While in one, the room decides what plays: the player's play/pause, next, previous and seek become the room's
-/// commands, playing a song adds it to the room, and the host's player follows the room's state as it arrives. One
+/// commands, playing a song adds it to the room, and every member's player follows the room's state as it arrives. One
 /// WebSocket carries the commands and the state (LiveSocket pings it); the host also reports its playhead every 15 s
-/// while playing. An idle jam costs no CPU.
+/// while playing, and every member moves to it when it has drifted. An idle jam costs no CPU.
 class JamSession extends ChangeNotifier {
   JamSession({this._connect, this.reportEvery = const Duration(seconds: 15)});
 
@@ -389,7 +442,14 @@ class JamSession extends ChangeNotifier {
   void seek(double seconds) => _send(JamCommand.seek(seconds < 0 ? 0 : seconds));
   /// Play ('now'), Play Next ('next') and Add to Queue ('end') in a jam: one command each, placed by the server.
   void add(List<Track> tracks, {String placement = 'end'}) {
-    if (tracks.isNotEmpty) _send(JamCommand.add([for (final t in tracks) t.best], placement: placement));
+    if (tracks.isEmpty) return;
+    _send(JamCommand.add([for (final t in tracks) t.best],
+        placement: placement, copies: [for (final t in tracks) JamCommand.otherCopies(t)]));
+  }
+
+  /// The host plays the room on this device alone (on), or on every member's device (off, the default).
+  void setHostOnly(bool on) {
+    if (isHost) _send(JamCommand.hostOnly(on));
   }
 
   void remove(JamEntry entry) => _send(JamCommand.remove(entry.entryId));
@@ -398,7 +458,8 @@ class JamSession extends ChangeNotifier {
   /// A drag in the room's Up Next: the move goes to the room, so everyone sees it.
   void move(JamEntry entry, int toIndex) => _send(JamCommand.move(entry.entryId, toIndex));
 
-  /// The host's song ended: the room moves on. Only the host's player plays, so only the host says so.
+  /// The song ended, or would not play, on this device: the room moves on when it is the host's. Every member's player
+  /// plays it, so only one (the host's) speaks for the room; a member's song that would not play stays that member's.
   void songEnded() {
     if (isHost) skip();
   }
@@ -423,9 +484,14 @@ class JamSession extends ChangeNotifier {
   bool _playHere = true;
   set playHere(bool on) {
     _playHere = on;
-    player?.jamSetSilent(!isHost && !on);
+    final room = state;
+    if (room != null) player?.jamSetSilent(_silentHere(room));
     notifyListeners();
   }
+
+  /// Whether this device follows [room] without sound: a member's, when the host plays the room alone or the member
+  /// turned Play here off. The host's always plays.
+  bool _silentHere(JamState room) => room.hostId != me && (room.hostOnly || !_playHere);
 
   /// A new state: kept, and this device's player made to match it.
   void _apply(JamState room) {
@@ -436,7 +502,7 @@ class JamSession extends ChangeNotifier {
     final p = player;
     if (p == null) return;
     p.jam = this;
-    p.jamSetSilent(room.hostId != me && !_playHere);
+    p.jamSetSilent(_silentHere(room));
     if (room.current == null && _adoptKey != null) {
       // the room is still empty while the song that started it joins: the song plays on, it is not paused
       _sendCarry(room);
@@ -462,8 +528,7 @@ class JamSession extends ChangeNotifier {
     _sendCarry(room);
     final entry = plan.load;
     if (entry != null) {
-      p.jamLoad(Track(entry.listing, [entry.listing], choosingVersion: false), room.positionSeconds,
-          playing: room.isPlaying);
+      p.jamLoad(entry.track, room.positionSeconds, playing: room.isPlaying);
       return;
     }
     if (plan.playing != null) p.jamFollowPlaying(plan.playing!);
@@ -476,7 +541,7 @@ class JamSession extends ChangeNotifier {
     final carry = _carry;
     if (carry == null || room.current != null || _socket?.isOpen != true) return;
     _carry = null;
-    _send(JamCommand.add([carry.listing]));
+    _send(JamCommand.add([carry.listing], copies: [carry.copies]));
     if (carry.position > 1) {
       _holdAt = carry.position;
       _holdFor = 3;
@@ -494,8 +559,8 @@ class JamSession extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Acts on one message from the room's socket: `state` replaces the room, `error` shows the server's refusal.
-  /// Others ("pong", the host's `position` pushes) are ignored.
+  /// Acts on one message from the room's socket: `state` replaces the room, `position` (the host's playhead, every
+  /// 15 s while it plays) moves a player that has drifted to it, `error` shows the server's refusal. "pong" is ignored.
   @visibleForTesting
   void handle(String text) {
     final Object? message;
@@ -509,6 +574,14 @@ class JamSession extends ChangeNotifier {
       case 'state':
         final data = message['data'];
         if (data is Map<String, dynamic>) _apply(JamState.fromJson(data));
+      case 'position':
+        // Without this a member caught up only when the room's state next changed: one that started late (a song still
+        // arriving on a slow connection) stayed behind, or silent at 0:00, while the others played
+        final seconds = message['seconds'];
+        final room = state;
+        if (room != null && seconds is num) {
+          _apply(room.withPosition(seconds.toDouble(), playing: message['is_playing'] as bool? ?? room.isPlaying));
+        }
       case 'error':
         problem = message['detail'] as String?;
         if (problem != null) player?.jamSay(problem!);
