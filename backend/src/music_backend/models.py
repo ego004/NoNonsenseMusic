@@ -499,9 +499,11 @@ class JamState(BaseModel):
     is_playing: bool
     position_seconds: float
     queue: list[JamQueueEntry]
-    # the host chose to play the room on their own device only (friends in one room): every other member's player
-    # follows the room without sound. Off by default: every member hears the room's song, in step.
-    host_only: bool = False
+    # Two host settings, off by default: every member hears the room's song, in step, and controls it.
+    # only_host_plays: the room plays on the host's device alone (friends in one room); every other member's player
+    # follows without sound. only_host_controls: members may only add songs to the end of the queue.
+    only_host_plays: bool = False
+    only_host_controls: bool = False
 
 
 class JamCreateRequest(BaseModel):
@@ -523,13 +525,14 @@ class JamHostRequest(BaseModel):
 
 # One shape for every control message over /ws/jam; the handler checks which fields the type needs.
 class JamCommand(BaseModel):
-    type: Literal["play", "pause", "seek", "skip", "add", "remove", "move", "jump", "position", "host_only"]
+    type: Literal["play", "pause", "seek", "skip", "add", "remove", "move", "jump", "position", "only_host_plays",
+                  "only_host_controls"]
     seconds: float | None = None                 # seek, position
     listings: list[ListingIn] | None = Field(default=None, max_length=MAX_LISTINGS)    # add
     # add: each song's other copies, in the order of `listings` (the same length when sent); best first
     copies: list[Annotated[list[ListingIn], Field(max_length=MAX_JAM_COPIES)]] | None = Field(
         default=None, max_length=MAX_LISTINGS)
-    on: bool | None = None                       # host_only: the host plays the room alone (true) or everyone does
+    on: bool | None = None                       # only_host_plays, only_host_controls: the setting's new value
     entry_id: UUID | None = None                 # remove, move, jump
     to_index: int | None = None                  # move: 0-based index in the queue
     # add: "end" queues the songs last; "next" puts them first in the queue; "now" plays the first at once (the song

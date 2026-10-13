@@ -100,11 +100,11 @@ private struct RoomView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "hifispeaker.fill").foregroundStyle(.secondary)
-                Text(room.hostOnly ? (jam.isHost ? "Playing on this Mac only" : "Playing on \(host)'s device")
+                Text(room.onlyHostPlays ? (jam.isHost ? "Playing on this Mac only" : "Playing on \(host)'s device")
                      : jam.isHost || jam.playHere ? "Playing on every device" : "Silent here, playing on the others")
                     .textStyle(.callout).foregroundStyle(.secondary)
                 Spacer()
-                if !jam.isHost, !room.hostOnly {
+                if !jam.isHost, !room.onlyHostPlays {
                     Toggle("Play here", isOn: Binding(get: { jam.playHere }, set: { jam.playHere = $0 }))
                         .toggleStyle(.switch).controlSize(.mini).textStyle(.callout)
                         .help("Off: this Mac follows the jam without sound, for friends in the same room")
@@ -113,7 +113,8 @@ private struct RoomView: View {
                 // else in the room, the only time it means anything
                 if jam.isHost, room.members.count > 1 {
                     Menu("Speakers") {
-                        Toggle("Only this Mac plays", isOn: Binding(get: { room.hostOnly }, set: { jam.setHostOnly($0) }))
+                        Toggle("Only this Mac plays", isOn: Binding(get: { room.onlyHostPlays }, set: { jam.setOnlyHostPlays($0) }))
+                        Toggle("Only I control playback", isOn: Binding(get: { room.onlyHostControls }, set: { jam.setOnlyHostControls($0) }))
                         Divider()
                         ForEach(room.members.filter { $0.userID != room.hostID }) { member in
                             Button("Make \(member.username) the host") { Task { await jam.giveSpeakers(to: member) } }
@@ -122,6 +123,10 @@ private struct RoomView: View {
                     .controlSize(.small)
                     .help("Choose where the jam plays")
                 }
+            }
+            // a member while the host controls the room: their play, skip and seek would be refused, so they are told why
+            if !jam.isHost, room.onlyHostControls {
+                Text(JamSession.lockedNotice).textStyle(.callout).foregroundStyle(.secondary)
             }
 
             nowPlaying

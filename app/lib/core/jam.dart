@@ -61,13 +61,17 @@ class JamState {
     required this.isPlaying,
     required this.positionSeconds,
     required this.queue,
-    this.hostOnly = false,
+    this.onlyHostPlays = false,
+    this.onlyHostControls = false,
   });
 
   final String roomId, code, hostId;
 
   /// The host chose to play the room on their device alone: every other member's player follows without sound.
-  final bool hostOnly;
+  final bool onlyHostPlays;
+
+  /// The host chose to control the room alone: members may only add songs to the end of the queue.
+  final bool onlyHostControls;
   final String? name;
   final List<JamMember> members;
   final JamEntry? current;
@@ -87,7 +91,8 @@ class JamState {
         isPlaying: j['is_playing'] as bool? ?? false,
         positionSeconds: (j['position_seconds'] as num?)?.toDouble() ?? 0,
         queue: [for (final e in (j['queue'] as List?) ?? const []) JamEntry.fromJson(e as Map<String, dynamic>)],
-        hostOnly: j['host_only'] as bool? ?? false,
+        onlyHostPlays: j['only_host_plays'] as bool? ?? false,
+        onlyHostControls: j['only_host_controls'] as bool? ?? false,
       );
 
   /// This room with the playhead the host last reported (a `position` push), the rest unchanged.
@@ -101,7 +106,8 @@ class JamState {
       isPlaying: playing,
       positionSeconds: seconds,
       queue: queue,
-      hostOnly: hostOnly);
+      onlyHostPlays: onlyHostPlays,
+      onlyHostControls: onlyHostControls);
 
   /// The host's name, or "Someone" when the host is not in the member list.
   String get hostName => members.where((m) => m.userId == hostId).firstOrNull?.username ?? 'Someone';
@@ -119,11 +125,12 @@ class JamState {
       other.current == current &&
       other.isPlaying == isPlaying &&
       other.positionSeconds == positionSeconds &&
-      other.hostOnly == hostOnly &&
+      other.onlyHostPlays == onlyHostPlays &&
+      other.onlyHostControls == onlyHostControls &&
       listEquals(other.members, members) &&
       listEquals(other.queue, queue);
   @override
-  int get hashCode => Object.hash(roomId, code, name, hostId, current, isPlaying, positionSeconds, hostOnly);
+  int get hashCode => Object.hash(roomId, code, name, hostId, current, isPlaying, positionSeconds, onlyHostPlays, onlyHostControls);
 }
 
 /// One control message for the room (`JamCommand` on the server). Only the fields a command uses are sent.
@@ -145,7 +152,10 @@ class JamCommand {
       : this._('add', listings: listings, copies: copies, placement: placement);
 
   /// The host plays the room on their device alone (true), or every member's device plays it (false, the default).
-  const JamCommand.hostOnly(bool on) : this._('host_only', on: on);
+  const JamCommand.onlyHostPlays(bool on) : this._('only_host_plays', on: on);
+
+  /// The host controls the room alone (true): members may only add songs to the end of the queue; or everyone does.
+  const JamCommand.onlyHostControls(bool on) : this._('only_host_controls', on: on);
   const JamCommand.remove(String entryId) : this._('remove', entryId: entryId);
   const JamCommand.jump(String entryId) : this._('jump', entryId: entryId);
   const JamCommand.move(String entryId, int toIndex) : this._('move', entryId: entryId, toIndex: toIndex);
@@ -279,7 +289,8 @@ JamPlan planJamFollow(
 }
 
 /// A jam: listening together. Every member's device plays the room's song in step and every member controls it; the
-/// host may choose to play the room on their device alone ([JamState.hostOnly]).
+/// host may choose to play the room on their device alone ([JamState.onlyHostPlays]) or to control it alone
+/// ([JamState.onlyHostControls]: members then only add songs).
 ///
 /// While in one, the room decides what plays: the player's play/pause, next, previous and seek become the room's
 /// commands, playing a song adds it to the room, and every member's player follows the room's state as it arrives. One
@@ -436,27 +447,63 @@ class JamSession extends ChangeNotifier {
       }
       return;
     }
+    if (_locked()) return; // starting an empty room above is an add, open to everyone
     _send(state?.isPlaying == true ? const JamCommand.pause() : const JamCommand.play());
   }
-  void skip() => _send(const JamCommand.skip());
-  void seek(double seconds) => _send(JamCommand.seek(seconds < 0 ? 0 : seconds));
+  void skip() {
+    if (!_locked()) _send(const JamCommand.skip());
+  }
+
+  void seek(double seconds) {
+    if (!_locked()) _send(JamCommand.seek(seconds < 0 ? 0 : seconds));
+  }
+
+  /// Whether this member may control the room: everyone may, unless the host chose to control it alone.
+  bool get canControl => isHost || state?.onlyHostControls != true;
+
+  /// A control this member may not use while the host controls the room: the user is told, and nothing is sent (the
+  /// server would refuse it).
+  bool _locked() {
+    if (canControl) return false;
+    player?.jamSay(lockedNotice);
+    return true;
+  }
+
+  static const lockedNotice = 'The host controls this jam. You can add songs to the queue.';
   /// Play ('now'), Play Next ('next') and Add to Queue ('end') in a jam: one command each, placed by the server.
+  /// While the host controls the room, a member's Play and Play Next add to the end instead (the user is told).
   void add(List<Track> tracks, {String placement = 'end'}) {
     if (tracks.isEmpty) return;
+    if (placement != 'end' && !canControl) {
+      placement = 'end';
+      player?.jamSay('Added to the end of the queue: the host controls this jam.');
+    }
     _send(JamCommand.add([for (final t in tracks) t.best],
         placement: placement, copies: [for (final t in tracks) JamCommand.otherCopies(t)]));
   }
 
   /// The host plays the room on this device alone (on), or on every member's device (off, the default).
-  void setHostOnly(bool on) {
-    if (isHost) _send(JamCommand.hostOnly(on));
+  void setOnlyHostPlays(bool on) {
+    if (isHost) _send(JamCommand.onlyHostPlays(on));
   }
 
-  void remove(JamEntry entry) => _send(JamCommand.remove(entry.entryId));
-  void jump(JamEntry entry) => _send(JamCommand.jump(entry.entryId));
+  /// The host controls the room alone (on), or every member does (off, the default).
+  void setOnlyHostControls(bool on) {
+    if (isHost) _send(JamCommand.onlyHostControls(on));
+  }
+
+  void remove(JamEntry entry) {
+    if (!_locked()) _send(JamCommand.remove(entry.entryId));
+  }
+
+  void jump(JamEntry entry) {
+    if (!_locked()) _send(JamCommand.jump(entry.entryId));
+  }
 
   /// A drag in the room's Up Next: the move goes to the room, so everyone sees it.
-  void move(JamEntry entry, int toIndex) => _send(JamCommand.move(entry.entryId, toIndex));
+  void move(JamEntry entry, int toIndex) {
+    if (!_locked()) _send(JamCommand.move(entry.entryId, toIndex));
+  }
 
   /// The song ended, or would not play, on this device: the room moves on when it is the host's. Every member's player
   /// plays it, so only one (the host's) speaks for the room; a member's song that would not play stays that member's.
@@ -491,7 +538,7 @@ class JamSession extends ChangeNotifier {
 
   /// Whether this device follows [room] without sound: a member's, when the host plays the room alone or the member
   /// turned Play here off. The host's always plays.
-  bool _silentHere(JamState room) => room.hostId != me && (room.hostOnly || !_playHere);
+  bool _silentHere(JamState room) => room.hostId != me && (room.onlyHostPlays || !_playHere);
 
   /// A new state: kept, and this device's player made to match it.
   void _apply(JamState room) {

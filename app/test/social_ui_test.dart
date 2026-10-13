@@ -182,6 +182,7 @@ void main() {
       await tester.tap(find.text('Speakers'));
       await tester.pumpAndSettle();
       expect(find.text('Only this device plays'), findsOneWidget);
+      expect(find.text('Only I control playback'), findsOneWidget);
       await tester.tap(find.text('Only this device plays'));
       await tester.pumpAndSettle();
       expect(find.text('Only this device plays'), findsNothing, reason: 'choosing closes the menu');
@@ -210,10 +211,15 @@ void main() {
       expect(find.byTooltip('Remove riley'), findsNothing);
 
       // the host plays the room alone: this device follows silently, and says where the sound is
-      jam.handle(jsonEncode({'type': 'state', 'data': room(host: false, withSongs: false)..['host_only'] = true}));
+      jam.handle(jsonEncode({'type': 'state', 'data': room(host: false, withSongs: false)..['only_host_plays'] = true}));
       await tester.pumpAndSettle();
       expect(find.text("Playing on $longName's device"), findsOneWidget);
       expect(find.text('Play here'), findsNothing);
+
+      // the host controls the room: the member is told what they can still do
+      jam.handle(jsonEncode({'type': 'state', 'data': room(host: false, withSongs: false)..['only_host_controls'] = true}));
+      await tester.pumpAndSettle();
+      expect(find.text(JamSession.lockedNotice), findsOneWidget);
     });
   }
 

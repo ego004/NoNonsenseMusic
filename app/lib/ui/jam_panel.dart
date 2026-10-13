@@ -173,13 +173,13 @@ class _RoomViewState extends State<_RoomView> {
         const SizedBox(width: 6),
         Expanded(
             child: Text(
-                room.hostOnly
+                room.onlyHostPlays
                     ? (host ? 'Playing on this device only' : "Playing on ${room.hostName}'s device")
                     : host || jam.playHere
                         ? 'Playing on every device'
                         : 'Silent here, playing on the others',
                 style: TextStyle(fontSize: 13.5, color: muted))),
-        if (!host && !room.hostOnly)
+        if (!host && !room.onlyHostPlays)
           Tooltip(
             message: 'Off: this device follows the jam without sound, for friends in the same room',
             child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -193,15 +193,25 @@ class _RoomViewState extends State<_RoomView> {
           PopupMenuButton<Object>(
             tooltip: 'Choose where the jam plays',
             itemBuilder: (_) => [
-              CheckedPopupMenuItem<Object>(value: _onlyHere, checked: room.hostOnly, child: const Text('Only this device plays')),
+              CheckedPopupMenuItem<Object>(value: _onlyHere, checked: room.onlyHostPlays, child: const Text('Only this device plays')),
+              CheckedPopupMenuItem<Object>(value: _onlyMe, checked: room.onlyHostControls, child: const Text('Only I control playback')),
               const PopupMenuDivider(),
               for (final m in room.members.where((m) => m.userId != room.hostId))
                 PopupMenuItem<Object>(value: m, child: Text("Make ${m.username} the host")),
             ],
-            onSelected: (choice) => choice is JamMember ? jam.giveSpeakers(choice) : jam.setHostOnly(!room.hostOnly),
+            onSelected: (choice) => switch (choice) {
+              JamMember m => jam.giveSpeakers(m),
+              _onlyMe => jam.setOnlyHostControls(!room.onlyHostControls),
+              _ => jam.setOnlyHostPlays(!room.onlyHostPlays),
+            },
             child: const _MenuLabel(icon: FluentIcons.speaker_2_24_regular, label: 'Speakers'),
           ),
       ]),
+      // a member while the host controls the room: their play, skip and seek would be refused, so they are told why
+      if (!host && room.onlyHostControls) ...[
+        const SizedBox(height: 6),
+        Text(JamSession.lockedNotice, style: TextStyle(fontSize: 12.5, color: muted)),
+      ],
       const SizedBox(height: 12),
       _nowPlaying(context),
       if (room.queue.isNotEmpty) ...[
@@ -303,6 +313,9 @@ class _RoomViewState extends State<_RoomView> {
 /// The look of a menu's button in the panel: an icon and a label in a thin outline.
 /// The Speakers menu's "Only this device plays" item (the others are members).
 const _onlyHere = 'only here';
+
+/// The Speakers menu's "Only I control playback" item.
+const _onlyMe = 'only me';
 
 class _MenuLabel extends StatelessWidget {
   final IconData icon;

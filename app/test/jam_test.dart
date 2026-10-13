@@ -315,8 +315,8 @@ void main() {
       final song = entry('e1', listing('a'));
       await push(stateMessage(roomJson(host: 'u2', current: song)));
       expect(player.silent, isFalse, reason: 'every device plays by default');
-      await push(stateMessage(roomJson(host: 'u2', current: song)..['host_only'] = true));
-      expect((jam.state!.hostOnly, player.silent), (true, true));
+      await push(stateMessage(roomJson(host: 'u2', current: song)..['only_host_plays'] = true));
+      expect((jam.state!.onlyHostPlays, player.silent), (true, true));
       jam.playHere = true;
       expect(player.silent, isTrue, reason: "Play here cannot override the host's choice");
       await push(stateMessage(roomJson(host: 'u2', current: song)));
@@ -330,10 +330,10 @@ void main() {
       roomAnswer = roomJson();
       await jam.start();
       await pumpEventQueue(times: 60);
-      jam.setHostOnly(true);
+      jam.setOnlyHostPlays(true);
       await pumpEventQueue();
-      expect(sent().last, {'type': 'host_only', 'on': true});
-      await push(stateMessage(roomJson(current: entry('e1', listing('a')))..['host_only'] = true));
+      expect(sent().last, {'type': 'only_host_plays', 'on': true});
+      await push(stateMessage(roomJson(current: entry('e1', listing('a')))..['only_host_plays'] = true));
       expect(player.silent, isFalse);
       jam.leaveLocally();
     });
@@ -350,6 +350,46 @@ void main() {
       player.position = 4;
       await push(jsonEncode({'type': 'position', 'seconds': 27.0, 'is_playing': true}));
       expect(player.calls.last, 'seek 27.0');
+      jam.leaveLocally();
+    });
+
+    test("while the host controls the jam a member's play, skip and seek are not sent, and Play adds to the end", () async {
+      roomAnswer = roomJson(host: 'u2');
+      await jam.join('abc12');
+      await pumpEventQueue(times: 60);
+      await push(stateMessage(roomJson(host: 'u2', current: entry('e1', listing('a')))..['only_host_controls'] = true));
+      expect(jam.canControl, isFalse);
+      final before = sent().length;
+      jam.togglePlay();
+      jam.skip();
+      jam.seek(40);
+      await pumpEventQueue();
+      expect(sent().length, before, reason: 'the server would refuse them');
+      expect(player.calls.last, 'say ${JamSession.lockedNotice}');
+
+      jam.add([Track(listing('x'), [listing('x')])], placement: 'now');
+      await pumpEventQueue();
+      expect((sent().last['type'], sent().last['placement']), ('add', 'end'));
+      expect(player.calls.last, startsWith('say Added to the end of the queue'));
+
+      await push(stateMessage(roomJson(host: 'u2', current: entry('e1', listing('a')))));
+      jam.skip();
+      await pumpEventQueue();
+      expect((jam.canControl, sent().last['type']), (true, 'skip'), reason: 'turned off: every member controls again');
+      jam.leaveLocally();
+    });
+
+    test('the host keeps every control, and sends the setting', () async {
+      roomAnswer = roomJson();
+      await jam.start();
+      await pumpEventQueue(times: 60);
+      await push(stateMessage(roomJson(current: entry('e1', listing('a')))..['only_host_controls'] = true));
+      jam.setOnlyHostControls(true);
+      jam.skip();
+      await pumpEventQueue();
+      final out = sent();
+      expect(out[out.length - 2], {'type': 'only_host_controls', 'on': true});
+      expect(out.last['type'], 'skip');
       jam.leaveLocally();
     });
   });
