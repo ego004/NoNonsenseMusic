@@ -24,7 +24,7 @@ import 'settings_screen.dart';
 import 'sidebar.dart';
 import 'top_bar.dart';
 
-enum Section { home, search, liked, recent, friends, playlist, settings }
+enum Section { home, search, liked, recent, downloads, friends, playlist, settings }
 
 /// Composes the window: the sidebar, the selected screen, the floating player bar, and Now Playing over everything
 /// when it is open.
@@ -122,7 +122,7 @@ class _ShellState extends State<Shell> {
   bool _typing() =>
       FocusManager.instance.primaryFocus?.context?.findAncestorStateOfType<EditableTextState>() != null;
 
-  /// Space plays or pauses, → and ← move 5 s, unless a text field has the keyboard: then the key is the field's. The
+  /// Space plays or pauses, â†’ and â† move 5 s, unless a text field has the keyboard: then the key is the field's. The
   /// key is left unhandled there (CallbackShortcuts would mark it handled even when it does nothing, and a handled key
   /// never reaches the field: a space typed into Search paused the song instead).
   KeyEventResult _onKey(FocusNode _, KeyEvent e) {
@@ -152,7 +152,7 @@ class _ShellState extends State<Shell> {
     final phone = isPhone(context);
     // the phone's bottom bar steps aside while the keyboard is up, so the player bar sits just above the keyboard
     final showNav = phone && MediaQuery.viewInsetsOf(context).bottom == 0;
-    // the player's messages ("Couldn't play …"), shown above the bar
+    // the player's messages ("Couldn't play â€¦"), shown above the bar
     final message = ListenableBuilder(
                 listenable: s.player,
                 builder: (context, _) => s.player.message == null
@@ -219,6 +219,13 @@ class _ShellState extends State<Shell> {
                               Section.recent,
                               FluentIcons.history_24_regular,
                               'Recently Played',
+                            ),
+                            // from this device: there with no server or internet (the phone's bar has no room; Settings â€º
+                            // Storage counts them)
+                            (
+                              Section.downloads,
+                              FluentIcons.arrow_download_24_regular,
+                              'Downloads',
                             ),
                             (
                               Section.friends,
@@ -296,6 +303,7 @@ class _ShellState extends State<Shell> {
                     Section.search => const SearchScreen(),
                     Section.liked => const SongListScreen(liked: true),
                     Section.recent => const SongListScreen(liked: false),
+                    Section.downloads => const SongListScreen.downloads(),
                     Section.friends => FriendsScreen(),
                     Section.playlist => PlaylistScreen(
                       key: ValueKey(playlistId),
