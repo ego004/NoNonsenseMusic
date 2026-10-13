@@ -570,6 +570,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pydes" },
     { name = "rapidfuzz" },
+    { name = "requests" },
     { name = "yt-dlp" },
     { name = "ytmusicapi" },
 ]
@@ -589,6 +590,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "pydes", specifier = ">=2.0.1" },
     { name = "rapidfuzz", specifier = ">=3.14.6" },
+    { name = "requests", specifier = ">=2.34.2" },
     { name = "yt-dlp", specifier = ">=2026.8.19" },
     { name = "ytmusicapi", specifier = ">=1.12.3" },
 ]
