@@ -100,22 +100,27 @@ private struct RoomView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "hifispeaker.fill").foregroundStyle(.secondary)
-                Text(jam.isHost || !jam.playHere ? (jam.isHost ? "Playing on this Mac" : "Playing on \(host)'s Mac")
-                     : "Playing here and on \(host)'s Mac").textStyle(.callout).foregroundStyle(.secondary)
+                Text(room.hostOnly ? (jam.isHost ? "Playing on this Mac only" : "Playing on \(host)'s device")
+                     : jam.isHost || jam.playHere ? "Playing on every device" : "Silent here, playing on the others")
+                    .textStyle(.callout).foregroundStyle(.secondary)
                 Spacer()
-                if !jam.isHost {
+                if !jam.isHost, !room.hostOnly {
                     Toggle("Play here", isOn: Binding(get: { jam.playHere }, set: { jam.playHere = $0 }))
                         .toggleStyle(.switch).controlSize(.mini).textStyle(.callout)
                         .help("Off: this Mac follows the jam without sound, for friends in the same room")
                 }
+                // where the jam plays: every device (the default) or this Mac only, and who hosts. Only with someone
+                // else in the room, the only time it means anything
                 if jam.isHost, room.members.count > 1 {
                     Menu("Speakers") {
+                        Toggle("Only this Mac plays", isOn: Binding(get: { room.hostOnly }, set: { jam.setHostOnly($0) }))
+                        Divider()
                         ForEach(room.members.filter { $0.userID != room.hostID }) { member in
-                            Button("Play on \(member.username)'s Mac") { Task { await jam.giveSpeakers(to: member) } }
+                            Button("Make \(member.username) the host") { Task { await jam.giveSpeakers(to: member) } }
                         }
                     }
                     .controlSize(.small)
-                    .help("Choose which member's Mac plays the jam")
+                    .help("Choose where the jam plays")
                 }
             }
 
