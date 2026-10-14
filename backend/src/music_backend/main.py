@@ -190,14 +190,14 @@ async def search_one(name: SourceName, source, q: str, *, songs: bool = True, al
     """
     start = time.perf_counter()
     found: dict[str, list] = {"songs" : [], "albums" : [], "artists" : []}
-    errors: list[str] = []
+    errors: dict[str, str] = {}
 
     async def run(kind: str, fn) -> None:
         try:
             found[kind] = await fn(q)
         except Exception as e:
             logger.warning("%s %s search failed (query of %d characters): %s", name, kind, len(q), type(e).__name__)
-            errors.append(type(e).__name__)
+            errors[kind] = type(e).__name__
 
     jobs = []
     if songs:
@@ -208,8 +208,12 @@ async def search_one(name: SourceName, source, q: str, *, songs: bool = True, al
         jobs.append(("artists", artist_search))
     await asyncio.gather(*(run(kind, fn) for kind, fn in jobs))
     ms = round((time.perf_counter() - start) * 1000)
-    error = errors[0] if errors else None
-    info = SearchSourceInfo(source = name, healthy = error is None, num_results = len(found["songs"]),
+    error = next(iter(errors.values()), None)
+    # the apps name an unhealthy source above the results: only when what was asked first is missing, its songs (or,
+    # filtered to albums or artists, those). JioSaavn's artist search alone timing out named all of it "unavailable"
+    # above its songs (14 Oct)
+    main_kind = jobs[0][0] if jobs else None
+    info = SearchSourceInfo(source = name, healthy = main_kind not in errors, num_results = len(found["songs"]),
                             ms = ms, num_albums = len(found["albums"]),
                             num_artists = len(found["artists"]), error = error)
     return found["songs"], found["albums"], found["artists"], info

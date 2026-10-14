@@ -125,6 +125,12 @@ struct SearchView: View {
     @FocusState private var fieldFocused: Bool
 
     private var unhealthy: [SourceInfo] { sources.filter { !$0.healthy } }
+
+    /// "JioSaavn didn't respond. Search again to include it." for the sources whose results are missing.
+    static func didNotRespond(_ names: [String]) -> String {
+        let list = names.count < 2 ? names.joined() : names.dropLast().joined(separator: ", ") + " and " + names.last!
+        return "\(list) didn't respond. Search again to include \(names.count < 2 ? "it" : "them")."
+    }
     /// The "No Results" screen: only for a finished search that found nothing.
     private var showsNoResults: Bool { !failed && !isIdle && results.isEmpty && artists.isEmpty && albums.isEmpty && !isLoading }
     /// Nothing typed yet: the bar sits lower, as the screen's main element. Typing moves it to the top.
@@ -136,8 +142,7 @@ struct SearchView: View {
                 SearchBar(text: $query, isLoading: isLoading, focused: $fieldFocused) { schedule(query, delay: .zero) }
                 if !isIdle { FilterCapsules(selection: $filter) }
                 if !unhealthy.isEmpty {
-                    Label("\(unhealthy.map { Listing.name(ofSource: $0.source) }.joined(separator: ", ")) unavailable · showing the rest",
-                          systemImage: "exclamationmark.triangle")
+                    Label(Self.didNotRespond(unhealthy.map { Listing.name(ofSource: $0.source) }), systemImage: "exclamationmark.triangle")
                         .textStyle(.callout)
                         .foregroundStyle(.secondary)
                 }

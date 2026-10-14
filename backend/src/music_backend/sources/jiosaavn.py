@@ -29,7 +29,7 @@ async def search(query: str) -> list[Listing]:
 
     Each listing has: source, id, title, artists, album, duration (seconds), popularity.
     """
-    r = await http.client.get(SEARCH_URL, params = SEARCH_PARAMS | PREAMBLE_PARAMS | {"q": query})
+    r = await http.get(SEARCH_URL, params = SEARCH_PARAMS | PREAMBLE_PARAMS | {"q": query})
     r = r.json()
     listings = []
     for result in r.get("results", []):
@@ -44,7 +44,7 @@ async def search(query: str) -> list[Listing]:
 async def search_albums(query: str) -> list[AlbumRef]:
     """Search JioSaavn albums via search.getAlbumResults; search.getResults has no album type."""
     params = {"__call" : "search.getAlbumResults", "p" : 1, "n" : 20} | PREAMBLE_PARAMS | {"q": query}
-    r = await http.client.get(SEARCH_URL, params = params)
+    r = await http.get(SEARCH_URL, params = params)
     r = r.json()
     albums = []
     for result in r.get("results", []):
@@ -77,7 +77,7 @@ def album_ref(result: dict) -> AlbumRef:
 async def search_artists(query: str) -> list[ArtistRef]:
     """Search JioSaavn's artists (search.getArtistResults)."""
     params = {"__call" : "search.getArtistResults", "p" : 1, "n" : 20} | PREAMBLE_PARAMS | {"q": query}
-    r = await http.client.get(SEARCH_URL, params = params)
+    r = await http.get(SEARCH_URL, params = params)
     r = r.json()
     artists = []
     for result in r.get("results", []):
@@ -102,7 +102,7 @@ async def radio(source_id: str, limit: int = 25) -> list[Listing]:
     A made-up song id creates a station that answers with no songs (empty list, not an error).
     """
     try:
-        station_reply = await http.client.get(SEARCH_URL, params = PREAMBLE_PARAMS | {
+        station_reply = await http.get(SEARCH_URL, params = PREAMBLE_PARAMS | {
             "__call" : "webradio.createEntityStation", "entity_id" : json.dumps([source_id]),
             "entity_type" : "queue", "ctx" : "android"})
         if station_reply.status_code == 429:
@@ -116,7 +116,7 @@ async def radio(source_id: str, limit: int = 25) -> list[Listing]:
         return []
 
     try:
-        songs_reply = await http.client.get(SEARCH_URL, params = PREAMBLE_PARAMS | {
+        songs_reply = await http.get(SEARCH_URL, params = PREAMBLE_PARAMS | {
             "__call" : "webradio.getSong", "stationid" : station_id, "k" : limit, "next" : 1, "ctx" : "android"})
         if songs_reply.status_code == 429:
             raise SourceBlocked("JioSaavn: Too many requests to JioSaavn's API. Status code: 429")
@@ -145,7 +145,7 @@ async def get_album(album_id: str) -> AlbumDetail | None:
     None when JioSaavn answers 200 for a made-up id with title:"" and list:"" (empty strings).
     """
     try:
-        r = await http.client.get(SEARCH_URL, params = {"__call" : "content.getAlbumDetails", "albumid" : album_id} | PREAMBLE_PARAMS)
+        r = await http.get(SEARCH_URL, params = {"__call" : "content.getAlbumDetails", "albumid" : album_id} | PREAMBLE_PARAMS)
         if r.status_code == 429:
             raise SourceBlocked("JioSaavn: Too many requests to JioSaavn's API. Status code: 429")
         elif r.status_code != 200:
@@ -187,7 +187,7 @@ async def get_artist(artist_id: str) -> ArtistDetail | None:
     answers 200 with name:"" and yields None.
     """
     try:
-        r = await http.client.get(SEARCH_URL, params = {"__call" : "artist.getArtistPageDetails", "artistId" : artist_id} | PREAMBLE_PARAMS)
+        r = await http.get(SEARCH_URL, params = {"__call" : "artist.getArtistPageDetails", "artistId" : artist_id} | PREAMBLE_PARAMS)
         if r.status_code == 429:
             raise SourceBlocked("JioSaavn: Too many requests to JioSaavn's API. Status code: 429")
         elif r.status_code != 200:
@@ -287,7 +287,7 @@ async def get_song_url(song_id: str, kbps : str = "320") -> str:
 async def song_details(song_id: str) -> dict:
     """The song.getDetails row for one id, in the search-row shape."""
     try:
-        r = await http.client.get(SEARCH_URL, params = {"__call" : "song.getDetails", "pids" : song_id} | PREAMBLE_PARAMS)
+        r = await http.get(SEARCH_URL, params = {"__call" : "song.getDetails", "pids" : song_id} | PREAMBLE_PARAMS)
         if r.status_code == 429:
             raise SourceBlocked("JioSaavn: Too many requests to JioSaavn's API. Status code: 429")
         elif r.status_code != 200:

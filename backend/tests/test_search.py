@@ -228,17 +228,26 @@ def test_youtube_channels_join_the_artists_but_never_the_albums(client, monkeypa
     assert len(body["albums"]) == 1
 
 
-def test_a_broken_album_search_marks_the_source_unhealthy_but_keeps_the_others(client, monkeypatch):
+def test_a_broken_album_search_keeps_the_source_healthy_and_the_others(client, monkeypatch):
+    # the apps name an unhealthy source above the results; its songs all came, so it is not named (14 Oct: a timed-out
+    # artist search showed "JioSaavn unavailable" above JioSaavn's songs)
     set_albums(monkeypatch, jiosaavn, error=RuntimeError("boom"))
     set_albums(monkeypatch, ytmusic, [album_ref("ytmusic", "ya1", "After Hours", ["The Weeknd"])])
     set_search(monkeypatch, jiosaavn, [listing("jiosaavn", "j1", "Blinding Lights", ["The Weeknd"], 200)])
 
     body = client.get("/search", params={"q": "after hours"}).json()
     js = next(s for s in body["sources"] if s["source"] == "jiosaavn")
-    assert js["healthy"] is False and js["error"] == "RuntimeError"
+    assert js["healthy"] is True and js["error"] == "RuntimeError"         # still recorded
     assert js["num_results"] == 1                                          # its song search still answered
     assert len(body["albums"]) == 1 and body["albums"][0]["best"]["source"] == "ytmusic"
     assert len(body["songs"]) == 1                                         # one broken kind never loses the rest
+
+
+def test_a_broken_song_search_marks_the_source_unhealthy(client, monkeypatch):
+    set_search(monkeypatch, jiosaavn, error=RuntimeError("boom"))
+    body = client.get("/search", params={"q": "after hours"}).json()
+    js = next(s for s in body["sources"] if s["source"] == "jiosaavn")
+    assert js["healthy"] is False and js["error"] == "RuntimeError"
 
 
 def test_a_result_with_more_of_the_words_typed_ranks_first():

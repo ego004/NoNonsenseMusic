@@ -74,7 +74,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   FilterCapsules(selection: m.filter, onChanged: m.setFilter),
                   if (m.result.unavailable.isNotEmpty) ...[
                     const SizedBox(height: 10),
-                    Text('${m.result.unavailable.join(', ')} unavailable · showing the rest', style: theme.textTheme.bodySmall),
+                    Text(didNotRespond(m.result.unavailable), style: theme.textTheme.bodySmall),
                   ],
                 ],
               ]),
@@ -266,4 +266,10 @@ class _Empty extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// "JioSaavn didn't respond. Search again to include it." for the sources whose results are missing.
+String didNotRespond(List<String> sources) {
+  final names = sources.length < 2 ? sources.join() : '${sources.sublist(0, sources.length - 1).join(', ')} and ${sources.last}';
+  return "$names didn't respond. Search again to include ${sources.length < 2 ? 'it' : 'them'}.";
 }
