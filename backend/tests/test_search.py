@@ -22,6 +22,7 @@ def client(monkeypatch):
         monkeypatch.setattr(module, "search_artists", empty_artists)
     for module in (jiosaavn, ytmusic):                      # plain YouTube has no albums to stub
         monkeypatch.setattr(module, "search_albums", empty_albums)
+    monkeypatch.setattr(ytmusic, "top_result", no_top_result)
     from music_backend.main import app
     with TestClient(app) as client:
         sign_up(client)
@@ -38,6 +39,10 @@ async def empty_albums(query: str) -> list:
 
 async def empty_artists(query: str) -> list:
     return []
+
+
+async def no_top_result(query: str) -> None:
+    return None
 
 
 def set_search(monkeypatch, module, listings=None, error=None):
@@ -93,7 +98,8 @@ def test_search_without_the_flag_never_asks_youtube(client, monkeypatch):
     body = r.json()
     assert [s["source"] for s in body["sources"]] == ["jiosaavn", "ytmusic"]   # no youtube entry at all
     assert asked == []                                                        # and zero requests to it
-    assert [s["title"] for s in body["songs"]] == ["Blinding Lights", "Starboy"]
+    # both first in their source: YouTube Music's first, as JioSaavn's order counts half (#25)
+    assert [s["title"] for s in body["songs"]] == ["Starboy", "Blinding Lights"]
 
 
 def test_search_with_the_flag_ranks_youtube_below_the_music_songs(client, monkeypatch):
@@ -112,10 +118,10 @@ def test_search_with_the_flag_ranks_youtube_below_the_music_songs(client, monkey
     assert all(s["healthy"] for s in body["sources"])
     assert body["sources"][2]["num_results"] == 2
     # the matching video is a fallback listing on the existing song, not a second row;
-    # the new video sits after every music song
-    assert [s["title"] for s in body["songs"]] == ["Blinding Lights", "Starboy",
+    # the new video sits after every music song (YouTube Music's first before JioSaavn's: its order counts half, #25)
+    assert [s["title"] for s in body["songs"]] == ["Starboy", "Blinding Lights",
                                                    "The Weeknd - After Hours (Official Video)"]
-    assert [l["source"] for l in body["songs"][0]["listings"]] == ["jiosaavn", "youtube"]
+    assert [l["source"] for l in body["songs"][1]["listings"]] == ["jiosaavn", "youtube"]
     assert body["songs"][-1]["score"] == 0
 
 
@@ -130,7 +136,7 @@ def test_a_broken_youtube_still_returns_the_music_results(client, monkeypatch):
     youtube_info = next(s for s in body["sources"] if s["source"] == "youtube")
     assert youtube_info["healthy"] is False
     assert youtube_info["error"] == "RuntimeError"
-    assert [s["title"] for s in body["songs"]] == ["Blinding Lights", "Starboy"]
+    assert [s["title"] for s in body["songs"]] == ["Starboy", "Blinding Lights"]
 
 
 def test_youtube_alone_can_answer_when_the_music_sources_are_down(client, monkeypatch):
@@ -261,3 +267,38 @@ def test_a_result_with_more_of_the_words_typed_ranks_first():
     # a query every result contains keeps the sources' order
     first, second = s("Tum Hi Ho", ["Arijit Singh"]), s("Tum Hi Ho (From Aashiqui 2)", ["Arijit Singh"])
     assert by_relevance([first, second], "tum hi ho") == [first, second]
+
+
+def test_youtube_musics_top_result_comes_first(client, monkeypatch):
+    # "pasoori" (15 Oct): Ali Sethi and Shae Gill's song is on YouTube Music only as Coke Studio's video, its top result;
+    # the songs-only searches answer with namesakes and covers
+    video = Listing(source="ytmusic", id="5Eqb_-j3FDA", title="Pasoori", artists=["Shae Gill", "Ali Sethi"], album=None,
+                    duration=277, popularity=1_000_000_000)
+    async def top(query: str) -> Listing:
+        return video
+    monkeypatch.setattr(ytmusic, "top_result", top)
+    set_search(monkeypatch, jiosaavn, [listing("jiosaavn", "j1", "Pasoori (Reprise)", ["JalRaj"], 181),
+                                       listing("jiosaavn", "j2", "Pasoori", ["Zed70"], 153)])
+    set_search(monkeypatch, ytmusic, [listing("ytmusic", "y1", "Pasoori", ["Marla Malvins"], 225)])
+    body = client.get("/search", params={"q": "pasoori"}).json()
+    assert body["songs"][0]["best"]["id"] == "5Eqb_-j3FDA"
+    assert len(body["songs"]) == 4
+
+
+def test_a_failing_top_result_leaves_the_search_as_it_was(client, monkeypatch):
+    async def broken(query: str) -> Listing:
+        raise RuntimeError("boom")
+    monkeypatch.setattr(ytmusic, "top_result", broken)
+    set_search(monkeypatch, jiosaavn, [listing("jiosaavn", "j1", "Blinding Lights", ["The Weeknd"], 200)])
+    r = client.get("/search", params={"q": "blinding lights"})
+    assert r.status_code == 200
+    assert [s["title"] for s in r.json()["songs"]] == ["Blinding Lights"]
+
+
+def test_a_search_for_albums_only_never_asks_for_the_top_result(client, monkeypatch):
+    asked = []
+    async def spy(query: str) -> None:
+        asked.append(query)
+    monkeypatch.setattr(ytmusic, "top_result", spy)
+    assert client.get("/search", params={"q": "after hours", "filter": "albums"}).status_code == 200
+    assert asked == []

@@ -12,7 +12,8 @@ from psycopg import errors
 
 from music_backend.core import db, ratelimit
 from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications, jam, readings, served, spotify_import
-from music_backend.services.matching import rank_songs, merge_youtube, rank_albums, rank_artists, by_relevance, coverage, normalise, artists_match
+from music_backend.services.matching import (rank_songs, merge_youtube, rank_albums, rank_artists, artists_by_name, by_relevance,
+                                             coverage, normalise, artists_match)
 from music_backend.models import (SpotifyImportRequest, SpotifyImportStatus, EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
@@ -260,14 +261,38 @@ async def search(q: str, request: Request, user: Annotated[User, Depends(per_acc
     when on, its videos rank below every music-source song (merge_youtube) and its channels join
     the artists. albums come from the music sources only: plain YouTube has no albums.
     """
+    songs, albums, artists, sources = await ranked_search(q, youtube, filter)
+    remember_served(request, songs)
+    # a song already stored keeps the cover it has in the library (one indexed query)
+    async with request.app.state.pool.connection() as conn:
+        covers = await library.stored_covers(conn, [l for song in songs for l in song.listings])
+    for song in songs:
+        song.image = next((covers[(l.source, l.id)] for l in song.listings if (l.source, l.id) in covers), song.image)
+    return SearchResponse(query = q, sources = sources, songs = songs, albums = albums, artists = artists)
+
+
+async def top_result(q: str) -> Listing | None:
+    """YouTube Music's top result for a search (ytmusic.top_result), or None: it never fails a search."""
+    try:
+        return await ytmusic.top_result(q)
+    except Exception as e:
+        logger.warning("ytmusic top result failed (query of %d characters): %s", len(q), type(e).__name__)
+        return None
+
+
+async def ranked_search(q: str, youtube: bool = False, filter: str = "all"
+                        ) -> tuple[list[Song], list, list, list[SearchSourceInfo]]:
+    """A search's songs, albums and artists, ranked, and how each source answered: /search without the library."""
     active = dict(SOURCES)
     if not youtube:
         active.pop("youtube", None)
     want = {"songs" : filter in ("all", "songs"),
             "albums" : filter in ("all", "albums"),
             "artists" : filter in ("all", "artists")}
-    # every source runs at the same time; each one's failures stay inside its own search_one
-    results = await asyncio.gather(*(search_one(name, source, q, **want) for name, source in active.items()))
+    # every source runs at the same time, YouTube Music's top result too (asyncio.sleep(0): None, for a search without
+    # songs); each one's failures stay inside its own call
+    top, *results = await asyncio.gather(top_result(q) if want["songs"] else asyncio.sleep(0),
+                                         *(search_one(name, source, q, **want) for name, source in active.items()))
     songs_by_source, videos = [], []
     albums_by_source, artists_by_source = [], []
     sources = []
@@ -280,7 +305,7 @@ async def search(q: str, request: Request, user: Annotated[User, Depends(per_acc
             songs_by_source.append(song_listings)
             albums_by_source.append(album_refs)
             artists_by_source.append(artist_refs)
-    songs = rank_songs(songs_by_source)
+    songs = rank_songs(songs_by_source, plays = True, top = top)
     # nothing from the music sources has most of what was typed: plain YouTube too, where uploads like a fan's remix
     # live ("who cares if you exist eisu remix": only YouTube had it, 13 Oct). A search the music sources answer well
     # never waits for it
@@ -290,15 +315,7 @@ async def search(q: str, request: Request, user: Annotated[User, Depends(per_acc
         videos = song_listings
     if videos:
         songs = merge_youtube(songs, videos)
-    songs = by_relevance(songs, q)
-    remember_served(request, songs)
-    # a song already stored keeps the cover it has in the library (one indexed query)
-    async with request.app.state.pool.connection() as conn:
-        covers = await library.stored_covers(conn, [l for song in songs for l in song.listings])
-    for song in songs:
-        song.image = next((covers[(l.source, l.id)] for l in song.listings if (l.source, l.id) in covers), song.image)
-    return SearchResponse(query = q, sources = sources, songs = songs,
-                          albums = rank_albums(albums_by_source), artists = rank_artists(artists_by_source))
+    return by_relevance(songs, q), rank_albums(albums_by_source), artists_by_name(rank_artists(artists_by_source), q), sources
 
 # ---------- Spotify import ----------
 # The app reads Spotify's file on the device and sends only titles, artists and lengths; the server searches each one

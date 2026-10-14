@@ -4,8 +4,9 @@ import pytest
 import json
 from pathlib import Path
 
-from music_backend.services.matching import (artists_match, group_listings, interleave, merge_youtube, normalise, pick_best,
-                                rank_albums, rank_artists, rank_songs, same_recording, same_video, to_song)
+from music_backend.services.matching import (artists_by_name, artists_match, by_relevance, coverage, group_listings, interleave,
+                                merge_youtube, normalise, pick_best, rank_albums, rank_artists, rank_songs, same_recording,
+                                same_video, to_song)
 from music_backend.sources import jiosaavn, ytmusic
 from music_backend.models import Listing
 
@@ -334,3 +335,99 @@ def test_rank_artists_merges_a_topic_channel_into_the_artist():
 def test_rank_artists_keeps_different_people_apart():
     js = [artist_ref("jiosaavn", "1", "Arijit Singh"), artist_ref("jiosaavn", "2", "Pritam")]
     assert len(rank_artists([js])) == 2
+
+
+# ---------- a search's ranking (#25): typos, an artist's own songs, play counts, YouTube Music's top result ----------
+# Titles, artists, lengths and play counts as the sources answered a server in India on 15 Oct.
+
+def yt(title, artists, duration, plays, id=None):
+    listing = make(title, artists, duration, "ytmusic", plays)
+    listing.id = id or listing.id
+    return listing
+
+
+def song(title, artists, duration=200):
+    return to_song([make(title, artists, duration)])
+
+
+@pytest.mark.parametrize("query,title,artist", [
+    ("tadipar", "Tadipaar", "MC STAN"),
+    ("kesriya", "Kesariya", "Arijit Singh"),
+    ("blinding light", "Blinding Lights", "The Weeknd"),
+    ("shap of you", "Shape of You", "Ed Sheeran"),
+])
+def test_a_typo_still_finds_the_song(query, title, artist):
+    assert coverage(query, song(title, [artist])) == 1
+
+
+def test_a_short_word_and_a_far_one_must_be_typed_as_they_are():
+    assert coverage("tum hi ho", song("Tum Ho", ["Mohit Chauhan"])) == pytest.approx(2 / 3)     # "hi" is not "ho"
+    assert coverage("kodak black", song("What It Is (Block Boy)", ["Doechii"])) == 0            # "black" is not "block"
+
+
+def test_an_artists_own_songs_come_before_the_songs_they_are_featured_on():
+    featured = song("Wake Up in the Sky", ["Gucci Mane", "Bruno Mars", "Kodak Black"])
+    in_title = song("Drowning (feat. Kodak Black)", ["A Boogie Wit da Hoodie"])
+    own = song("Skrt", ["Kodak Black"])
+    assert by_relevance([featured, in_title, own], "kodak black") == [own, featured, in_title]
+    # the title names the song itself: "KODAK" (King, with Seedhe Maut) leads for "kodak", follows for "seedhe maut"
+    kodak, nanchaku = song("KODAK", ["King", "Seedhe Maut"]), song("Nanchaku", ["Seedhe Maut", "MC STAN"])
+    assert by_relevance([featured, kodak], "kodak") == [kodak, featured]
+    assert by_relevance([kodak, nanchaku], "seedhe maut") == [nanchaku, kodak]
+
+
+def test_a_song_played_far_more_goes_before_a_namesake_the_sources_put_first():
+    # "tadipar": JioSaavn and YouTube Music both put Dj Pamya's "Tadipar" first, and so did YouTube Music's top result
+    namesake = yt("Tadipar", ["Dj Pamya", "Ajay Gaikwad"], 321, 870_000, id="tYBWs43tbhY")
+    stan = yt("Tadipaar", ["MC Stan"], 467, 40_000_000)
+    jiosaavn_list = [make("Tadipar", ["Ajay Gaikwad", "Dj Pamya"], 320, popularity=1990),
+                     make("Ek Din Pyaar (Tadipaar)", ["MC STAN"], 186, popularity=28_105_072),
+                     make("Tadipaar", ["MC STAN"], 466, popularity=1_268_799)]
+    card = yt("Tadipar", ["Dj Pamya", "Ajay Gaikwad"], 321, None, id="tYBWs43tbhY")     # a song card: no plays
+    songs = rank_songs([jiosaavn_list, [namesake, stan]], plays=True, top=card)
+    assert [s.title for s in songs[:2]] == ["Tadipaar", "Tadipar"]
+
+
+def test_a_top_result_youtube_music_has_only_as_a_video_goes_first():
+    # "pasoori": three copies of a 3,500-play lofi mix collect more votes than one copy of a billion-view video
+    lofi = [make("Pasoori (Lofi Mix)", ["Unico Vibe A1"], 153, popularity=233),
+            make("Pasoori (Lofi Mix)", ["Unico Vibe A1"], 154, popularity=234)]
+    others = [make("Pasoori", ["whoszerowavey"], 165, popularity=50), make("Pasoori", ["Zed70"], 153, popularity=1065)]
+    yt_list = [yt("Pasoori (Lofi Mix)", ["Unico Vibe A1"], 153, 3500), yt("Pasoori", ["whoszerowavey"], 165, 76_000)]
+    video = yt("Pasoori", ["Shae Gill", "Ali Sethi"], 277, 1_000_000_000, id="5Eqb_-j3FDA")
+    songs = rank_songs([lofi + others, yt_list], plays=True, top=video)
+    assert songs[0].best is video
+    assert songs[1].title == "Pasoori (Lofi Mix)" and len(songs[1].listings) == 3
+
+
+def test_a_music_video_of_a_song_found_is_one_more_copy_not_a_second_row():
+    # "blinding lights": the top result is the official video, 4:23 against the song's 3:20
+    video = yt("Blinding Lights", ["The Weeknd"], 263, 1_000_000_000, id="4NRXx6U8ABQ")
+    songs = rank_songs([[make("Blinding Lights", ["The Weeknd"], 200, popularity=38_465_714)],
+                        [yt("Blinding Lights", ["The Weeknd"], 202, 3_600_000_000)]], plays=True, top=video)
+    assert len(songs) == 1
+    assert songs[0].listings[-1] is video and songs[0].best.source == "jiosaavn"     # a fallback, never the pick
+
+
+def test_a_top_result_without_plays_is_a_vote_not_first():
+    # a song card says no plays; missing from the songs list, nothing could outplay it
+    card = yt("Faded (feat. Future)", ["Mike WiLL Made-It"], 240, None)
+    walker = [make("Faded", ["Alan Walker"], 212, popularity=136_779_454), yt("Faded", ["Alan Walker"], 213, 5_900_000_000)]
+    songs = rank_songs([[walker[0]], [walker[1]]], plays=True, top=card)
+    assert [s.title for s in songs] == ["Faded", "Faded (feat. Future)"]
+
+
+def test_radio_and_imports_keep_the_sources_order():
+    station = [yt("Save Your Tears", ["The Weeknd"], 216, 10), yt("STAY", ["The Kid LAROI"], 142, 2_000_000_000)]
+    assert [s.title for s in rank_songs([station])] == ["Save Your Tears", "STAY"]
+
+
+def test_the_artist_named_as_typed_comes_first():
+    # "mc stan" (15 Oct): JioSaavn's first artist was a list of four other people
+    artists = rank_artists([[artist_ref("jiosaavn", "1", "Roderick Frank Standish, James Derrick Richard Standish"),
+                             artist_ref("jiosaavn", "2", "MC STAN")],
+                            [artist_ref("ytmusic", "UC1", "Emiway Bantai")]])
+    assert [a.name for a in artists_by_name(artists, "mc stan")] == ["MC STAN", "Roderick Frank Standish, James Derrick Richard Standish", "Emiway Bantai"]
+    # named as typed before a name that only has it (two artists: neither name is part of the other)
+    exact = rank_artists([[artist_ref("jiosaavn", "3", "Dheeraj Tadipar"), artist_ref("jiosaavn", "4", "Tadipaar")]])
+    assert [a.name for a in artists_by_name(exact, "tadipaar")] == ["Tadipaar", "Dheeraj Tadipar"]

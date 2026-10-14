@@ -656,3 +656,45 @@ async def test_ytmusic_radio_network_failure_is_unavailable(monkeypatch):
 ])
 def test_youtube_music_names_a_video_by_its_kind(row, expected):
     assert ytmusic.named(row) == expected
+
+
+def top_reply(title, subtitle, video_id=None, kind=None):
+    """An unfiltered YouTube Music search reply holding a top-result card, in the shape it came back on 15 Oct."""
+    tap = ({"watchEndpoint": {"videoId": video_id, "watchEndpointMusicSupportedConfigs":
+                              {"watchEndpointMusicConfig": {"musicVideoType": kind}}}}
+           if video_id else {"browseEndpoint": {"browseId": "UC1"}})
+    card = {"title": {"runs": [{"text": title}]}, "subtitle": {"runs": [{"text": text} for text in subtitle]}, "onTap": tap,
+            "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [{"url": "https://x/s.jpg"},
+                                                                                  {"url": "https://x/b.jpg"}]}}}}
+    sections = [{"itemSectionRenderer": {}}, {"musicCardShelfRenderer": card}]       # "Did you mean" can come first
+    return {"contents": {"tabbedSearchResultsRenderer": {"tabs": [{"tabRenderer": {"content": {"sectionListRenderer":
+                                                                                              {"contents": sections}}}}]}}}
+
+
+def test_ytmusic_top_result_reads_a_music_video():
+    reply = top_reply("Pasoori", ["Video", " • ", "Shae Gill", " & ", "Ali Sethi", " • ", "1B views", " • ", "4:37"],
+                      "5Eqb_-j3FDA", "MUSIC_VIDEO_TYPE_OMV")
+    listing = ytmusic.top_listing(reply)
+    assert (listing.source, listing.id, listing.title, listing.artists) == ("ytmusic", "5Eqb_-j3FDA", "Pasoori", ["Shae Gill", "Ali Sethi"])
+    assert listing.duration == 277 and listing.popularity == 1_000_000_000 and listing.image == "https://x/b.jpg"
+
+
+def test_ytmusic_top_result_reads_a_song_and_drops_a_videos_labels():
+    song = ytmusic.top_listing(top_reply("Tadipar", ["Song", " • ", "Dj Pamya", " & ", "Ajay Gaikwad", " • ", "5:21"],
+                                         "tYBWs43tbhY", "MUSIC_VIDEO_TYPE_ATV"))
+    assert song.artists == ["Dj Pamya", "Ajay Gaikwad"] and song.duration == 321 and song.popularity is None
+    video = ytmusic.top_listing(top_reply("Blinding Lights (Official Video)",
+                                          ["Video", " • ", "The Weeknd", " • ", "1B views", " • ", "4:23"],
+                                          "4NRXx6U8ABQ", "MUSIC_VIDEO_TYPE_OMV"))
+    assert video.title == "Blinding Lights"
+
+
+@pytest.mark.parametrize("reply", [
+    top_reply("Kodak Black", ["Artist", " • ", "33.8M monthly audience"]),                        # an artist
+    top_reply("Who Cares If You Exist", ["Single", " • ", "Peacock Affect", " • ", "2014"]),       # an album
+    top_reply("Kesariya (Synthwave)", ["Episode", " • ", "Jul 16, 2022", " • ", "VDJ Fly"],        # a podcast episode
+              "BddP6PYo2gs", "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"),
+    {"contents": {}},                                                                             # no results at all
+])
+def test_ytmusic_top_result_is_only_a_song_or_video(reply):
+    assert ytmusic.top_listing(reply) is None
