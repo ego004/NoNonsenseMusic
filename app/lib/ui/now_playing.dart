@@ -227,6 +227,32 @@ class NowPlaying extends StatelessWidget {
                             padding: const EdgeInsets.fromLTRB(14, 14, 10, 10),
                             child: panel,
                           );
+                    // Lyrics and Up Next; pressing the one shown hides it, leaving the song alone. On a phone they sit
+                    // under the controls, where the thumb is: in the top corner they went unnoticed (13 Oct)
+                    final panelButtons = Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final (id, icon, label) in [
+                          ('lyrics', FluentIcons.comment_quote_24_regular, 'Lyrics'),
+                          ('upNext', FluentIcons.text_bullet_list_ltr_24_regular, 'Up Next'),
+                        ])
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: phone ? 14 : 3),
+                            child: IconButton(
+                              tooltip: p.panel == id ? 'Hide $label' : 'Show $label',
+                              iconSize: phone ? 22 : 20,
+                              style: IconButton.styleFrom(
+                                backgroundColor: p.panel == id
+                                    ? theme.colorScheme.primary.withValues(alpha: 0.18)
+                                    : Colors.transparent,
+                              ),
+                              color: p.panel == id ? theme.colorScheme.primary : ink.withValues(alpha: 0.75),
+                              onPressed: () => p.setPanel(id),
+                              icon: Icon(icon),
+                            ),
+                          ),
+                      ],
+                    );
                     final body = phone
                         ? SafeArea(
                             child: Padding(
@@ -270,6 +296,7 @@ class NowPlaying extends StatelessWidget {
                                                           height: 8,
                                                         ),
                                                         mobileTransport,
+                                                        panelButtons,
                                                       ],
                                                     ),
                                                   ),
@@ -300,6 +327,7 @@ class NowPlaying extends StatelessWidget {
                                               ),
                                               const SizedBox(height: 4),
                                               mobileTransport,
+                                              panelButtons,
                                             ],
                                           ),
                                         ),
@@ -330,53 +358,8 @@ class NowPlaying extends StatelessWidget {
                             ),
                           ),
                         ),
-                        // The panel sits beside the song; pressing the button of the panel already shown hides it, leaving
-                        // the song alone.
-                        Positioned(
-                          right: 24,
-                          top: phone
-                              ? MediaQuery.paddingOf(context).top + 8
-                              : 18,
-                          child: Row(
-                            children: [
-                              for (final (id, icon, label) in [
-                                (
-                                  'lyrics',
-                                  FluentIcons.comment_quote_24_regular,
-                                  'Lyrics',
-                                ),
-                                (
-                                  'upNext',
-                                  FluentIcons.text_bullet_list_ltr_24_regular,
-                                  'Up Next',
-                                ),
-                              ])
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 6),
-                                  child: IconButton(
-                                    tooltip: p.panel == id
-                                        ? 'Hide $label'
-                                        : 'Show $label',
-                                    iconSize: 20,
-                                    style: IconButton.styleFrom(
-                                      backgroundColor: p.panel == id
-                                          ? theme.colorScheme.primary
-                                                .withValues(alpha: 0.18)
-                                          : phone
-                                          ? theme.colorScheme.surface
-                                                .withValues(alpha: 0.55)
-                                          : Colors.transparent,
-                                    ),
-                                    color: p.panel == id
-                                        ? theme.colorScheme.primary
-                                        : ink.withValues(alpha: 0.75),
-                                    onPressed: () => p.setPanel(id),
-                                    icon: Icon(icon),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
+                        // a computer: the panel buttons by the window's corner, the panel beside the song
+                        if (!phone) Positioned(right: 24, top: 18, child: panelButtons),
                         if (body != null)
                           body
                         else
