@@ -5,8 +5,9 @@ only_host_controls (members only add songs; playback and the queue are the host'
 The room is stateless about audio: it keeps listings, the same data the apps already have from
 search, and never a song id or a URL. Each member's player plays a listing through /play like any other song;
 the room tracks only who is host, what is current, the queue, and where the playhead is. Rooms live
-in this process's memory (app.state.jams): a position that moves every second is not worth a table,
-and a restart losing rooms matches losing in-flight YouTube links. A control command mutates the
+in this process's memory (app.state.jams): a position that moves every second is not worth a table.
+They are written to the database only when the server stops, and read back when it starts (save_rooms,
+load_rooms): every deploy restarts it, and a restart used to end every jam (#31). A control command mutates the
 room synchronously, then broadcasts the new state over every member's WebSocket. No lock is needed:
 the event loop runs one command at a time, and the mutation has no await inside it.
 """
@@ -18,6 +19,8 @@ from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
 from fastapi import WebSocket
+from psycopg import AsyncConnection
+from psycopg.types.json import Jsonb
 
 from music_backend.models import JamCommand, JamMember, JamQueueEntry, JamState
 
@@ -36,6 +39,10 @@ SEND_TIMEOUT = 3.0
 # with only_host_controls on, what a member may not do (an add is allowed, at the end of the queue)
 MEMBER_LOCKED = {"play", "pause", "seek", "skip", "remove", "move", "jump"}
 CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # no l/1/0/o: a code read aloud or typed must not fail
+# seconds: a room that was playing when the server stopped plays on if the server is back this soon. The members'
+# players never stopped (a deploy takes about 4 s, 14 Oct), so the playhead counts the time between; after longer, the
+# room waits, paused where it was
+RESUME_WITHIN = 60
 
 
 class RoomNotFound(Exception):
@@ -415,6 +422,59 @@ class JamHub:
                 pass
         await asyncio.gather(*(close(ws) for ws in sockets), return_exceptions=True)
 
+    # ---- across a restart (save_rooms, load_rooms) ----
+
+    def snapshot(self) -> list[tuple[UUID, dict]]:
+        """Every open room as JSON: everything but its sockets, the playhead as it stands now, and how long it has
+        been idle."""
+        self._discard_expired()
+        now, idle_now = time.time(), time.monotonic()
+        return [(room.id, {
+            "code": room.code,
+            "name": room.name,
+            "host_id": str(room.host_id),
+            "members": {str(user_id): username for user_id, username in room.members.items()},
+            "join_order": [str(user_id) for user_id in room.join_order],
+            "current": room.current.model_dump(mode="json") if room.current else None,
+            "queue": [entry.model_dump(mode="json") for entry in room.queue],
+            "is_playing": room.is_playing,
+            "position_seconds": self.playhead(room),
+            "only_host_plays": room.only_host_plays,
+            "only_host_controls": room.only_host_controls,
+            "idle_seconds": idle_now - room.touched_at,
+            "saved_at": now,
+        }) for room in self._rooms.values()]
+
+    def restore(self, saved: list[tuple[UUID, dict]]) -> None:
+        """Reopen rooms from snapshot(). One that was playing plays on, its playhead counting the time the server
+        was away, if it is back within RESUME_WITHIN; otherwise it waits, paused where it was. The time away counts as
+        idle, so a room still closes ROOM_IDLE_SECONDS after its last use."""
+        now = time.time()
+        for room_id, s in saved:
+            away = max(0.0, now - s["saved_at"])
+            playing = s["is_playing"] and away <= RESUME_WITHIN and s["current"] is not None
+            room = Room(
+                id=room_id,
+                code=s["code"],
+                name=s["name"],
+                host_id=UUID(s["host_id"]),
+                members={UUID(user_id): username for user_id, username in s["members"].items()},
+                join_order=[UUID(user_id) for user_id in s["join_order"]],
+                current=JamQueueEntry.model_validate(s["current"]) if s["current"] else None,
+                is_playing=playing,
+                position_seconds=s["position_seconds"],
+                position_at=s["saved_at"] if playing else now,
+                queue=[JamQueueEntry.model_validate(entry) for entry in s["queue"]],
+                only_host_plays=s["only_host_plays"],
+                only_host_controls=s["only_host_controls"],
+                touched_at=time.monotonic() - s["idle_seconds"] - away,
+            )
+            if not room.members or room.code in self._by_code:
+                continue
+            self._rooms[room.id] = room
+            self._by_code[room.code] = room.id
+        self._discard_expired()
+
     # ---- code ----
 
     def _fresh_code(self) -> str:
@@ -423,3 +483,22 @@ class JamHub:
             if code not in self._by_code:
                 return code
         raise RuntimeError("could not find a free room code")   # 8 chars from 32 symbols: not reachable
+
+
+async def save_rooms(conn: AsyncConnection, hub: JamHub) -> int:
+    """Write every open room for the next start, in place of what was saved before; return how many."""
+    rooms = hub.snapshot()
+    async with conn.transaction():
+        await conn.execute("DELETE FROM jam_rooms")
+        async with conn.cursor() as cur:
+            await cur.executemany("INSERT INTO jam_rooms (id, state) VALUES (%s, %s)",
+                                  [(room_id, Jsonb(state)) for room_id, state in rooms])
+    return len(rooms)
+
+
+async def load_rooms(conn: AsyncConnection, hub: JamHub) -> int:
+    """Reopen the rooms saved when the server last stopped, and empty the table: a crash later never brings back rooms
+    that have moved on since. Return how many."""
+    rows = await (await conn.execute("DELETE FROM jam_rooms RETURNING id, state")).fetchall()
+    hub.restore([(row["id"], row["state"]) for row in rows])
+    return len(rows)

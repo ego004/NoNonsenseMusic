@@ -268,6 +268,11 @@ void main() {
       link.close();
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect((jam.inJam, player.jam), (false, null));
+      expect(jam.ended, jamEndedNotice);                       // said, not left without a word (#31)
+      roomStatus = 200;
+      await jam.start();
+      expect(jam.ended, isNull);                               // a new jam: nothing left to say
+      jam.leaveLocally();
     });
 
     test('a dropped socket with the room still there keeps the jam', () async {
@@ -277,8 +282,9 @@ void main() {
       await push(stateMessage(roomJson()));
       link.close();
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(jam.inJam, isTrue);
+      expect((jam.inJam, jam.ended), (true, null));
       jam.leaveLocally();
+      expect(jam.ended, isNull);                               // leaving yourself needs no notice
     });
 
     test('a refused start gives the reason and no room', () async {

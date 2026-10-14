@@ -118,8 +118,17 @@ class _ShellState extends State<Shell> {
     final s = Scope.of(context);
     JamSession.shared
       ..player = s.player
-      ..me = s.auth.user?.id;
+      ..me = s.auth.user?.id
+      ..addListener(_sayJamEnded);
     Social.shared.start();
+  }
+
+  /// A jam this device did not leave itself has ended for it: said once, wherever the user is.
+  void _sayJamEnded() {
+    final notice = JamSession.shared.ended;
+    if (notice == null || !mounted) return;
+    JamSession.shared.ended = null;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(notice)));
   }
 
   void _openLink() {
@@ -133,6 +142,7 @@ class _ShellState extends State<Shell> {
   @override
   void dispose() {
     PlaylistLinks.pending.removeListener(_openLink);
+    JamSession.shared.removeListener(_sayJamEnded);
     super.dispose();
   }
 

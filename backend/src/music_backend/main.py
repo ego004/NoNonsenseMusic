@@ -47,8 +47,11 @@ async def lifespan(app: FastAPI):
     app.state.lyrics_cache = cache.LyricsCache(pool)
     app.state.genius_cache = cache.GeniusCache(pool)
     app.state.hub = notifications.NotificationHub()               # WebSocket connections + one-time WS tickets
-    app.state.jams = jam.JamHub()                                 # jam rooms: in memory, lost on restart by design
-    app.state.imports = spotify_import.ImportHub()                # Spotify imports: in memory, as jam rooms
+    app.state.jams = jam.JamHub()                                 # jam rooms: in memory, saved across a restart
+    async with pool.connection() as conn:
+        if restored := await jam.load_rooms(conn, app.state.jams):
+            logger.info("jam: %d rooms reopened", restored)
+    app.state.imports = spotify_import.ImportHub()                # Spotify imports: in memory, lost on restart
     # the prefetch workers: N separate tasks, running by themselves; the list keeps them alive
     # (a list comprehension: `[create_task(...)] * N` would be ONE task listed N times)
     app.state.prefetch_workers = [asyncio.create_task(app.state.url_cache.prefetch_worker())
@@ -72,6 +75,13 @@ async def lifespan(app: FastAPI):
     await asyncio.gather(*(source.http.close() for source in SOURCES.values()))   # the sources' kept connections
     await lyrics.http.close()                                                     # and LRCLIB's
     await genius.http.close()                                                     # and Genius's
+    # the open jams, for the next start: a deploy restarts the server and used to end every jam (#31)
+    try:
+        async with pool.connection() as conn:
+            if saved := await jam.save_rooms(conn, app.state.jams):
+                logger.info("jam: %d rooms saved", saved)
+    except Exception:
+        logger.exception("jam: the open rooms could not be saved")
     await pool.close()
 
 

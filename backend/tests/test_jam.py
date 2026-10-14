@@ -1,6 +1,6 @@
-"""Test the jam room: one host plays, everyone else holds the remote. Rooms are in memory, with no
-database writes beyond authentication. Tests drive the hub directly for command semantics and the
-real WebSocket for the socket path."""
+"""Test the jam room: one host plays, everyone else holds the remote. Rooms are in memory, written to the
+database only when the server stops (and read back when it starts). Tests drive the hub directly for command
+semantics and the real WebSocket for the socket path."""
 import time
 from uuid import uuid4
 
@@ -617,3 +617,66 @@ def test_ws_a_locked_member_is_told_and_the_room_is_unchanged(client):
                 assert ws.receive_json()["data"]["only_host_controls"] is True
             ws_b.send_json({"type": "skip"})
             assert ws_b.receive_json() == {"type": "error", "detail": "The host controls this jam. You can add songs to the queue."}
+
+
+# ---------- across a restart (#31) ----------
+
+def snapshot_after(hub: jam.JamHub, seconds_away: float) -> list:
+    """The hub's rooms as saved, with the server away for this long before they are read back."""
+    return [(room_id, {**state, "saved_at": state["saved_at"] - seconds_away}) for room_id, state in hub.snapshot()]
+
+
+@pytest.mark.anyio
+async def test_a_room_comes_back_as_it_was_after_a_restart():
+    hub = jam.JamHub()
+    room = hub.create(alice := uuid4(), "alice", "Friday")
+    room.members[bob := uuid4()] = "bob"
+    room.join_order.append(bob)
+    room.only_host_controls = True
+    await hub.handle_command(room, alice, JamCommand(type="add", listings=[make_listing(1, 300), make_listing(2)]), FakeWS())
+    await hub.handle_command(room, alice, JamCommand(type="seek", seconds=100), FakeWS())
+
+    restarted = jam.JamHub()
+    restarted.restore(snapshot_after(hub, 4))                                # a deploy: about 4 s away
+    back = restarted.require(room.id, bob)
+    assert (back.code, back.name, back.host_id, back.members, back.join_order) == (room.code, "Friday", alice, room.members, [alice, bob])
+    assert restarted.state(back).model_dump(include={"current", "queue", "only_host_controls"}) == \
+           hub.state(room).model_dump(include={"current", "queue", "only_host_controls"})        # as the apps see it
+    assert back.is_playing and restarted.playhead(back) == pytest.approx(104, abs=1)   # the players never stopped
+    assert restarted.join(uuid4(), "carol", room.code)[0] is back           # its code still works
+
+
+@pytest.mark.anyio
+async def test_a_room_away_for_long_waits_paused_where_it_was():
+    hub = jam.JamHub()
+    room = hub.create(alice := uuid4(), "alice", None)
+    await hub.handle_command(room, alice, JamCommand(type="add", listings=[make_listing(1, 300)]), FakeWS())
+    await hub.handle_command(room, alice, JamCommand(type="seek", seconds=100), FakeWS())
+    restarted = jam.JamHub()
+    restarted.restore(snapshot_after(hub, jam.RESUME_WITHIN + 1))
+    back = restarted.require(room.id, alice)
+    assert not back.is_playing and restarted.playhead(back) == pytest.approx(100, abs=1)
+
+
+def test_a_room_idle_too_long_is_not_reopened():
+    hub = jam.JamHub()
+    room = hub.create(alice := uuid4(), "alice", None)
+    room.touched_at -= jam.ROOM_IDLE_SECONDS - 30                         # 30 s of its idle time left
+    restarted = jam.JamHub()
+    restarted.restore(snapshot_after(hub, 60))                               # the time away counts as idle
+    assert restarted.get(room.id) is None
+
+
+def test_open_jams_survive_the_server_restarting(monkeypatch):
+    monkeypatch.setattr(db, "DATABASE_URL", TEST_URL)
+    from music_backend.main import app
+    with TestClient(app) as first:
+        alice, bob = Person(first), Person(first)
+        room = alice("POST", "/jam", json={"name": "Friday"}).json()
+        bob("POST", "/jam/join", json={"code": room["code"]})
+    # the server stopped, saving its rooms; it starts again and reads them back
+    with TestClient(app) as again:
+        r = again.get(f"/jam/{room['room_id']}", headers={"Authorization": f"Bearer {bob.token}"})
+        assert r.status_code == 200
+        assert {m["username"] for m in r.json()["members"]} == {alice.username, bob.username}
+        assert r.json()["host_id"] == alice.id and r.json()["name"] == "Friday"
