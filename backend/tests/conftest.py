@@ -77,6 +77,15 @@ def no_catalog(monkeypatch):
     monkeypatch.setattr(lyrics.jiosaavn, "search", nothing)
 
 
+@pytest.fixture(autouse=True)
+def no_reading_catalogues(monkeypatch):
+    """Video titles stored by a test are never confirmed against the real catalogues (services/readings.py); a test of
+    readings gives its own."""
+    from music_backend.services import readings
+    monkeypatch.setattr(readings, "CATALOGUES", ())
+    readings._asked.clear()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _fresh_test_database():
     """music_test starts every run empty: the first pool or app start runs every migration from nothing, so each run

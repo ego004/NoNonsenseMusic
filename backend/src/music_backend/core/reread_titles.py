@@ -3,7 +3,8 @@
 Videos stored before the title reader (13 Oct) show their video's title and channel: "slipfunc - until dawn" by Ikigai.
 Each is looked up again and read as a new listing would be: plain YouTube through oEmbed (the title and channel as
 uploaded; the player page is refused from a data centre), YouTube Music through its watch page (which says whether the
-video is an upload, a music video or a song: ytmusic.named). Only what a listing shows changes. A song's identity
+video is an upload, a music video or a song: ytmusic.named). An "A - B" title is then confirmed against the catalogues
+(services/readings.py). Only what a listing shows changes. A song's identity
 (songs.title, which new copies are compared with) stays as first stored.
 
     uv run python -m music_backend.core.reread_titles            # lists what would change
@@ -16,6 +17,7 @@ from collections.abc import Callable
 import httpx
 
 from music_backend.core import db
+from music_backend.services import readings
 from music_backend.services.video_titles import parse_video_title
 from music_backend.sources import ytmusic
 
@@ -56,6 +58,9 @@ async def reread(pool, apply: bool, readers: dict[str, Callable[[str], Reading |
     for row in rows:
         try:
             reading = await asyncio.to_thread(readers[row["source"]], row["source_id"])
+            # "slipfunc - until dawn" on Ikigai's channel: "until dawn" by slipfunc when a catalogue has that song
+            if reading is not None and readings.sides(reading[0]) is not None:
+                reading = await readings.confirmed(reading[0]) or reading
         except Exception as e:                        # one video unreachable: the rest still go
             print(f"skipped {row['source']} {row['source_id']}: {type(e).__name__}")
             reading = None

@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from psycopg import errors
 
 from music_backend.core import db, ratelimit
-from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications, jam, served, spotify_import
+from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications, jam, readings, served, spotify_import
 from music_backend.services.matching import rank_songs, merge_youtube, rank_albums, rank_artists, by_relevance, coverage, normalise, artists_match
 from music_backend.models import (SpotifyImportRequest, SpotifyImportStatus, EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
@@ -517,6 +517,7 @@ async def like_song(body: ListingsRequest, request: Request, user: Signed) -> So
         listings = await library.trusted_listings(conn, request.app.state.served, body.listings)
         song_id = await library.resolve_song(conn, listings)
         await library.like(conn, user.id, song_id)
+    readings.confirm_later(request.app.state.pool, listings)
     return SongRef(song_id = song_id)
 
 
@@ -547,6 +548,7 @@ async def add_event(body: EventRequest, request: Request, user: Signed) -> SongR
         listings = await library.trusted_listings(conn, request.app.state.served, body.listings)
         song_id = await library.resolve_song(conn, listings)
         await library.record_event(conn, user.id, song_id, body.type, body.position)
+    readings.confirm_later(request.app.state.pool, listings)
     return SongRef(song_id = song_id)
 
 #----- playlists -----
@@ -576,6 +578,7 @@ async def add_to_playlist(playlist_id: UUID, body: ListingsRequest, request: Req
             listings = await library.trusted_listings(conn, request.app.state.served, body.listings)
             song_id = await library.resolve_song(conn, listings)
             item_id = await library.add_to_playlist(conn, user.id, playlist_id, song_id)
+    readings.confirm_later(request.app.state.pool, listings)
     return PlaylistItemRef(item_id = item_id, song_id = song_id)
 
 @app.get("/playlists/{playlist_id}")
