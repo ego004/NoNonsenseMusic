@@ -288,6 +288,9 @@ JamPlan planJamFollow(
   );
 }
 
+/// What a member is told when the room turns them away: the server says only that it has no such room for them.
+const jamEndedNotice = 'You are no longer in the jam: it ended, or the host removed you.';
+
 /// A jam: listening together. Every member's device plays the room's song in step and every member controls it; the
 /// host may choose to play the room on their device alone ([JamState.onlyHostPlays]) or to control it alone
 /// ([JamState.onlyHostControls]: members then only add songs).
@@ -309,6 +312,10 @@ class JamSession extends ChangeNotifier {
 
   /// The server's last refusal ("Queue is full (200).") or a connection problem, shown in the jam panel.
   String? problem;
+
+  /// Why this device is out of a jam it did not leave itself, until the shell has said it once (#31). It used to leave
+  /// without a word, which looked random.
+  String? ended;
 
   JamPlayer? player;
 
@@ -360,6 +367,7 @@ class JamSession extends ChangeNotifier {
       return e is ApiError ? e.toString() : "Can't connect to the server.";
     }
     leaveLocally();
+    ended = null;
     _carry = carry;
     _adoptKey = carry?.listing.key;
     _apply(room);
@@ -609,13 +617,17 @@ class JamSession extends ChangeNotifier {
     }
   }
 
-  /// When the socket drops: GET /jam/{id}. A 404 means the room is gone or the user left on another device, so the
-  /// user is out of the jam here too.
+  /// When the socket drops: GET /jam/{id}. A 404 means the room is gone (its last member left, it sat idle, or the
+  /// server lost it) or this user is no longer in it (left on another device, or removed), so the user is out of the
+  /// jam here too, and is told.
   Future<void> _checkRoom(String room) async {
     try {
       await Api.getJson('jam/$room');
     } on ApiError catch (e) {
-      if (e.status == 404 && state?.roomId == room) leaveLocally();
+      if (e.status == 404 && state?.roomId == room) {
+        ended = jamEndedNotice;
+        leaveLocally();
+      }
     } catch (_) {}
   }
 
