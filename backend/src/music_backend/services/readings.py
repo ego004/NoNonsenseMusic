@@ -3,8 +3,7 @@
 "slipfunc - until dawn" on Ikigai's channel is "until dawn" by slipfunc, but nothing in the video says which side is the
 artist (services/video_titles.py splits a title only when one side is the channel). A catalogue does: YouTube Music or
 JioSaavn has a song called "until dawn" by an artist called "slipfunc", and none called "slipfunc" by "until dawn".
-Measured on 14 stored titles (14 Oct): 8 confirmed, all right, including "Udaarian - Satinder Sartaaj" (Song - Artist,
-which reading by position gets wrong); 6 not found and kept as uploaded; none wrong.
+Measured live on 10 stored titles (14 Oct): 4 confirmed, all right ("until dawn" by slipfunc, "until you're home" by chief.); a remix, Song - Artist with a subtitle, and 4 the catalogues do not have kept as uploaded. 0.44 s per title (median).
 
 Asked after a song is stored, in the background (confirm_later): one search on each catalogue, at most two titles at a
 time, each copy at most once a day. A search never waits for it. Only what the stored copy shows changes (its title and
@@ -41,10 +40,11 @@ def sides(title: str) -> tuple[str, str] | None:
 
 
 def _names(found: Listing, song: str, artist: str) -> bool:
-    """Whether a catalogue song is [song] by [artist]: the artist by exact name, the title word for word, one starting
-    the other ("Im sorry" for "Im sorry{}4K{}Sad Lofi{}", "until dawn (feat. X)" for "until dawn")."""
+    """Whether a catalogue song is [song] by [artist]: the artist by exact name, the title word for word, or the
+    catalogue's adding a bracket ("until dawn (feat. X)" for "until dawn"). A catalogue title shorter than the upload's
+    is another recording: "Who Cares If You Exist" is not "Who Cares If You Exist (Eisu remix)" (14 Oct)."""
     title, wanted = normalise(found.title), normalise(song)
-    same_title = bool(title) and (title == wanted or wanted.startswith(title + " ") or title.startswith(wanted + " "))
+    same_title = bool(title) and (title == wanted or found.title.strip().lower().startswith(song.strip().lower() + " ("))
     return same_title and any(normalise(a) == normalise(artist) for a in found.artists)
 
 

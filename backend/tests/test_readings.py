@@ -49,8 +49,11 @@ def test_sides_of_a_title(title, expected):
     ("slipfunc - until dawn", [song("until dawn", ["slipfunc"])], ("until dawn", ["slipfunc"])),
     # Song - Artist: the order reading by position gets wrong
     ("Udaarian - Satinder Sartaaj", [song("Udaarian", ["Satinder Sartaaj"])], ("Udaarian", ["Satinder Sartaaj"])),
-    # the catalogue's clean name, when the upload added to it
-    ("Iam6teen - Im sorry{}4K{}Sad Lofi{}", [song("Im sorry", ["Iam6teen"])], ("Im sorry", ["Iam6teen"])),
+    # the catalogue adds a bracket: its name
+    ("chief. - until you're home", [song("until you're home (feat. X)", ["chief."])], ("until you're home (feat. X)", ["chief."])),
+    # the catalogue's title is shorter: another recording, the remix is not the original (14 Oct)
+    ("Peacock Affect - Who Cares If You Exist (Eisu remix)", [song("Who Cares If You Exist", ["Peacock Affect"])], None),
+    ("Iam6teen - Im sorry{}4K{}Sad Lofi{}", [song("Im sorry", ["Iam6teen"])], None),
     # a song of the same name by someone else is no confirmation ("Leaves" by PROVIDENCE144 for "Taiko - Leaves")
     ("Taiko - Leaves", [song("Leaves", ["PROVIDENCE144"])], None),
     # a word that only starts the same is not the title
