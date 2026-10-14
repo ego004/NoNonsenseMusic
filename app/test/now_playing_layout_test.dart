@@ -89,7 +89,7 @@ void main() {
         } else {
           expect(cover.bottom, lessThan(title.top));
         }
-        expect(tester.widget<Cover>(artwork).fit, BoxFit.contain);
+        expect(tester.widget<Cover>(artwork).fit, BoxFit.cover);
       }
 
       player.setPanel('upNext');
@@ -108,13 +108,16 @@ void main() {
     });
   }
 
-  testWidgets('mobile artwork keeps a non-square image within its square bounds', (tester) async {
+  testWidgets('a cover keeps its shape: decoded by height, then filled and cropped (a 16:9 thumbnail was squashed)', (tester) async {
     await tester.pumpWidget(const MaterialApp(
-      home: Scaffold(body: Cover('https://example.invalid/cover.jpg', size: 220, fit: BoxFit.contain)),
+      home: Scaffold(body: Cover('https://example.invalid/cover.jpg', size: 220)),
     ));
     final image = tester.widget<Image>(find.byType(Image));
-    expect(image.fit, BoxFit.contain);
+    expect(image.fit, BoxFit.cover);
     expect(image.width, 220);
     expect(image.height, 220);
+    final decoded = image.image as ResizeImage;
+    expect(decoded.width, isNull, reason: 'the width follows the image: a fixed one too would squash a wide image');
+    expect(decoded.height, 220 * tester.view.devicePixelRatio);
   });
 }

@@ -34,7 +34,10 @@ class Cover extends StatelessWidget {
       borderRadius: BorderRadius.circular(radius),
       child: url == null
           ? placeholder
-          : Image(image: ResizeImage.resizeIfNeeded(px, px, coverProvider(url!)), width: size, height: size, fit: fit,
+          // decoded by its height alone, so it keeps its shape, then cropped to the square by [fit], as the Mac's
+          // scaledToFill does. Decoded at px x px, a video's 16:9 thumbnail was squashed into the square (13 Oct). By
+          // height, as the covers that are not square are videos' thumbnails, which are wide
+          : Image(image: ResizeImage.resizeIfNeeded(null, px, coverProvider(url!)), width: size, height: size, fit: fit,
               // gaplessPlayback keeps the previous frame while the new one decodes, so rapid
               // scrolling does not flash the placeholder.
               gaplessPlayback: true, errorBuilder: (_, _, _) => placeholder, frameBuilder: (_, child, frame, sync) => frame == null && !sync ? placeholder : child),

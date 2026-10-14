@@ -462,7 +462,8 @@ class _FittedArtwork extends StatelessWidget {
           key: const ValueKey('now-playing-artwork'),
           size: side,
           radius: 14,
-          fit: BoxFit.contain,
+          // filled and cropped, as every other cover and the Mac's Now Playing: a video's 16:9 thumbnail floated in
+          // empty bands
         ),
       );
     },
