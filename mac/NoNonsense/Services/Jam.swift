@@ -133,6 +133,17 @@ final class JamSession {
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
     /// The entry this player last loaded: a new state with another entry loads that one.
     @ObservationIgnored private var loadedEntry: UUID?
+    /// The room's last known place: its position, whether it played, and when that was.
+    @ObservationIgnored private var mark: (seconds: Double, playing: Bool, at: Date)?
+
+    /// Where the room's song is now: the last position the room gave, plus the time since while it plays (the server's
+    /// playhead). A song loaded for the room starts here once it is ready: the position from when its state arrived
+    /// was as old as the load was long, and a member started that far behind until the host's next report, 15 s later
+    /// (#28).
+    var playhead: Double? {
+        guard let mark, state?.current != nil else { return nil }
+        return mark.seconds + (mark.playing ? Date().timeIntervalSince(mark.at) : 0)
+    }
     /// A new room is taking over the song that was playing: until its first state with a song, the player is left alone.
     @ObservationIgnored private var carrying = false
     /// Commands sent before the room's socket is up; sent in order once it is.
@@ -365,6 +376,7 @@ final class JamSession {
         player.jamSetSilent(silentHere(room))
         let playing = reported?.playing ?? room.isPlaying
         let at = reported?.seconds ?? room.positionSeconds
+        mark = (at, playing, Date())
         guard let entry = room.current else {
             if !carrying, player.isPlaying { player.jamFollow(playing: false) }
             loadedEntry = nil

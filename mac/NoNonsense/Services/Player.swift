@@ -459,6 +459,7 @@ final class Player {
     private func startCurrent() {
         guard let track = current else { return }
         resumeAt = nil
+        resumeFromRoom = false
         fallbacksTried = 0
         freshRetried = []
         let first = downloads.file(for: track)?.listing ?? track.best   // a downloaded copy plays from the file
@@ -541,6 +542,9 @@ final class Player {
 
     /// Where a copy chosen mid-song starts, once it is ready (`switchCopy`).
     @ObservationIgnored private var resumeAt: Double?
+    /// The song loading is the room's (jamLoad): it starts at the room's playhead once ready, not where the room was
+    /// when the load began.
+    @ObservationIgnored private var resumeFromRoom = false
 
     // MARK: - jam (JamSession)
 
@@ -555,6 +559,7 @@ final class Player {
         order.load([track], startAt: 0, keys: nil, source: "jam", shuffled: false)
         startCurrent()
         resumeAt = seconds
+        resumeFromRoom = true
         if !playing { jamFollow(playing: false) }
     }
 
@@ -619,8 +624,10 @@ final class Player {
             let length = end.isFinite ? min(loaded.duration.seconds, end) : loaded.duration.seconds
             if length.isFinite, length > 0, length != audioLength { audioLength = length; publish() }
             // another copy chosen mid-song: it carries on from the same moment
-            if let at = resumeAt {
+            if let saved = resumeAt {
+                let at = resumeFromRoom ? jam?.playhead ?? saved : saved
                 resumeAt = nil
+                resumeFromRoom = false
                 if at > 1, length.isFinite, at < length - 2 { jamFollow(seek: at) }     // a local seek, never a jam command
             }
         }

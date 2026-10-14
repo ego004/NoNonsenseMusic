@@ -540,8 +540,21 @@ class JamSession extends ChangeNotifier {
   /// turned Play here off. The host's always plays.
   bool _silentHere(JamState room) => room.hostId != me && (room.onlyHostPlays || !_playHere);
 
+  /// Where the room's song is now: the last position the room gave, plus the time since while it plays (the server's
+  /// playhead). A song loaded for the room starts here once it is ready: the position from when its state arrived was
+  /// as old as the load was long, and a member started that far behind until the host's next report, 15 s later (#28).
+  double? get playhead {
+    final s = state;
+    if (s == null || s.current == null) return null;
+    final since = s.isPlaying ? DateTime.now().difference(_stateAt).inMilliseconds / 1000 : 0;
+    return s.positionSeconds + since;
+  }
+
+  DateTime _stateAt = DateTime.now();
+
   /// A new state: kept, and this device's player made to match it.
   void _apply(JamState room) {
+    _stateAt = DateTime.now();
     if (room != state) {
       state = room;
       notifyListeners();

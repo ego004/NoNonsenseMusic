@@ -43,7 +43,14 @@ dependencies:
   # throws at startup ("codegen version should be the same as runtime version"), before the first frame
   flutter_rust_bridge: 2.11.1
   just_audio: ^0.10.6
-  just_audio_windows: ^0.2.3
+  # unreleased fixes on its master (pub.dev's 0.2.3 lacks them, #28): events sent from the platform thread, not WinRT's
+  # thread pool (#63, the app hung "Not Responding"); no "idle" from inside a load (#65, a playing song showed 0:00
+  # paused); no "completed" before the duration is known (#66). Back to pub.dev once a release has them
+  just_audio_windows:
+    git:
+      url: https://github.com/bdlukaa/just_audio_windows.git
+      ref: 501f2ddddf2cdd9241213bcdaf05227a6c6a7c10
+      path: just_audio_windows
   flutter_secure_storage: ^11.2.0
   app_links: ^7.2.2
   path_provider: ^2.1.6

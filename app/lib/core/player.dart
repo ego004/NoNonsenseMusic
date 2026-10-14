@@ -335,7 +335,7 @@ class Player extends ChangeNotifier implements JamPlayer {
   /// In a jam the room decides what plays, and the transport sends it commands; null otherwise.
   @override
   JamSession? jam;
-  double? _resumeAt; // where the room's song starts once loaded
+  double? _resumeAt; // where the room's song was when it was loaded: the room's playhead once ready (JamSession.playhead)
   bool _startPaused = false; // the room is paused: the loaded song waits
 
   @override
@@ -424,7 +424,7 @@ class Player extends ChangeNotifier implements JamPlayer {
       if (mine != _loads) return;
       // a copy chosen mid-song (resumeAt) or the room's song in a jam (_resumeAt) carries on from that second; a second
       // or less, or the last two, start from the beginning
-      final at = resumeAt ?? _resumeAt;
+      final at = resumeAt ?? (_resumeAt != null ? jam?.playhead ?? _resumeAt : null);
       _resumeAt = null;
       if (at != null && at > 1) {
         final length = _audio.duration;

@@ -353,6 +353,20 @@ void main() {
       jam.leaveLocally();
     });
 
+    test("the room's playhead moves on while it plays and holds while it is paused: a song still loading starts there (#28)",
+        () async {
+      roomAnswer = roomJson(host: 'u2');
+      await jam.join('abc12');
+      await pumpEventQueue(times: 60);
+      await push(stateMessage(roomJson(host: 'u2', current: entry('e1', listing('a')), position: 10)));
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(jam.playhead, closeTo(10.4, 0.15), reason: 'the room played on while this song loaded');
+      await push(stateMessage(roomJson(host: 'u2', current: entry('e1', listing('a')), position: 20, playing: false)));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(jam.playhead, 20);
+      jam.leaveLocally();
+    });
+
     test("while the host controls the jam a member's play, skip and seek are not sent, and Play adds to the end", () async {
       roomAnswer = roomJson(host: 'u2');
       await jam.join('abc12');
