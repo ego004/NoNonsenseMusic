@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_label">NoNonsenseMusic</string>
+    <string name="widget_description">The song playing, with its controls</string>
+    <string name="widget_signed_out">Open NoNonsenseMusic to sign in</string>
+    <string name="widget_nothing_played">Nothing played yet</string>
+    <string name="widget_resume">Resume · %1$s</string>
+    <string name="widget_play">Play</string>
+    <string name="widget_pause">Pause</string>
+    <string name="widget_previous">Previous</string>
+    <string name="widget_next">Next</string>
+    <string name="widget_back10">Back 10 seconds</string>
+    <string name="widget_forward10">Forward 10 seconds</string>
+    <string name="widget_like">Like</string>
+    <string name="widget_unlike">Remove from liked songs</string>
+    <string name="widget_open">Open NoNonsenseMusic</string>
+    <string name="widget_cover">Cover</string>
+</resources>

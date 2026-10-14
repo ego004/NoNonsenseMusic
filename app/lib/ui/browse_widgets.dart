@@ -7,6 +7,7 @@ import '../core/models.dart';
 import '../core/search_model.dart';
 import 'browse_nav.dart';
 import 'cover.dart';
+import 'layout.dart';
 import 'scope.dart';
 
 /// Artist names, each one a link to that artist's page, separated by commas. One line; a name that does not fit is
@@ -92,7 +93,9 @@ class FilterCapsules extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Wrap(spacing: 8, runSpacing: 8, children: [
+    // On a phone a capsule takes taps 8 above and below what is drawn (48 in all), in place of the gap between lines
+    final reach = isPhone(context) ? 8.0 : 0.0;
+    return Wrap(spacing: 8, runSpacing: 8 - reach, children: [
       for (final f in SearchFilter.values)
         Semantics(
           button: true,
@@ -102,8 +105,10 @@ class FilterCapsules extends StatelessWidget {
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => onChanged(f),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: reach),
+                child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: isPhone(context) ? 7 : 6),
                 decoration: BoxDecoration(
                   color: f == selection ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.07),
                   borderRadius: BorderRadius.circular(20),
@@ -113,6 +118,7 @@ class FilterCapsules extends StatelessWidget {
                         fontSize: 13.5,
                         fontWeight: FontWeight.w500,
                         color: f == selection ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface)),
+              ),
               ),
             ),
           ),
@@ -236,7 +242,7 @@ class AlbumShelf extends StatelessWidget {
       height: AlbumCard.heightFor(context, side) + 8,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 24),
+        padding: EdgeInsets.symmetric(horizontal: isPhone(context) ? gutter(context) : 24),
         itemCount: albums.length,
         separatorBuilder: (_, _) => const SizedBox(width: 18),
         itemBuilder: (_, i) => AlbumCard(album: albums[i], side: side),
@@ -255,7 +261,8 @@ class ArtistShelf extends StatelessWidget {
         height: ArtistBubble.heightFor(context, 96) + 8,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          // a bubble is 7 wider than its picture on each side: the first picture, not its box, stands on the gutter
+          padding: EdgeInsets.symmetric(horizontal: isPhone(context) ? gutter(context) - 7 : 24),
           itemCount: artists.length,
           separatorBuilder: (_, _) => const SizedBox(width: 8),
           itemBuilder: (_, i) => ArtistBubble(artist: artists[i]),

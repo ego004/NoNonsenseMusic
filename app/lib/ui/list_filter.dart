@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/models.dart';
+import 'layout.dart';
 
 const _plain = {
   'á': 'a', 'à': 'a', 'â': 'a', 'ä': 'a', 'ã': 'a', 'å': 'a', 'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
@@ -37,6 +38,8 @@ class FilterField extends StatelessWidget {
           controller: controller,
           decoration: InputDecoration(
             isDense: true,
+            // a phone's fields are padded for a taller box than this one: the hint stood above the icon's line
+            contentPadding: isPhone(context) ? const EdgeInsets.symmetric(vertical: 10) : null,
             hintText: 'Search',
             prefixIcon: const Icon(FluentIcons.search_24_regular, size: 18),
             suffixIcon: controller.text.isEmpty

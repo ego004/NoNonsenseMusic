@@ -68,15 +68,22 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         final minutes = (d.items.fold<int>(0, (a, i) => a + i.$2.duration) / 60).round();
         final p = d.summary;
         // Standing under the title: null for the user's own private playlist, which needs no label.
+        final phone = isPhone(context);
+        // A computer's rows start 28 in, level with the rows that have a grip; a phone's are cards on the gutter.
+        final rowPad = EdgeInsets.fromLTRB(phone ? gutter(context) : 16, 0, rowGutter(context), bottomClearance(context));
+        final noGrip = EdgeInsets.only(left: phone ? 0 : 28);
         final standing = p.isOwner ? (p.public ? 'Public' : null) : 'Shared · ${p.canEdit ? 'Can make changes' : 'View only'}';
         return CustomScrollView(slivers: [
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(32, 36, 32, 24),
+            padding: EdgeInsets.fromLTRB(gutter(context), phone ? phoneTop : 36, gutter(context), phone ? 16 : 24),
             sliver: SliverToBoxAdapter(
-              child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                PlaylistCover(covers: covers, size: 172, name: d.summary.name),
-                const SizedBox(width: 22),
+              // A phone: the cover above the name and the buttons. Beside a 172 cover they had 150 of its width, and
+              // the buttons stood one to a line (13 Oct). Flex 0 lets the text take its own height in the column.
+              child: Flex(direction: phone ? Axis.vertical : Axis.horizontal, crossAxisAlignment: phone ? CrossAxisAlignment.start : CrossAxisAlignment.end, children: [
+                PlaylistCover(covers: covers, size: phone ? 148 : 172, name: d.summary.name),
+                SizedBox(width: phone ? 0 : 22, height: phone ? 16 : 0),
                 Expanded(
+                  flex: phone ? 0 : 1,
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(p.isAlbum ? 'ALBUM' : 'PLAYLIST', style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600)),
                     Text(d.summary.name, maxLines: 2, style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
@@ -160,7 +167,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
             ),
           ),
           if (tracks.isEmpty)
-            const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(40), child: Center(child: Text('No songs yet. Right-click any song › Add to Playlist.'))))
+            SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(40), child: Center(child: Text('No songs yet. ${phone ? 'Press and hold' : 'Right-click'} any song › Add to Playlist.', textAlign: TextAlign.center))))
           else if (_filter.text.isNotEmpty)
             // Search narrows the rows: playing one plays what is shown (as its own queue, not kept in step with the
             // playlist, which would bring the hidden songs back); no dragging while some songs are hidden
@@ -168,14 +175,14 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
               final shown = [for (var i = 0; i < tracks.length; i++) if (songMatches(tracks[i], _filter.text)) i];
               final shownTracks = [for (final i in shown) tracks[i]];
               return SliverPadding(
-                padding: EdgeInsets.fromLTRB(16, 0, 22, bottomClearance(context)),
+                padding: rowPad,
                 sliver: shown.isEmpty
                     ? SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(32), child: Center(child: Text('No songs match “${_filter.text}”'))))
                     : SliverList.builder(
                         itemCount: shown.length,
                         itemBuilder: (_, row) => Padding(
-                          padding: const EdgeInsets.only(left: 28),
-                          child: SizedBox(height: 58, child: SongRow(queue: shownTracks, index: row,
+                          padding: noGrip,
+                          child: SizedBox(height: songRowExtent(context), child: SongRow(queue: shownTracks, index: row,
                               removeFrom: p.canEdit
                                   ? (name: d.summary.name, remove: () => s.library.remove(d.items[shown[row]].$1, d.summary.id))
                                   : null)),
@@ -186,18 +193,19 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
           else if (!p.canEdit)
             // A viewer gets the songs to play, without grips or Remove, which the server would refuse.
             SliverPadding(
-              padding: EdgeInsets.fromLTRB(16, 0, 22, bottomClearance(context)),
+              padding: rowPad,
               sliver: SliverList.builder(
                 itemCount: d.items.length,
                 itemBuilder: (_, i) => Padding(
-                  padding: const EdgeInsets.only(left: 28),
-                  child: SizedBox(height: 58, child: SongRow(queue: tracks, index: i, keys: d.keys, source: d.queueSource)),
+                  padding: noGrip,
+                  child: SizedBox(height: songRowExtent(context), child: SongRow(queue: tracks, index: i, keys: d.keys, source: d.queueSource)),
                 ),
               ),
             )
           else
             SliverPadding(
-              padding: EdgeInsets.fromLTRB(16, 0, 22, bottomClearance(context)),
+              // the grip has 12 beside its dots on a phone: the dots, not their box, stand on the gutter
+              padding: phone ? rowPad.copyWith(left: gutter(context) - 12) : rowPad,
               sliver: SliverReorderableList(
                 itemCount: d.items.length,
                 onReorderItem: (from, to) => s.library.moveItem(d.summary.id, from, to),
@@ -206,10 +214,11 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                   children: [
                     ReorderableDragStartListener(
                       index: i,
-                      child: const MouseRegion(cursor: SystemMouseCursors.grab, child: Padding(padding: EdgeInsets.all(6), child: Icon(FluentIcons.re_order_dots_vertical_24_regular, size: 16))),
+                      // a finger needs more to take hold of than a pointer: 40 wide and the row's height on a phone
+                      child: MouseRegion(cursor: SystemMouseCursors.grab, child: Padding(padding: phone ? const EdgeInsets.symmetric(horizontal: 12, vertical: 16) : const EdgeInsets.all(6), child: const Icon(FluentIcons.re_order_dots_vertical_24_regular, size: 16))),
                     ),
                     Expanded(
-                      child: SizedBox(height: 58, child: SongRow(queue: tracks, index: i, keys: d.keys, source: d.queueSource,
+                      child: SizedBox(height: songRowExtent(context), child: SongRow(queue: tracks, index: i, keys: d.keys, source: d.queueSource,
                           removeFrom: (name: d.summary.name, remove: () => s.library.remove(d.items[i].$1, d.summary.id)))),
                     ),
                   ],

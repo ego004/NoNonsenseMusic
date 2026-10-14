@@ -12,6 +12,7 @@ import 'core/api.dart';
 import 'core/audio_cache.dart';
 import 'core/auth.dart';
 import 'core/download_store.dart';
+import 'core/home_screen_widget.dart';
 import 'core/discord.dart';
 import 'core/library.dart';
 import 'core/links.dart';
@@ -54,6 +55,7 @@ Future<void> main() async {
   final auth = Auth()..onEnded = () { JamSession.shared.leaveLocally(); Social.shared.stop(); player.stop(); library.clear(); };
   final started = auth.start(); // The stored token, checked with the server: the sign-in screen or the app.
   MediaControls(player).start();
+  HomeScreenWidget(player, library, auth, accent).start(); // Android's home-screen widget
   settings.addListener(() => applyMaterial(settings.material));
   await applyMaterial(settings.material);
   watchInFront();

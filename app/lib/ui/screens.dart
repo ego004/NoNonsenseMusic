@@ -40,10 +40,11 @@ class _SearchScreenState extends State<SearchScreen> {
       builder: (context, _) {
         final m = _model;
         final phone = isPhone(context);
-        final side = phone ? 20.0 : 32.0;
+        final side = gutter(context);
         return Column(children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(side, m.isIdle ? 120 : 28, side, 12),
+            // a computer's empty search stands lower in its tall window; a phone's is under the top bar either way
+            padding: EdgeInsets.fromLTRB(side, phone ? phoneTop : (m.isIdle ? 120 : 28), side, phone && !m.isIdle ? 4 : 12),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 560),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -67,7 +68,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                 ),
                 if (!m.isIdle) ...[
-                  const SizedBox(height: 12),
+                  SizedBox(height: phone ? 4 : 12), // a phone's capsules reach 8 above what is drawn
                   FilterCapsules(selection: m.filter, onChanged: m.setFilter),
                   if (m.result.unavailable.isNotEmpty) ...[
                     const SizedBox(height: 10),
@@ -117,9 +118,9 @@ class _Results extends StatelessWidget {
           ],
           if (songs.isNotEmpty && (model.artists.isNotEmpty || model.albums.isNotEmpty)) heading('Songs'),
           SliverPadding(
-            padding: EdgeInsets.fromLTRB(22, 0, 22, bottomClearance(context, extra: 20)), // the last row clear of the player bar
+            padding: EdgeInsets.fromLTRB(rowGutter(context), 0, rowGutter(context), bottomClearance(context, extra: 20)), // the last row clear of the player bar
             sliver: SliverFixedExtentList.builder(
-              itemExtent: 58,
+              itemExtent: songRowExtent(context),
               itemCount: songs.length,
               // the song alone: Autoplay brings the related songs, the other results are not queued
               itemBuilder: (_, i) => SongRow(queue: [songs[i]], index: 0),
@@ -170,13 +171,13 @@ class _SongListScreenState extends State<SongListScreen> {
         }
         return CustomScrollView(slivers: [
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(32, 36, 32, 22),
+            padding: EdgeInsets.fromLTRB(gutter(context), isPhone(context) ? phoneTop : 36, gutter(context), isPhone(context) ? 16 : 22),
             sliver: SliverToBoxAdapter(
               child: Builder(builder: (context) {
                 final heading = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(title, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700, letterSpacing: -0.6)),
+                  Text(title, style: theme.textTheme.headlineLarge),
                   const SizedBox(height: 4),
-                  Text(songCount(tracks.length), style: TextStyle(fontSize: 13.5, color: theme.colorScheme.onSurface.withValues(alpha: 0.55))),
+                  Text(songCount(tracks.length), style: theme.textTheme.bodySmall?.copyWith(fontSize: 13.5)),
                 ]);
                 final actions = Wrap(spacing: 10, runSpacing: 8, children: [
                   FilledButton.icon(onPressed: () => s.player.play(tracks, wholeList: true), icon: const Icon(FluentIcons.play_24_filled, size: 16), label: const Text('Play')),
@@ -192,10 +193,10 @@ class _SongListScreenState extends State<SongListScreen> {
             ),
           ),
           SliverPadding(
-            padding: EdgeInsets.fromLTRB(22, 0, 22, bottomClearance(context)),
+            padding: EdgeInsets.fromLTRB(rowGutter(context), 0, rowGutter(context), bottomClearance(context)),
             sliver: shown.isEmpty
                 ? SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(32), child: Center(child: Text('No songs match “${_filter.text}”'))))
-                : SliverFixedExtentList.builder(itemExtent: 58, itemCount: shown.length, itemBuilder: (_, i) => SongRow(queue: shown, index: i)),
+                : SliverFixedExtentList.builder(itemExtent: songRowExtent(context), itemCount: shown.length, itemBuilder: (_, i) => SongRow(queue: shown, index: i)),
           ),
         ]);
       },

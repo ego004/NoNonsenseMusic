@@ -200,6 +200,9 @@ void main() {
       await tester.tap(find.text('Home').last);
       await tester.pump(const Duration(seconds: 1));
       await tester.scrollUntilVisible(find.text(name), 200, scrollable: find.byType(Scrollable).first);
+      // in view is not in reach: the card can stand under the floating player bar, which then takes the tap (13 Oct)
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -260));
+      await tester.pump(const Duration(milliseconds: 600));
     }
     await tester.tap(find.text(name).first);
     await until(tester, () => find.byType(SongRow).evaluate().length == 3);

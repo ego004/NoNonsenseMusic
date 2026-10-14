@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Back ten seconds: a ring turning back, a minus inside. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="@color/widget_ink" android:strokeWidth="1.8" android:strokeLineCap="round" android:pathData="M12,5.5A7,7 0,1 1,7.05 7.55"/>
+    <path android:fillColor="@color/widget_ink" android:pathData="M12.5,3L12.5,8L9,5.5z"/>
+    <path android:strokeColor="@color/widget_ink" android:strokeWidth="1.8" android:strokeLineCap="round" android:pathData="M9,12.5H15"/>
+</vector>

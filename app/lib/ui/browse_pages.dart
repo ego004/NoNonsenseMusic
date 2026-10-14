@@ -147,9 +147,9 @@ class ArtistView extends StatelessWidget {
         if (tracks.isNotEmpty) ...[
           _section(context, 'Top Songs', side),
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: EdgeInsets.symmetric(horizontal: narrow ? side : side - 10),
             sliver: SliverFixedExtentList.builder(
-              itemExtent: 58,
+              itemExtent: songRowExtent(context),
               itemCount: tracks.length < 10 ? tracks.length : 10,
               itemBuilder: (_, i) => SongRow(queue: tracks, index: i),
             ),
@@ -255,9 +255,9 @@ class _AlbumViewState extends State<AlbumView> {
           ),
         ),
         SliverPadding(
-          padding: EdgeInsets.fromLTRB(12, 0, 12, bottomClearance(context, extra: 20)),
+          padding: EdgeInsets.fromLTRB(narrow ? side : side - 10, 0, narrow ? side : side - 10, bottomClearance(context, extra: 20)),
           sliver: SliverFixedExtentList.builder(
-            itemExtent: 58,
+            itemExtent: songRowExtent(context),
             itemCount: tracks.length,
             itemBuilder: (_, i) => SongRow(queue: tracks, index: i),
           ),

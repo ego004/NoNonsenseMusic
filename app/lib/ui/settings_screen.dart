@@ -41,7 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Widget heading(String t) => Padding(padding: const EdgeInsets.only(top: 24, bottom: 8), child: Text(t, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)));
     return ListenableBuilder(
       listenable: s.settings,
-      builder: (context, _) => ListView(padding: EdgeInsets.fromLTRB(32, 28, 32, bottomClearance(context)), children: [
+      builder: (context, _) => ListView(padding: EdgeInsets.fromLTRB(gutter(context), isPhone(context) ? phoneTop : 28, gutter(context), bottomClearance(context)), children: [
         Text('Settings', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
         heading('Account'),
         Row(children: [

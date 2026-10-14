@@ -12,20 +12,31 @@ import '../core/accent.dart';
 /// Type leans on weight and size rather than colour.
 ThemeData buildTheme(Brightness b, Color? song) {
   final dark = b == Brightness.dark;
-  final accent = song != null ? Accent.readable(song, b) : (dark ? const Color(0xFF60CDFF) : const Color(0xFF005FB8)); // Windows 11's default accent
-  final surface = dark ? const Color(0xFF1B1B1D) : const Color(0xFFF7F7F8);
+  final mobile = Platform.isAndroid || Platform.isIOS;
+  final accent = song != null
+      ? Accent.readable(song, b)
+      : (dark
+            ? const Color(0xFF60CDFF)
+            : const Color(0xFF005FB8)); // Windows 11's default accent
+  final surface = mobile
+      ? (dark ? const Color(0xFF111722) : const Color(0xFFF5F7FC))
+      : (dark ? const Color(0xFF1B1B1D) : const Color(0xFFF7F7F8));
   final ink = dark ? const Color(0xFFF2F2F3) : const Color(0xFF16161A);
   final scheme = ColorScheme(
     brightness: b,
     primary: accent,
-    onPrimary: ThemeData.estimateBrightnessForColor(accent) == Brightness.dark ? Colors.white : Colors.black,
+    onPrimary: ThemeData.estimateBrightnessForColor(accent) == Brightness.dark
+        ? Colors.white
+        : Colors.black,
     secondary: accent,
     onSecondary: Colors.white,
     error: const Color(0xFFD13438),
     onError: Colors.white,
     surface: surface,
     onSurface: ink,
-    surfaceContainerHighest: dark ? const Color(0xFF2A2A2D) : const Color(0xFFFFFFFF),
+    surfaceContainerHighest: mobile
+        ? (dark ? const Color(0xFF273247) : Colors.white)
+        : (dark ? const Color(0xFF2A2A2D) : const Color(0xFFFFFFFF)),
     outline: ink.withValues(alpha: 0.12),
   );
   final base = ThemeData(
@@ -33,7 +44,7 @@ ThemeData buildTheme(Brightness b, Color? song) {
     colorScheme: scheme,
     brightness: b,
     fontFamily: Platform.isWindows ? 'Segoe UI Variable Text' : null,
-    visualDensity: VisualDensity.compact,
+    visualDensity: mobile ? VisualDensity.standard : VisualDensity.compact,
     splashFactory: NoSplash.splashFactory,
     highlightColor: Colors.transparent,
     hoverColor: ink.withValues(alpha: 0.05),
@@ -43,24 +54,70 @@ ThemeData buildTheme(Brightness b, Color? song) {
   final t = base.textTheme;
   return base.copyWith(
     textTheme: t.copyWith(
-      headlineLarge: t.headlineLarge?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.6),
-      headlineMedium: t.headlineMedium?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4),
-      headlineSmall: t.headlineSmall?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.3),
-      titleLarge: t.titleLarge?.copyWith(fontWeight: FontWeight.w600, letterSpacing: -0.2),
-      bodySmall: t.bodySmall?.copyWith(color: ink.withValues(alpha: 0.58)),
+      headlineLarge: t.headlineLarge?.copyWith(
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.6,
+      ),
+      headlineMedium: t.headlineMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.4,
+      ),
+      headlineSmall: t.headlineSmall?.copyWith(
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.3,
+      ),
+      titleLarge: t.titleLarge?.copyWith(
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.2,
+      ),
+      // small text needs 4.5 to 1 against the surface: 0.58 gave about 4.4 on the light one, 0.66 gives 5.7
+      bodySmall: t.bodySmall?.copyWith(color: ink.withValues(alpha: 0.66)),
     ),
     filledButtonTheme: FilledButtonThemeData(
-      style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12)),
+      style: FilledButton.styleFrom(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(mobile ? 16 : 6),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: ink,
         side: BorderSide(color: ink.withValues(alpha: 0.16)),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(mobile ? 16 : 6),
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
       ),
     ),
-    iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: ink.withValues(alpha: 0.85))),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(foregroundColor: ink.withValues(alpha: 0.85)),
+    ),
+    inputDecorationTheme: mobile
+        ? InputDecorationTheme(
+            filled: true,
+            fillColor: scheme.surfaceContainerHighest.withValues(
+              alpha: dark ? 0.35 : 0.64,
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 15,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: ink.withValues(alpha: 0.08)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: ink.withValues(alpha: 0.08)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: accent, width: 1.5),
+            ),
+          )
+        : null,
     sliderTheme: SliderThemeData(
       activeTrackColor: accent,
       inactiveTrackColor: ink.withValues(alpha: 0.14),
@@ -69,20 +126,50 @@ ThemeData buildTheme(Brightness b, Color? song) {
       overlayShape: SliderComponentShape.noOverlay,
       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
     ),
-    tooltipTheme: TooltipThemeData(waitDuration: const Duration(milliseconds: 600), decoration: BoxDecoration(color: dark ? const Color(0xFF2C2C2E) : const Color(0xFF16161A), borderRadius: BorderRadius.circular(4))),
+    tooltipTheme: TooltipThemeData(
+      waitDuration: const Duration(milliseconds: 600),
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF2C2C2E) : const Color(0xFF16161A),
+        borderRadius: BorderRadius.circular(4),
+      ),
+    ),
     navigationBarTheme: NavigationBarThemeData(
-      height: 64,
+      height: mobile ? 64 : 64,
       elevation: 0,
-      backgroundColor: Color.alphaBlend(ink.withValues(alpha: 0.04), surface),
+      backgroundColor: mobile
+          ? Colors.transparent
+          : Color.alphaBlend(ink.withValues(alpha: 0.04), surface),
       surfaceTintColor: Colors.transparent,
       indicatorColor: accent.withValues(alpha: 0.18),
-      iconTheme: WidgetStateProperty.resolveWith((s) => IconThemeData(size: 22, color: ink.withValues(alpha: s.contains(WidgetState.selected) ? 1 : 0.65))),
+      iconTheme: WidgetStateProperty.resolveWith(
+        (s) => IconThemeData(
+          size: 22,
+          color: ink.withValues(
+            alpha: s.contains(WidgetState.selected) ? 1 : 0.65,
+          ),
+        ),
+      ),
       labelTextStyle: WidgetStateProperty.resolveWith((s) {
         final on = s.contains(WidgetState.selected);
-        return TextStyle(fontSize: 11.5, fontWeight: on ? FontWeight.w600 : FontWeight.w500, color: ink.withValues(alpha: on ? 1 : 0.65));
+        return TextStyle(
+          fontSize: 11.5,
+          fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+          color: ink.withValues(alpha: on ? 1 : 0.65),
+        );
       }),
     ),
-    dividerTheme: DividerThemeData(color: ink.withValues(alpha: 0.08), space: 1),
-    popupMenuTheme: PopupMenuThemeData(color: dark ? const Color(0xFF2C2C2E) : Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), elevation: 8),
+    dividerTheme: DividerThemeData(
+      color: ink.withValues(alpha: 0.08),
+      space: 1,
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: mobile
+          ? scheme.surfaceContainerHighest
+          : (dark ? const Color(0xFF2C2C2E) : Colors.white),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(mobile ? 18 : 8),
+      ),
+      elevation: 8,
+    ),
   );
 }

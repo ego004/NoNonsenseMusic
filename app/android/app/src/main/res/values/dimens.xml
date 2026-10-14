@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- GlassSurface's radius (lib/ui/glass.dart). -->
+    <dimen name="widget_radius">24dp</dimen>
+</resources>

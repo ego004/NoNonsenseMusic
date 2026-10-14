@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/auth.dart';
 import '../core/settings.dart';
+import 'glass.dart';
 import 'recovery_codes.dart';
 
 /// Show the sign-in screen until a session exists, then the signed-in app. A session that ends (expired, or signed
@@ -12,20 +13,32 @@ class AuthGate extends StatelessWidget {
   final Auth auth;
   final Settings settings;
   final WidgetBuilder signedIn;
-  const AuthGate({super.key, required this.auth, required this.settings, required this.signedIn});
+  const AuthGate({
+    super.key,
+    required this.auth,
+    required this.settings,
+    required this.signedIn,
+  });
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-        listenable: auth,
-        builder: (context, _) => switch (auth.state) {
-          // shown at launch while the stored token is checked: there is nothing to draw yet
-          AuthState.checking => ColoredBox(color: Theme.of(context).colorScheme.surface),
-          AuthState.signedOut => SignInScreen(auth: auth, settings: settings),
-          // a key per account: the next account starts from a fresh stack, not this account's screens
-          AuthState.signedIn => KeyedSubtree(
-              key: ValueKey(auth.user?.id), child: RecoveryCodesHost(auth: auth, child: Builder(builder: signedIn))),
-        },
-      );
+    listenable: auth,
+    builder: (context, _) => switch (auth.state) {
+      // shown at launch while the stored token is checked: there is nothing to draw yet
+      AuthState.checking => ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+      ),
+      AuthState.signedOut => SignInScreen(auth: auth, settings: settings),
+      // a key per account: the next account starts from a fresh stack, not this account's screens
+      AuthState.signedIn => KeyedSubtree(
+        key: ValueKey(auth.user?.id),
+        child: RecoveryCodesHost(
+          auth: auth,
+          child: Builder(builder: signedIn),
+        ),
+      ),
+    },
+  );
 }
 
 /// Sign in or create an account, with one toggle between the two, and "Forgot Password?" for a new password with a
@@ -66,20 +79,42 @@ class _SignInScreenState extends State<SignInScreen> {
   /// Send the form to the server, save the device name on success, and show the server's error if there is one.
   Future<void> _go() async {
     if (_busy) return;
-    setState(() { _busy = true; _error = null; });
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     final name = _username.text.trim();
     final error = _mode == _Mode.recover
-        ? await widget.auth.recover(name, _code.text.trim(), _password.text, device: _device.text)
-        : await widget.auth.signIn(name, _password.text, create: _creating, device: _device.text);
-    if (error == null) await widget.settings.setDeviceName(_device.text.trim().isEmpty ? Auth.computerName : _device.text.trim());
-    if (mounted) setState(() { _busy = false; _error = error; });
+        ? await widget.auth.recover(
+            name,
+            _code.text.trim(),
+            _password.text,
+            device: _device.text,
+          )
+        : await widget.auth.signIn(
+            name,
+            _password.text,
+            create: _creating,
+            device: _device.text,
+          );
+    if (error == null) {
+      await widget.settings.setDeviceName(
+        _device.text.trim().isEmpty ? Auth.computerName : _device.text.trim(),
+      );
+    }
+    if (mounted) {
+      setState(() {
+        _busy = false;
+        _error = error;
+      });
+    }
   }
 
   void _switchTo(_Mode next) => setState(() {
-        _mode = next;
-        _error = null;
-        _password.clear();
-      });
+    _mode = next;
+    _error = null;
+    _password.clear();
+  });
 
   /// Format an address as "127.0.0.1:8000" rather than "http://127.0.0.1:8000"; a scheme is kept only when it is
   /// https, so plain http addresses show bare host and port.
@@ -98,11 +133,21 @@ class _SignInScreenState extends State<SignInScreen> {
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('Server'),
-        content: TextField(controller: field, autofocus: true, decoration: const InputDecoration(labelText: 'Address'),
-            onSubmitted: (v) => Navigator.pop(c, v)),
+        content: TextField(
+          controller: field,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Address'),
+          onSubmitted: (v) => Navigator.pop(c, v),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(c, field.text), child: const Text('Save')),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, field.text),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
@@ -116,94 +161,168 @@ class _SignInScreenState extends State<SignInScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final notice = _mode == _Mode.signIn ? widget.auth.notice : null;
-    final title = switch (_mode) { _Mode.signIn => 'Sign In', _Mode.create => 'Create Account', _Mode.recover => 'Reset Password' };
+    final title = switch (_mode) {
+      _Mode.signIn => 'Sign In',
+      _Mode.create => 'Create Account',
+      _Mode.recover => 'Reset Password',
+    };
     final action = switch (_mode) {
       _Mode.signIn => _busy ? 'Signing In…' : 'Sign In',
       _Mode.create => _busy ? 'Creating…' : 'Create Account',
       _Mode.recover => _busy ? 'Resetting…' : 'Reset Password',
     };
-    return Scaffold(
-      // transparent on Windows so the system background (Mica) shows through, as in shell.dart
-      backgroundColor: Platform.isWindows ? Colors.transparent : theme.colorScheme.surface,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 300),
-          child: AutofillGroup(
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text(title,
-                  textAlign: TextAlign.center, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600)),
-              if (notice != null) ...[
-                const SizedBox(height: 6),
-                Text(notice, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
-              ],
-              const SizedBox(height: 20),
-              TextField(
-                controller: _username,
-                autofocus: true,
-                enabled: !_busy,
-                autofillHints: const [AutofillHints.username],
-                decoration: const InputDecoration(labelText: 'Username'),
-                textInputAction: TextInputAction.next,
+    final mobile = Platform.isAndroid || Platform.isIOS;
+    final form = ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: mobile ? 390 : 300),
+      child: AutofillGroup(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w600,
               ),
-              if (_mode == _Mode.recover) ...[
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _code,
-                  enabled: !_busy,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  style: const TextStyle(fontFamily: 'monospace'),
-                  decoration: const InputDecoration(labelText: 'Recovery Code', hintText: 'XXXX-XXXX-XXXX-XXXX'),
-                  textInputAction: TextInputAction.next,
-                ),
-              ],
+            ),
+            if (notice != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                notice,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
+            const SizedBox(height: 20),
+            TextField(
+              controller: _username,
+              autofocus: true,
+              enabled: !_busy,
+              autofillHints: const [AutofillHints.username],
+              decoration: const InputDecoration(labelText: 'Username'),
+              textInputAction: TextInputAction.next,
+            ),
+            if (_mode == _Mode.recover) ...[
               const SizedBox(height: 10),
               TextField(
-                controller: _password,
+                controller: _code,
                 enabled: !_busy,
-                obscureText: true,
-                autofillHints: [_mode == _Mode.signIn ? AutofillHints.password : AutofillHints.newPassword],
-                decoration: InputDecoration(
-                    labelText: switch (_mode) {
+                autocorrect: false,
+                enableSuggestions: false,
+                style: const TextStyle(fontFamily: 'monospace'),
+                decoration: const InputDecoration(
+                  labelText: 'Recovery Code',
+                  hintText: 'XXXX-XXXX-XXXX-XXXX',
+                ),
+                textInputAction: TextInputAction.next,
+              ),
+            ],
+            const SizedBox(height: 10),
+            TextField(
+              controller: _password,
+              enabled: !_busy,
+              obscureText: true,
+              autofillHints: [
+                _mode == _Mode.signIn
+                    ? AutofillHints.password
+                    : AutofillHints.newPassword,
+              ],
+              decoration: InputDecoration(
+                labelText: switch (_mode) {
                   _Mode.signIn => 'Password',
                   _Mode.create => 'Password (8 or more characters)',
                   _Mode.recover => 'New Password (8 or more characters)',
-                }),
-                onSubmitted: (_) => _go(),
+                },
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _device,
-                enabled: !_busy,
-                decoration: const InputDecoration(labelText: 'Device Name', prefixIcon: Icon(Icons.computer_outlined)),
-                onSubmitted: (_) => _go(),
+              onSubmitted: (_) => _go(),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _device,
+              enabled: !_busy,
+              decoration: const InputDecoration(
+                labelText: 'Device Name',
+                prefixIcon: Icon(Icons.computer_outlined),
               ),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!, key: const ValueKey('signInError'), textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error)),
-              ],
-              const SizedBox(height: 20),
-              FilledButton(onPressed: _busy ? null : _go, child: Text(action)),
-              const SizedBox(height: 8),
-              Wrap(alignment: WrapAlignment.center, children: [
+              onSubmitted: (_) => _go(),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                key: const ValueKey('signInError'),
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            FilledButton(onPressed: _busy ? null : _go, child: Text(action)),
+            const SizedBox(height: 8),
+            Wrap(
+              alignment: WrapAlignment.center,
+              children: [
                 TextButton(
-                  onPressed: _busy ? null : () => _switchTo(_mode == _Mode.signIn ? _Mode.create : _Mode.signIn),
-                  child: Text(_mode == _Mode.signIn ? 'Create Account…' : 'Sign In Instead'),
+                  onPressed: _busy
+                      ? null
+                      : () => _switchTo(
+                          _mode == _Mode.signIn ? _Mode.create : _Mode.signIn,
+                        ),
+                  child: Text(
+                    _mode == _Mode.signIn
+                        ? 'Create Account…'
+                        : 'Sign In Instead',
+                  ),
                 ),
                 if (_mode == _Mode.signIn)
-                  TextButton(onPressed: _busy ? null : () => _switchTo(_Mode.recover), child: const Text('Forgot Password?')),
-              ]),
-              // the server: the user picks it before signing in; Settings › Server changes it later
-              TextButton(
-                onPressed: _busy ? null : _changeServer,
-                child: Text('Server: ${_short(widget.settings.server)}',
-                    style: theme.textTheme.bodySmall?.copyWith(color: widget.auth.unreachable ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant)),
+                  TextButton(
+                    onPressed: _busy ? null : () => _switchTo(_Mode.recover),
+                    child: const Text('Forgot Password?'),
+                  ),
+              ],
+            ),
+            // the server: the user picks it before signing in; Settings › Server changes it later
+            TextButton(
+              onPressed: _busy ? null : _changeServer,
+              child: Text(
+                'Server: ${_short(widget.settings.server)}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: widget.auth.unreachable
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
               ),
-            ]),
-          ),
+            ),
+          ],
         ),
       ),
+    );
+    return Scaffold(
+      backgroundColor: Platform.isWindows || mobile
+          ? Colors.transparent
+          : theme.colorScheme.surface,
+      body: mobile
+          ? Stack(
+              children: [
+                const Positioned.fill(child: PhoneBackdrop()),
+                SafeArea(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: GlassSurface(
+                        radius: 28,
+                        padding: const EdgeInsets.all(24),
+                        child: form,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          // scrolls when the window is shorter than the form, which overflowed it
+          : Center(child: SingleChildScrollView(padding: const EdgeInsets.all(20), child: form)),
     );
   }
 }

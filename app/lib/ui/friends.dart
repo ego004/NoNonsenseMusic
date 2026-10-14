@@ -106,7 +106,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final pad = isPhone(context) ? 16.0 : 32.0;
+    final pad = gutter(context);
     Widget heading(String text) => SliverPadding(
           padding: EdgeInsets.fromLTRB(pad, 18, pad, 4),
           sliver: SliverToBoxAdapter(child: Text(text, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))),
@@ -122,7 +122,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
         final empty = s.friends.isEmpty && s.incoming.isEmpty && s.outgoing.isEmpty;
         return CustomScrollView(slivers: [
           SliverPadding(
-            padding: EdgeInsets.fromLTRB(pad, isPhone(context) ? 12 : 36, pad, 8),
+            padding: EdgeInsets.fromLTRB(pad, isPhone(context) ? phoneTop : 36, pad, 8),
             sliver: SliverToBoxAdapter(
               child: Row(children: [
                 Expanded(child: Text('Friends', style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold))),

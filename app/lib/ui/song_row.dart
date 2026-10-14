@@ -17,11 +17,19 @@ import 'waiting.dart';
 class SongRow extends StatefulWidget {
   final List<Track> queue;
   final int index;
+
   /// In a playlist: its item ids and queue name, so its edits reach the playing queue, plus a "Remove from …" entry.
   final List<String>? keys;
   final String? source;
   final ({String name, VoidCallback remove})? removeFrom;
-  const SongRow({super.key, required this.queue, required this.index, this.keys, this.source, this.removeFrom});
+  const SongRow({
+    super.key,
+    required this.queue,
+    required this.index,
+    this.keys,
+    this.source,
+    this.removeFrom,
+  });
 
   @override
   State<SongRow> createState() => _SongRowState();
@@ -35,77 +43,159 @@ class _SongRowState extends State<SongRow> {
     final s = Scope.of(context);
     final track = widget.queue[widget.index];
     final theme = Theme.of(context);
+    final phone = isPhone(context);
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
-    void play() => s.player.play(widget.queue, startAt: widget.index, keys: widget.keys, source: widget.source);
+    void play() => s.player.play(
+      widget.queue,
+      startAt: widget.index,
+      keys: widget.keys,
+      source: widget.source,
+    );
     return MouseRegion(
       onEnter: (_) => setState(() => hovering = true),
       onExit: (_) => setState(() => hovering = false),
       child: GestureDetector(
+        // a touch screen plays on a tap, a mouse on a double-click: by platform, not width (layout.dart)
         onTap: isTouchDevice ? play : null,
         onDoubleTap: isTouchDevice ? null : play,
         onSecondaryTapUp: (d) => _menu(context, d.globalPosition, track, play),
-        onLongPressStart: (d) => _menu(context, d.globalPosition, track, play), // a phone has no right button
-        child: Container(
-          height: 56,
+        onLongPressStart: (d) => _menu(
+          context,
+          d.globalPosition,
+          track,
+          play,
+        ), // a phone has no right button
+        // Aligned to the top so the row keeps its own height: a list gives each row its whole extent, and the row
+        // filled it, leaving no gap between a phone's cards
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: Container(
+          height: songRowExtent(context) - songRowGap(context),
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: hovering ? theme.colorScheme.onSurface.withValues(alpha: 0.05) : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
+            color: phone
+                ? theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: theme.brightness == Brightness.dark ? 0.38 : 0.7,
+                  )
+                : hovering
+                ? theme.colorScheme.onSurface.withValues(alpha: 0.05)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(phone ? 16 : 8),
+            border: phone
+                ? Border.all(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.055),
+                  )
+                : null,
           ),
-          child: Row(children: [
-            // The cover plays the song on tap; the overlay marks the song that is currently playing.
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: play,
-                child: Stack(alignment: Alignment.center, children: [
-                  Cover(track.image, size: 40),
-                  _PlayingMark(track: track, hovering: hovering),
-                ]),
+          child: Row(
+            children: [
+              // The cover plays the song on tap; the overlay marks the song that is currently playing.
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: play,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Cover(track.image, size: 40),
+                      _PlayingMark(track: track, hovering: hovering),
+                    ],
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Flexible(child: _Title(track: track)),
-                  if (track.isExplicit) const Padding(padding: EdgeInsets.only(left: 4), child: ExplicitBadge()),
-                ]),
-                const SizedBox(height: 2),
-                Row(children: [
-                  _DownloadedMark(track: track, color: muted),
-                  Expanded(child: Text(track.artistLine, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: muted))),
-                ]),
-              ]),
-            ),
-            // One copy: where it plays from, in the place "N listings" takes for songs found on several sources.
-            // Left out on a phone, where the title needs the room.
-            if (!isPhone(context)) _Listings(track: track, queue: widget.queue, index: widget.index, keys: widget.keys, source: widget.source),
-            ListenableBuilder(
-              listenable: s.library,
-              builder: (context, _) => Opacity(
-                opacity: s.library.isLiked(track) || hovering ? 1 : 0,
-                child: LikeButton(track: track, size: 18),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(child: _Title(track: track)),
+                        if (track.isExplicit)
+                          const Padding(
+                            padding: EdgeInsets.only(left: 4),
+                            child: ExplicitBadge(),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        _DownloadedMark(track: track, color: muted),
+                        Expanded(
+                          child: Text(
+                            track.artistLine,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12.5, color: muted),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(width: 44, child: Text(formatTime(track.duration.toDouble()), textAlign: TextAlign.right,
-                style: TextStyle(fontSize: 12.5, color: muted, fontFeatures: const [FontFeature.tabularFigures()]))),
-          ]),
+              // One copy: where it plays from, in the place "N listings" takes for songs found on several sources.
+              // Left out on a phone, where the title needs the room.
+              if (!phone)
+                _Listings(
+                  track: track,
+                  queue: widget.queue,
+                  index: widget.index,
+                  keys: widget.keys,
+                  source: widget.source,
+                ),
+              ListenableBuilder(
+                listenable: s.library,
+                builder: (context, _) => Opacity(
+                  opacity: s.library.isLiked(track) || hovering || phone ? 1 : 0,
+                  child: LikeButton(track: track, size: 18),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 44,
+                child: Text(
+                  formatTime(track.duration.toDouble()),
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: muted,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          ),
         ),
       ),
     );
   }
 
-  void _menu(BuildContext context, Offset at, Track track, VoidCallback play) => showSongMenu(context, at, track,
-      play: play, queueable: true,
-      remove: widget.removeFrom == null ? null : (label: 'Remove from “${widget.removeFrom!.name}”', run: widget.removeFrom!.remove));
+  void _menu(BuildContext context, Offset at, Track track, VoidCallback play) => showSongMenu(
+    context,
+    at,
+    track,
+    play: play,
+    queueable: true,
+    remove: widget.removeFrom == null
+        ? null
+        : (label: 'Remove from “${widget.removeFrom!.name}”', run: widget.removeFrom!.remove),
+  );
 }
 
 /// A song's menu, the same wherever a song is offered: a row (right-click, long-press), an Up Next row, the playing
 /// song's "…". [play] comes first, with Play Next and Add to Queue when [queueable]; [remove] comes last.
-Future<void> showSongMenu(BuildContext context, Offset at, Track track,
-    {VoidCallback? play, bool queueable = false, ({String label, VoidCallback run})? remove}) async {
+Future<void> showSongMenu(
+  BuildContext context,
+  Offset at,
+  Track track, {
+  VoidCallback? play,
+  bool queueable = false,
+  ({String label, VoidCallback run})? remove,
+}) async {
   final s = Scope.of(context);
   final liked = s.library.isLiked(track);
   final chosen = await showMenu<String>(
@@ -120,16 +210,28 @@ Future<void> showSongMenu(BuildContext context, Offset at, Track track,
         ],
         const PopupMenuDivider(),
       ],
-      PopupMenuItem(value: 'like', child: Text(liked ? 'Remove from Liked' : 'Like')),
+      PopupMenuItem(
+        value: 'like',
+        child: Text(liked ? 'Remove from Liked' : 'Like'),
+      ),
       const PopupMenuItem(value: 'playlist', child: Text('Add to Playlist…')),
       const PopupMenuDivider(),
       if (DownloadStore.shared.folder != null)
         if (DownloadStore.shared.isDownloading(track))
           const PopupMenuItem(enabled: false, child: Text('Downloading…'))
         else
-          PopupMenuItem(value: 'download', child: Text(DownloadStore.shared.isDownloaded(track) ? 'Remove Download' : 'Download')),
-      if (track.artists.isNotEmpty) const PopupMenuItem(value: 'artist', child: Text('Go to Artist')),
-      if (track.albumTitle != null) const PopupMenuItem(value: 'album', child: Text('Go to Album')),
+          PopupMenuItem(
+            value: 'download',
+            child: Text(
+              DownloadStore.shared.isDownloaded(track)
+                  ? 'Remove Download'
+                  : 'Download',
+            ),
+          ),
+      if (track.artists.isNotEmpty)
+        const PopupMenuItem(value: 'artist', child: Text('Go to Artist')),
+      if (track.albumTitle != null)
+        const PopupMenuItem(value: 'album', child: Text('Go to Album')),
       if (remove != null) ...[
         const PopupMenuDivider(),
         PopupMenuItem(value: 'remove', child: Text(remove.label)),
@@ -147,11 +249,16 @@ Future<void> showSongMenu(BuildContext context, Offset at, Track track,
     case 'like':
       s.library.toggleLike(track);
     case 'download':
-      DownloadStore.shared.isDownloaded(track) ? DownloadStore.shared.remove(track) : DownloadStore.shared.download(track);
+      DownloadStore.shared.isDownloaded(track)
+          ? DownloadStore.shared.remove(track)
+          : DownloadStore.shared.download(track);
     case 'artist':
       openBrowse(context, ArtistNamed(track.artists.first));
     case 'album':
-      openBrowse(context, AlbumNamed(track.albumTitle!, track.artists.firstOrNull ?? ''));
+      openBrowse(
+        context,
+        AlbumNamed(track.albumTitle!, track.artists.firstOrNull ?? ''),
+      );
     case 'remove':
       remove?.run();
     case 'playlist':
@@ -162,12 +269,16 @@ Future<void> showSongMenu(BuildContext context, Offset at, Track track,
           const PopupMenuItem(value: '+', child: Text('New Playlist…')),
           const PopupMenuDivider(),
           // Only playlists the user can edit: a viewer cannot add songs, and the server answers 403.
-          for (final p in s.library.playlists.where((p) => p.canEdit)) PopupMenuItem(value: p.id, child: Text(p.name)),
+          for (final p in s.library.playlists.where((p) => p.canEdit))
+            PopupMenuItem(value: p.id, child: Text(p.name)),
         ],
       );
       if (to == null || !context.mounted) return;
       if (to == '+') {
-        final name = await askName(context, title: 'New Playlist with “${track.title}”');
+        final name = await askName(
+          context,
+          title: 'New Playlist with “${track.title}”',
+        );
         if (name != null) await s.library.createPlaylist(name, adding: track);
       } else {
         await s.library.add(track, to);
@@ -190,8 +301,13 @@ class LikeButton extends StatelessWidget {
       builder: (context, _) {
         final liked = library.isLiked(track);
         return IconButton(
-          icon: Icon(liked ? FluentIcons.heart_24_filled : FluentIcons.heart_24_regular, size: size),
-          color: liked ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          icon: Icon(
+            liked ? FluentIcons.heart_24_filled : FluentIcons.heart_24_regular,
+            size: size,
+          ),
+          color: liked
+              ? theme.colorScheme.primary
+              : theme.colorScheme.onSurface.withValues(alpha: 0.6),
           tooltip: liked ? 'Remove from Liked' : 'Like',
           onPressed: () => library.toggleLike(track),
         );
@@ -208,14 +324,14 @@ class SongMoreButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => IconButton(
-        icon: Icon(FluentIcons.more_horizontal_24_regular, size: size),
-        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-        tooltip: 'More: Add to Playlist, Download',
-        onPressed: () {
-          final box = context.findRenderObject() as RenderBox;
-          showSongMenu(context, box.localToGlobal(box.size.bottomLeft(Offset.zero)), track);
-        },
-      );
+    icon: Icon(FluentIcons.more_horizontal_24_regular, size: size),
+    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+    tooltip: 'More: Add to Playlist, Download',
+    onPressed: () {
+      final box = context.findRenderObject() as RenderBox;
+      showSongMenu(context, box.localToGlobal(box.size.bottomLeft(Offset.zero)), track);
+    },
+  );
 }
 
 /// A small arrow before the artists on a downloaded song, a spinner while it downloads.
@@ -225,21 +341,31 @@ class _DownloadedMark extends StatelessWidget {
   const _DownloadedMark({required this.track, required this.color});
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-        listenable: DownloadStore.shared,
-        builder: (context, _) {
-          final store = DownloadStore.shared;
-          if (store.isDownloading(track)) {
-            // the still hourglass, not a spinner: a spinner redraws at the screen rate for as long as the song downloads, and
-            // Download All keeps one on screen for minutes (Waiting has the measurement)
-            return const Padding(padding: EdgeInsets.only(right: 5), child: Waiting(size: 11, tooltip: 'Downloading…'));
-          }
-          if (!store.isDownloaded(track)) return const SizedBox.shrink();
-          return Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Tooltip(message: 'Downloaded: plays without the server or the internet', child: Icon(FluentIcons.arrow_circle_down_24_filled, size: 13, color: color)),
-          );
-        },
+    listenable: DownloadStore.shared,
+    builder: (context, _) {
+      final store = DownloadStore.shared;
+      if (store.isDownloading(track)) {
+        // the still hourglass, not a spinner: a spinner redraws at the screen rate for as long as the song
+        // downloads, and Download All keeps one on screen for minutes (Waiting has the measurement)
+        return const Padding(
+          padding: EdgeInsets.only(right: 5),
+          child: Waiting(size: 11, tooltip: 'Downloading…'),
+        );
+      }
+      if (!store.isDownloaded(track)) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Tooltip(
+          message: 'Downloaded: plays without the server or the internet',
+          child: Icon(
+            FluentIcons.arrow_circle_down_24_filled,
+            size: 13,
+            color: color,
+          ),
+        ),
       );
+    },
+  );
 }
 
 /// The song title, in the accent colour while the song plays. Only this widget redraws when the song changes.
@@ -253,8 +379,16 @@ class _Title extends StatelessWidget {
       valueListenable: player.currentId,
       builder: (context, _, _) {
         final playing = player.current?.isSameSong(track) ?? false;
-        return Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: playing ? Theme.of(context).colorScheme.primary : null));
+        return Text(
+          track.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: playing ? Theme.of(context).colorScheme.primary : null,
+          ),
+        );
       },
     );
   }
@@ -276,8 +410,17 @@ class _PlayingMark extends StatelessWidget {
         return Container(
           width: 40,
           height: 40,
-          decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.45), borderRadius: BorderRadius.circular(6)),
-          child: Icon(playing ? FluentIcons.speaker_2_24_filled : FluentIcons.play_24_filled, size: 18, color: Colors.white),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.45),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(
+            playing
+                ? FluentIcons.speaker_2_24_filled
+                : FluentIcons.play_24_filled,
+            size: 18,
+            color: Colors.white,
+          ),
         );
       },
     );
@@ -292,8 +435,18 @@ class ExplicitBadge extends StatelessWidget {
     final c = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 3),
-      decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(3)),
-      child: Text('E', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.surface)),
+      decoration: BoxDecoration(
+        color: c,
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Text(
+        'E',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: Theme.of(context).colorScheme.surface,
+        ),
+      ),
     );
   }
 }
@@ -306,16 +459,32 @@ class _Listings extends StatelessWidget {
   final int index;
   final List<String>? keys;
   final String? source;
-  const _Listings({required this.track, required this.queue, required this.index, this.keys, this.source});
+  const _Listings({
+    required this.track,
+    required this.queue,
+    required this.index,
+    this.keys,
+    this.source,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
+    final muted = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.6);
     final style = TextStyle(fontSize: 12, color: muted);
-    if (track.listings.length <= 1) return Padding(padding: const EdgeInsets.only(right: 4), child: Text(track.best.sourceName, style: style));
+    if (track.listings.length <= 1) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Text(track.best.sourceName, style: style),
+      );
+    }
     return Builder(
       builder: (context) => TextButton(
-        style: TextButton.styleFrom(minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4), foregroundColor: muted),
+        style: TextButton.styleFrom(
+          minimumSize: Size.zero,
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          foregroundColor: muted,
+        ),
         onPressed: () async {
           final box = context.findRenderObject() as RenderBox;
           final at = box.localToGlobal(Offset(0, box.size.height));
@@ -326,15 +495,18 @@ class _Listings extends StatelessWidget {
               for (final l in track.listings)
                 PopupMenuItem(
                   value: l,
-                  child: Text('${l.sourceName} · ${l.quality}${l == track.listings.first ? ' · Default' : ''}\n'
-                      '${l.artists.join(', ')} · ${formatTime(l.duration.toDouble())}${l.explicit == true ? ' · Explicit' : ''}'),
+                  child: Text(
+                    '${l.sourceName} · ${l.quality}${l == track.listings.first ? ' · Default' : ''}\n'
+                    '${l.artists.join(', ')} · ${formatTime(l.duration.toDouble())}${l.explicit == true ? ' · Explicit' : ''}',
+                  ),
                 ),
             ],
           );
           if (chosen == null || !context.mounted) return;
           final list = [...queue];
           list[index] = track.playing(chosen);
-          Scope.of(context).player.play(list, startAt: index, keys: keys, source: source);
+          Scope.of(context).player
+              .play(list, startAt: index, keys: keys, source: source);
         },
         child: Text('${track.listings.length} listings', style: style),
       ),

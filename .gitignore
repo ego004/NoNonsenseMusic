@@ -5,7 +5,7 @@ __pycache__/
 mac/build*/
 xcuserdata/
 *.xcuserstate
-
+.vscode/
 # secrets and local settings: never commit (the repo is public)
 .env
 
@@ -22,3 +22,8 @@ docs/
 TICKETS.md
 handoff.md
 deploy/
+RUN_WINDOWS.md
+RUN_ANDROID.md
+code.txt
+
+graphify-out/

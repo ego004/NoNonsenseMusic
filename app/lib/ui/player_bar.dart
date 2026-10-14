@@ -7,6 +7,7 @@ import '../core/models.dart';
 import '../core/play_queue.dart';
 import 'browse_widgets.dart';
 import 'cover.dart';
+import 'glass.dart';
 import 'in_front.dart';
 import 'scope.dart';
 import 'song_row.dart';
@@ -29,26 +30,30 @@ class PlayerBar extends StatelessWidget {
         final t = p.current;
         if (t == null) return const SizedBox.shrink();
         final phone = MediaQuery.sizeOf(context).width < 700;
-        return Container(
+        final bar = Container(
           height: phone ? 64 : 76,
           constraints: const BoxConstraints(maxWidth: 940),
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withValues(
-              alpha: 0.96,
-            ),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: ink.withValues(alpha: 0.08)),
-            boxShadow: [
-              BoxShadow(
-                blurRadius: 30,
-                offset: const Offset(0, 10),
-                color: Colors.black.withValues(
-                  alpha: theme.brightness == Brightness.dark ? 0.45 : 0.14,
+          decoration: phone
+              ? null
+              : BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.96,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: ink.withValues(alpha: 0.08)),
+                  boxShadow: [
+                    BoxShadow(
+                      blurRadius: 30,
+                      offset: const Offset(0, 10),
+                      color: Colors.black.withValues(
+                        alpha: theme.brightness == Brightness.dark
+                            ? 0.45
+                            : 0.14,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
           child: phone
               // the phone's bar: swipe sideways for the next or previous song, swipe down to close it (the song stops;
               // not in a jam, where it would leave the room's playback without leaving the room), tap to open,
@@ -63,69 +68,71 @@ class PlayerBar extends StatelessWidget {
                     if (v > 250) p.previous();
                   },
                   onVerticalDragEnd: (d) {
-                    if ((d.primaryVelocity ?? 0) > 250 && p.jam == null) p.stop();
+                    if ((d.primaryVelocity ?? 0) > 250 && p.jam == null) {
+                      p.stop();
+                    }
                   },
                   child: Row(
-                  children: [
-                    Cover(t.image, size: 44, radius: 7),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => p.setShowNowPlaying(true),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              t.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
+                    children: [
+                      Cover(t.image, size: 44, radius: 7),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => p.setShowNowPlaying(true),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                t.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
-                            ArtistLinks(
-                              artists: t.artists,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: ink.withValues(alpha: 0.58),
+                              ArtistLinks(
+                                artists: t.artists,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: ink.withValues(alpha: 0.58),
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Previous',
-                      icon: const Icon(FluentIcons.previous_24_filled),
-                      onPressed: p.previous,
-                    ),
-                    SizedBox(
-                      width: 42,
-                      height: 42,
-                      child: Material(
-                        color: ink,
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          tooltip: p.isPlaying ? 'Pause' : 'Play',
-                          color: theme.colorScheme.surface,
-                          icon: Icon(
-                            p.isPlaying
-                                ? FluentIcons.pause_24_filled
-                                : FluentIcons.play_24_filled,
+                            ],
                           ),
-                          onPressed: p.togglePlayPause,
                         ),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Next',
-                      icon: const Icon(FluentIcons.next_24_filled),
-                      onPressed: p.next,
-                    ),
-                  ],
-                ),
+                      IconButton(
+                        tooltip: 'Previous',
+                        icon: const Icon(FluentIcons.previous_24_filled),
+                        onPressed: p.previous,
+                      ),
+                      SizedBox(
+                        width: 48, // a finger's target, as the buttons beside it are
+                        height: 48,
+                        child: Material(
+                          color: ink,
+                          shape: const CircleBorder(),
+                          child: IconButton(
+                            tooltip: p.isPlaying ? 'Pause' : 'Play',
+                            color: theme.colorScheme.surface,
+                            icon: Icon(
+                              p.isPlaying
+                                  ? FluentIcons.pause_24_filled
+                                  : FluentIcons.play_24_filled,
+                            ),
+                            onPressed: p.togglePlayPause,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Next',
+                        icon: const Icon(FluentIcons.next_24_filled),
+                        onPressed: p.next,
+                      ),
+                    ],
+                  ),
                 )
               : Row(
                   children: [
@@ -232,6 +239,7 @@ class PlayerBar extends StatelessWidget {
                   ],
                 ),
         );
+        return phone ? GlassSurface(radius: 22, child: bar) : bar;
       },
     );
   }
@@ -308,6 +316,12 @@ class Transport extends StatelessWidget {
     final theme = Theme.of(context);
     final ink = theme.colorScheme.onSurface;
     final accent = theme.colorScheme.primary;
+    // Under a finger no control is smaller than 48: the compact row's shuffle and repeat were 40, its disc 44
+    final touch = theme.platform == TargetPlatform.android || theme.platform == TargetPlatform.iOS;
+    final modeBox = touch && size * 2.2 < 48 ? 48.0 : size * 2.2;
+    final disc = touch && play < 48 ? 48.0 : play;
+    // what the larger targets add comes out of the four gaps: the row is no wider, and still fits a narrow phone
+    final gap = (size * 0.4 - ((modeBox - size * 2.2) * 2 + (disc - play)) / 4).clamp(0.0, size);
     return ListenableBuilder(
       listenable: p,
       builder: (context, _) {
@@ -319,8 +333,8 @@ class Transport extends StatelessWidget {
                 onTap: tap,
                 radius: size,
                 child: SizedBox(
-                  width: size * 2.2,
-                  height: size * 2.2,
+                  width: modeBox,
+                  height: modeBox,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
@@ -362,17 +376,17 @@ class Transport extends StatelessWidget {
               q.isShuffled,
               p.toggleShuffle,
             ),
-            SizedBox(width: size * 0.4),
+            SizedBox(width: gap),
             skip(FluentIcons.previous_24_filled, 'Previous', p.previous),
-            SizedBox(width: size * 0.4),
+            SizedBox(width: gap),
             // The solid disc is the control the eye finds first.
             SizedBox(
-              width: play,
-              height: play,
+              width: disc,
+              height: disc,
               child: p.isBuffering
                   ? Center(
                       child: Waiting(
-                        size: play * 0.55,
+                        size: disc * 0.55,
                         tooltip: 'Loading the song…',
                       ),
                     )
@@ -388,16 +402,16 @@ class Transport extends StatelessWidget {
                             p.isPlaying
                                 ? FluentIcons.pause_24_filled
                                 : FluentIcons.play_24_filled,
-                            size: play * 0.5,
+                            size: disc * 0.5,
                             color: theme.colorScheme.surface,
                           ),
                         ),
                       ),
                     ),
             ),
-            SizedBox(width: size * 0.4),
+            SizedBox(width: gap),
             skip(FluentIcons.next_24_filled, 'Next', p.next),
-            SizedBox(width: size * 0.4),
+            SizedBox(width: gap),
             mode(
               q.repeat == Repeat.one
                   ? FluentIcons.arrow_repeat_1_24_regular

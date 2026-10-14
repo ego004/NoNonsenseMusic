@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 
+import 'home_screen_widget.dart';
+
 /// Handle playlist links in the form used by the Swift app (mac/NoNonsense/Services/PlaylistLink.swift).
 ///
 /// What is shared is the web address `<server>/p/<id>`; the server's page there hands over to
@@ -15,6 +17,9 @@ import 'package:flutter/foundation.dart';
 class PlaylistLinks {
   /// The playlist a link asked for, not yet shown.
   static final pending = ValueNotifier<String?>(null);
+
+  /// A home-screen widget press that started the app (`nononsense://widget/...`), not yet run (HomeScreenWidget).
+  static final widgetPress = ValueNotifier<WidgetAction?>(null);
   static StreamSubscription<Uri>? _listening;
 
   static final _id = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
@@ -35,6 +40,8 @@ class PlaylistLinks {
     _listening = AppLinks().uriLinkStream.listen((uri) {
       final id = playlistId(uri);
       if (id != null) pending.value = id;
+      final press = WidgetAction.fromUri(uri);
+      if (press != null) widgetPress.value = press;
     });
     if (Platform.isWindows) unawaited(registerOnWindows());
   }

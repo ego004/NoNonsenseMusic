@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The widget in the app's own colours (lib/ui/theme.dart, glass.dart), light theme. -->
+<resources>
+    <!-- GlassSurface: white at 82 % to #E8EEFA at 72 %, its edge the ink at 7 % -->
+    <color name="widget_glass_start">#D1FFFFFF</color>
+    <color name="widget_glass_end">#B8E8EEFA</color>
+    <color name="widget_edge">#1216161A</color>
+    <color name="widget_ink">#FF16161A</color>
+    <!-- bodySmall: the ink at 66 % -->
+    <color name="widget_muted">#A816161A</color>
+    <!-- the cover's tile before a cover loads: the ink at 8 % -->
+    <color name="widget_tile">#1416161A</color>
+    <!-- Windows 11's default accent, for a liked heart until a cover gives one -->
+    <color name="widget_accent">#FF005FB8</color>
+</resources>

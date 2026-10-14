@@ -3,6 +3,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/catalog.dart';
 import 'browse_pages.dart';
+import 'glass.dart';
 import 'layout.dart';
 import 'now_playing.dart';
 import 'player_bar.dart';
@@ -46,7 +47,8 @@ class AlbumNamed extends BrowseTarget {
   final String title, artist;
   const AlbumNamed(this.title, this.artist);
   @override
-  bool operator ==(Object other) => other is AlbumNamed && other.title == title && other.artist == artist;
+  bool operator ==(Object other) =>
+      other is AlbumNamed && other.title == title && other.artist == artist;
   @override
   int get hashCode => Object.hash(title, artist);
 }
@@ -85,7 +87,19 @@ class BrowseNav extends ChangeNotifier {
 void openBrowse(BuildContext context, BrowseTarget target) {
   Scope.of(context).player.setShowNowPlaying(false);
   if (isPhone(context)) {
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PhoneBrowsePage(target: target)));
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) => PhoneBrowsePage(target: target),
+        transitionDuration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 300),
+        reverseTransitionDuration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 240),
+        transitionsBuilder: (_, animation, _, child) =>
+            phoneRevealTransition(child, animation, dy: 0.045),
+      ),
+    );
   } else {
     BrowseNav.shared.open(target);
   }
@@ -99,38 +113,50 @@ class BrowseHost extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-        listenable: BrowseNav.shared,
-        builder: (context, _) {
-          final path = BrowseNav.shared.path;
-          return Stack(children: [
-            Positioned.fill(child: Offstage(offstage: path.isNotEmpty, child: TickerMode(enabled: path.isEmpty, child: child))),
-            for (final (i, target) in path.indexed)
-              Positioned.fill(
-                key: ValueKey('$i/${target.hashCode}'),
-                child: Offstage(
-                  offstage: i != path.length - 1,
-                  child: TickerMode(
-                    enabled: i == path.length - 1,
-                    child: Column(children: [
+    listenable: BrowseNav.shared,
+    builder: (context, _) {
+      final path = BrowseNav.shared.path;
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: Offstage(
+              offstage: path.isNotEmpty,
+              child: TickerMode(enabled: path.isEmpty, child: child),
+            ),
+          ),
+          for (final (i, target) in path.indexed)
+            Positioned.fill(
+              key: ValueKey('$i/${target.hashCode}'),
+              child: Offstage(
+                offstage: i != path.length - 1,
+                child: TickerMode(
+                  enabled: i == path.length - 1,
+                  child: Column(
+                    children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: TextButton.icon(
                             onPressed: BrowseNav.shared.back,
-                            icon: const Icon(FluentIcons.chevron_left_24_regular, size: 18),
+                            icon: const Icon(
+                              FluentIcons.chevron_left_24_regular,
+                              size: 18,
+                            ),
                             label: const Text('Back'),
                           ),
                         ),
                       ),
                       Expanded(child: BrowsePage(target: target)),
-                    ]),
+                    ],
                   ),
                 ),
               ),
-          ]);
-        },
+            ),
+        ],
       );
+    },
+  );
 }
 
 /// A page on a phone: a full-screen route with a back button, keeping the player bar and Now Playing in reach.
@@ -142,20 +168,44 @@ class PhoneBrowsePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = Scope.of(context).player;
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         scrolledUnderElevation: 0,
         leading: BackButton(onPressed: () => Navigator.of(context).maybePop()),
       ),
-      body: Stack(children: [
-        Positioned.fill(child: BrowsePage(target: target)),
-        // the same two layers the shell draws over its screens, so a song can be started and opened from here
-        const Positioned(left: 12, right: 12, bottom: 12, child: Center(child: PlayerBar())),
-        ListenableBuilder(
-          listenable: p,
-          builder: (context, _) => p.showNowPlaying ? const Positioned.fill(child: NowPlaying()) : const SizedBox.shrink(),
-        ),
-      ]),
+      body: Stack(
+        children: [
+          const Positioned.fill(child: PhoneBackdrop()),
+          Positioned.fill(child: BrowsePage(target: target)),
+          // the same two layers the shell draws over its screens, so a song can be started and opened from here
+          const Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: Center(child: PlayerBar()),
+          ),
+          ListenableBuilder(
+            listenable: p,
+            builder: (context, _) => AnimatedSwitcher(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 320),
+              layoutBuilder: (current, previous) => Stack(
+                fit: StackFit.expand,
+                children: [...previous, ?current],
+              ),
+              transitionBuilder: (child, animation) =>
+                  phoneRevealTransition(child, animation, dy: 0.12),
+              child: p.showNowPlaying
+                  ? const NowPlaying(key: ValueKey('browse-now-playing'))
+                  : const SizedBox.shrink(
+                      key: ValueKey('browse-now-playing-hidden'),
+                    ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

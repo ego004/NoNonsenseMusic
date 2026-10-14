@@ -51,6 +51,7 @@ dependencies:
   package_info_plus: ^10.2.2
   url_launcher: ^6.3.3
   audio_service: ^0.18.19
+  home_widget: ^0.10.0
 
 dev_dependencies:
   flutter_test:

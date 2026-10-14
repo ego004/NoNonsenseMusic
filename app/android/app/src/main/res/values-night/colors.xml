@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The widget in the app's own colours (lib/ui/theme.dart, glass.dart), dark theme. -->
+<resources>
+    <!-- GlassSurface: #343B50 at 76 % to #1B2233 at 72 %, its edge white at 14 % -->
+    <color name="widget_glass_start">#C2343B50</color>
+    <color name="widget_glass_end">#B81B2233</color>
+    <color name="widget_edge">#24FFFFFF</color>
+    <color name="widget_ink">#FFF2F2F3</color>
+    <color name="widget_muted">#A8F2F2F3</color>
+    <!-- the cover's tile before a cover loads: white at 10 % -->
+    <color name="widget_tile">#1AFFFFFF</color>
+    <color name="widget_accent">#FF60CDFF</color>
+</resources>
