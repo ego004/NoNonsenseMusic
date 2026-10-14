@@ -1,19 +1,19 @@
 # Plays a generated tone through the Windows audio plugin on a real Windows machine (#28), and counts the engine's
-# "sent a message from native to Flutter on a non-platform thread" errors. Run it from the Actions tab; "plugin" picks
-# the build: the pinned upstream commit (pubspec.yaml) or pub.dev's 0.2.3, to compare the two.
+# "sent a message from native to Flutter on a non-platform thread" errors, with both builds of the plugin side by side:
+# the pinned upstream commit (pubspec.yaml) and pub.dev's 0.2.3. Runs when this check changes, or from the Actions tab.
 name: Windows audio check
 
 on:
+  push:
+    paths: [".github/workflows/windows-audio.yml", "app/integration_test/windows_audio_test.dart"]
   workflow_dispatch:
-    inputs:
-      plugin:
-        description: "just_audio_windows build"
-        type: choice
-        options: [pinned, pub]
-        default: pinned
 
 jobs:
   play:
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [pinned, pub]
     runs-on: windows-latest
     defaults:
       run:
@@ -26,7 +26,7 @@ jobs:
           flutter-version: "3.47.6"
           channel: stable
           cache: true
-      - if: inputs.plugin == 'pub'
+      - if: matrix.plugin == 'pub'
         run: |
           python - <<'EOF'
           import re
