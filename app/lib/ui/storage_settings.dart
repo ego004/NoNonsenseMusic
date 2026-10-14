@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/audio_cache.dart';
 import '../core/download_store.dart';
+import 'browse_nav.dart';
 import 'scope.dart';
 
 /// "48 MB", "1.2 GB" (decimal, as the cache limit is).
@@ -70,6 +71,12 @@ class _StorageSettingsState extends State<StorageSettings> {
         listenable: _downloads,
         builder: (context, _) => Row(children: [
           Expanded(child: Text('Downloads: ${_downloads.items.length} songs, ${formatBytes(_downloads.totalBytes)}')),
+          // the Downloads page: a sidebar item in a wide window, and only reachable from here on a phone
+          OutlinedButton(
+            onPressed: _downloads.items.isEmpty ? null : () => openBrowse(context, const DownloadsTarget()),
+            child: const Text('See'),
+          ),
+          const SizedBox(width: 8),
           OutlinedButton(
             onPressed: _downloads.items.isEmpty ? null : _downloads.removeAll,
             child: const Text('Remove All'),

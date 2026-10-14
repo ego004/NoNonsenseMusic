@@ -53,6 +53,16 @@ class AlbumNamed extends BrowseTarget {
   int get hashCode => Object.hash(title, artist);
 }
 
+/// The songs downloaded to this device: a page of its own on a phone, where the bottom bar has no room for it
+/// (Settings › Storage opens it), as it is a sidebar item in a wide window.
+class DownloadsTarget extends BrowseTarget {
+  const DownloadsTarget();
+  @override
+  bool operator ==(Object other) => other is DownloadsTarget;
+  @override
+  int get hashCode => (DownloadsTarget).hashCode;
+}
+
 /// The pages opened over the screen in the content area of a wide window, newest last. On a phone a page is a pushed
 /// route instead and this stays empty. It is shared, as the Mac's Navigator is, so Now Playing and the song menus
 /// can open a page without being inside the content area.

@@ -7,10 +7,11 @@ import 'browse_widgets.dart';
 import 'cover.dart';
 import 'layout.dart';
 import 'scope.dart';
+import 'screens.dart';
 import 'song_row.dart';
 import 'waiting.dart';
 
-/// The page for a [BrowseTarget]: an artist's or an album's.
+/// The page for a [BrowseTarget]: an artist's, an album's, or this device's downloads.
 class BrowsePage extends StatelessWidget {
   final BrowseTarget target;
   const BrowsePage({super.key, required this.target});
@@ -33,6 +34,7 @@ class BrowsePage extends StatelessWidget {
               if (ref == null) throw ApiProblem('No album called “$title” was found.');
               return Catalog.album(ref);
             }),
+        DownloadsTarget() => const SongListScreen.downloads(),
       };
 }
 

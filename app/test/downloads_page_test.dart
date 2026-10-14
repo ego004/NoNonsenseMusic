@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nononsense/core/audio_cache.dart';
 import 'package:nononsense/core/auth.dart';
 import 'package:nononsense/core/download_store.dart';
 import 'package:nononsense/core/library.dart';
@@ -12,6 +13,7 @@ import 'package:nononsense/core/player.dart';
 import 'package:nononsense/core/settings.dart';
 import 'package:nononsense/ui/scope.dart';
 import 'package:nononsense/ui/screens.dart';
+import 'package:nononsense/ui/storage_settings.dart';
 import 'package:nononsense/ui/theme.dart';
 
 
@@ -83,5 +85,19 @@ void main() {
     expect(store.items, isEmpty);
     expect(find.text('Nothing downloaded yet'), findsOneWidget);
     expect(File('${folder.path}/a.m4a').existsSync(), isFalse, reason: 'the files go too');
+  });
+
+  testWidgets('on a phone, Settings › Storage opens the Downloads page (the bottom bar has no room for it)', (tester) async {
+    tester.view.physicalSize = const Size(411, 914);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    File('${folder.path}/a.m4a').writeAsBytesSync([0, 1, 2]);
+    store.items = [downloaded('a', 'A song', added: DateTime(2026, 10, 13))];
+    await tester.pumpWidget(app(SingleChildScrollView(child: StorageSettings(cache: AudioCache(folder), downloads: store))));
+    await tester.tap(find.text('See'));
+    await tester.pumpAndSettle();
+    // the page itself reads the app's own downloads, empty in a test: its empty state shows it opened
+    expect(find.text('Nothing downloaded yet'), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget, reason: 'a page of its own, with a way back');
   });
 }
