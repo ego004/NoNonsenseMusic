@@ -1,0 +1,42 @@
+# Every commit's author and committer must be a GitHub noreply address: an email in this public repository's history
+# stays public, and three of them reached it on 13 Oct (merges made on GitHub, and a pull request's commits).
+#
+# To fix a pull request this check fails:
+#   1. GitHub > Settings > Emails: tick "Keep my email addresses private"; it shows your address,
+#      <id>+<username>@users.noreply.github.com
+#   2. git config user.email "<that address>"
+#   3. git rebase origin/main --exec "git commit --amend --no-edit --reset-author" && git push --force
+#
+# The log names the commits, never the address: a public log would publish it again.
+name: Commit identities
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  noreply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Every commit uses a noreply email
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then range="$BASE..$HEAD"; else range="-50 $HEAD"; fi
+          bad=$(git log --format='%h %ae %ce' $range | awk '{
+            for (i = 2; i <= 3; i++)
+              if ($i !~ /@users\.noreply\.github\.com$/ && $i != "noreply@github.com") { print $1 (i == 2 ? " (author)" : " (committer)"); next }
+          }')
+          if [ -n "$bad" ]; then
+            echo "These commits use an email that is not a GitHub noreply address:"
+            echo "$bad"
+            echo "See the top of .github/workflows/identity.yml to fix them."
+            exit 1
+          fi
+          echo "Every commit uses a noreply address."
