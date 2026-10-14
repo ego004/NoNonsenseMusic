@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from music_backend.core import db
 from music_backend.models import Listing
-from music_backend.sources import SourceBlocked, SourceUnavailable, jiosaavn, ytmusic, youtube
+from music_backend.sources import SongNotFound, SourceBlocked, SourceUnavailable, jiosaavn, ytmusic
 from conftest import TEST_URL, sign_up
 
 pytestmark = pytest.mark.usefixtures("trust_client_listings")
@@ -18,9 +18,11 @@ pytestmark = pytest.mark.usefixtures("trust_client_listings")
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(db, "DATABASE_URL", TEST_URL)
-    # default: every source answers with no station, so no test can accidentally reach the network
-    for module in (jiosaavn, ytmusic, youtube):
+    # default: every station is empty and no song is found anywhere, so no test can accidentally reach the network
+    for module in (jiosaavn, ytmusic):
         monkeypatch.setattr(module, "radio", empty_radio)
+    monkeypatch.setattr(ytmusic, "search", no_results)
+    monkeypatch.setattr(jiosaavn, "get_song", unknown_song)
     from music_backend.main import app
     with TestClient(app) as client:
         sign_up(client)
@@ -29,6 +31,14 @@ def client(monkeypatch):
 
 async def empty_radio(source_id: str, limit: int = 25) -> list[Listing]:
     return []
+
+
+async def no_results(query: str) -> list[Listing]:
+    return []
+
+
+async def unknown_song(song_id: str) -> Listing:
+    raise SongNotFound(song_id)
 
 
 def set_radio(monkeypatch, module, listings=None, error=None):
@@ -91,59 +101,89 @@ def store(client, *listings):
     client.post("/liked", json={"listings": [l.model_dump() for l in listings]})
 
 
-def test_radio_asks_youtubes_mix_from_the_songs_own_video_first(client, monkeypatch):
+def ytmusic_copy(id, title="Song jio-own", artists=("The Weeknd",)):
+    return Listing(source="ytmusic", id=id, title=title, artists=list(artists), album=None, duration=207, popularity=None)
+
+
+def asking(monkeypatch, module, reply):
+    """Record the seeds the station is asked for."""
     asked = []
 
-    async def mix(source_id, limit=25):
+    async def station(source_id, limit=25):
         asked.append(source_id)
-        return [listing("from-mix")]
-
-    monkeypatch.setattr(youtube, "radio", mix)
-    store(client, listing("jio-own"), Listing(source="ytmusic", id="ytmOwn00001", title="Song jio-own",
-                                             artists=["The Weeknd"], album="After Hours", duration=207, popularity=None))
-    r = client.post("/radio", json=radio(seed_source="jiosaavn", seed_id="jio-own"))
-    assert asked == ["ytmOwn00001"] and [s["best"]["id"] for s in r.json()["songs"]] == ["from-mix"]
+        return reply
+    monkeypatch.setattr(module, "radio", station)
+    return asked
 
 
-def test_radio_finds_a_video_for_a_song_only_jiosaavn_has(client, monkeypatch):
-    searched, asked = [], []
+def searching(monkeypatch, results):
+    searched = []
 
     async def search(query):
         searched.append(query)
-        return [Listing(source="ytmusic", id="namesake001", title="Song jio-only", artists=["The Weeknd"], album=None,
-                        duration=208, popularity=None)]
-
-    async def mix(source_id, limit=25):
-        asked.append(source_id)
-        return [listing("from-mix")]
-
+        return results
     monkeypatch.setattr(ytmusic, "search", search)
-    monkeypatch.setattr(youtube, "radio", mix)
+    return searched
+
+
+def test_radio_asks_youtube_musics_station_from_the_songs_own_video(client, monkeypatch):
+    asked = asking(monkeypatch, ytmusic, [listing("from-ytm")])
+    store(client, listing("jio-own"), ytmusic_copy("ytmOwn00001"))
+    r = client.post("/radio", json=radio(seed_source="jiosaavn", seed_id="jio-own"))
+    assert asked == ["ytmOwn00001"] and [s["best"]["id"] for s in r.json()["songs"]] == ["from-ytm"]
+
+
+def test_radio_a_video_seed_starts_the_station_itself(client, monkeypatch):
+    for source in ("ytmusic", "youtube"):                           # one id space: a plain video starts it too
+        asked = asking(monkeypatch, ytmusic, [listing("from-ytm")])
+        client.post("/radio", json=radio(seed_source=source, seed_id="J7p4bzqLvCw"))
+        assert asked == ["J7p4bzqLvCw"]
+
+
+def test_radio_finds_the_video_of_a_stored_song_only_jiosaavn_has(client, monkeypatch):
+    searched = searching(monkeypatch, [ytmusic_copy("namesake001", "Song jio-only")])
+    asked = asking(monkeypatch, ytmusic, [listing("from-ytm")])
     store(client, listing("jio-only"))
     client.post("/radio", json=radio(seed_source="jiosaavn", seed_id="jio-only"))
     assert searched == ["Song jio-only The Weeknd"] and asked == ["namesake001"]
 
 
-def test_radio_falls_back_when_youtubes_mix_is_empty(client, monkeypatch):
-    set_radio(monkeypatch, youtube, [])
-    set_radio(monkeypatch, ytmusic, [listing("from-ytm")])
-    r = client.post("/radio", json=radio(seed_source="ytmusic", seed_id="J7p4bzqLvCw"))
-    assert [s["best"]["id"] for s in r.json()["songs"]] == ["from-ytm"]
+def test_radio_finds_the_video_of_a_song_not_stored_yet(client, monkeypatch):
+    # the app asks when the song starts; its first "play" is stored once the audio is ready, after this request
+    async def nanchaku(song_id):
+        return Listing(source="jiosaavn", id=song_id, title="Nanchaku", artists=["Seedhe Maut", "MC STAN"], album=None,
+                       duration=193, popularity=None)
+    monkeypatch.setattr(jiosaavn, "get_song", nanchaku)
+    searched = searching(monkeypatch, [ytmusic_copy("nanchaku001", "Nanchaku", ["Seedhe Maut"])])
+    asked = asking(monkeypatch, ytmusic, [listing("from-ytm")])
+    client.post("/radio", json=radio(seed_source="jiosaavn", seed_id="sh7ohPun"))
+    assert searched == ["Nanchaku Seedhe Maut"] and asked == ["nanchaku001"]
 
 
-def test_radio_asks_only_the_seed_source(client, monkeypatch):
-    asked = []
+def test_radio_never_starts_from_another_songs_video(client, monkeypatch):
+    # YouTube Music's first result for a title is not always the song ("Pasoori" gave "Jhol" first, 14 Oct)
+    searching(monkeypatch, [ytmusic_copy("other000001", "Jhol", ["Maanu"])])
+    ytm = asking(monkeypatch, ytmusic, [listing("from-ytm")])
+    jio = asking(monkeypatch, jiosaavn, [listing("from-jio")])
+    store(client, listing("jio-only"))
+    r = client.post("/radio", json=radio(seed_source="jiosaavn", seed_id="jio-only"))
+    assert ytm == [] and jio == ["jio-only"] and [s["best"]["id"] for s in r.json()["songs"]] == ["from-jio"]
 
-    async def spy(source_id: str, limit: int = 25):
-        asked.append(source_id)
-        return []
 
-    monkeypatch.setattr(ytmusic, "radio", spy)
-    monkeypatch.setattr(youtube, "radio", spy)
-    set_radio(monkeypatch, jiosaavn, [listing("x")])
-    r = client.post("/radio", json=radio(seed_source="jiosaavn", seed_id="J7p4bzqLvCw"))
-    assert r.status_code == 200
-    assert asked == []                                              # a JioSaavn id never reaches the others
+def test_radio_keeps_youtube_musics_order_with_no_cap_per_artist(client, monkeypatch):
+    # its station spreads artists itself; a cap of 3 cut the seed artist's songs it placed on purpose
+    station = [ytmusic_copy("seed", "Seed")] + [Listing(source="ytmusic", id=f"v{i}", title=f"Song {i}", artists=["MC STAN" if i % 4 == 0 else f"A{i}"],
+                                           album=None, duration=200, popularity=None) for i in range(12)]
+    set_radio(monkeypatch, ytmusic, station)
+    r = client.post("/radio", json=radio(seed_source="ytmusic", seed_id="seed", limit=12))
+    assert [s["best"]["id"] for s in r.json()["songs"]] == [f"v{i}" for i in range(12)]
+
+
+def test_radio_drops_a_song_played_as_its_plain_youtube_copy(client, monkeypatch):
+    set_radio(monkeypatch, ytmusic, [ytmusic_copy("seed", "Seed"), ytmusic_copy("vidPlayed01", "Played"), ytmusic_copy("vidFresh001", "Fresh")])
+    r = client.post("/radio", json=radio(seed_source="ytmusic", seed_id="seed",
+                                         exclude=[{"source": "youtube", "source_id": "vidPlayed01"}]))
+    assert [s["best"]["id"] for s in r.json()["songs"]] == ["vidFresh001"]
 
 
 def test_radio_respects_the_limit(client, monkeypatch):
@@ -186,30 +226,3 @@ def test_radio_rate_limit(client, monkeypatch):
     r = client.post("/radio", json=radio())
     assert r.status_code == 429
     assert "Retry-After" in r.headers
-
-
-def by(artist, id):
-    return Listing(source="youtube", id=id, title=f"Song {id}", artists=[artist], album=None, duration=180, popularity=None)
-
-
-def test_radio_plays_a_few_songs_by_one_artist_then_another_stations(client, monkeypatch):
-    # YouTube's Mix for an upload on a one-artist channel: 22 of 26 by Lee (13 Oct). Three of them, then YouTube
-    # Music's station fills the rest
-    set_radio(monkeypatch, youtube, [by("Lee", f"lee-{i:02}") for i in range(22)] + [by("Khaim", "khaim")])
-    set_radio(monkeypatch, ytmusic, [by(f"Artist {i}", f"ytm-{i:02}") for i in range(10)])
-    r = client.post("/radio", json=radio(seed_source="youtube", seed_id="J7p4bzqLvCw", limit=10))
-    artists = [s["best"]["artists"][0] for s in r.json()["songs"]]
-    assert artists.count("Lee") == 3 and "Khaim" in artists and len(artists) == 10
-
-
-def test_radio_with_a_varied_mix_asks_no_other_station(client, monkeypatch):
-    asked = []
-
-    async def ytmusic_radio(source_id, limit=25):
-        asked.append(source_id)
-        return []
-
-    set_radio(monkeypatch, youtube, [by(f"Artist {i}", f"mix-{i:02}") for i in range(12)])
-    monkeypatch.setattr(ytmusic, "radio", ytmusic_radio)
-    r = client.post("/radio", json=radio(seed_source="youtube", seed_id="J7p4bzqLvCw", limit=10))
-    assert len(r.json()["songs"]) == 10 and asked == []

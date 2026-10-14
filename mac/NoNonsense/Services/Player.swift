@@ -216,8 +216,10 @@ final class Player {
     private func refillIfNeeded() {
         guard Self.autoplay, jam == nil, order.repeatMode == .off, upNext.count <= 2, let last = queue.last,
               radioSeed != last.best.key, !radioAsking else { return }
-        // a music source's copy when there is one: their stations follow the song, a video's follows the channel
-        let seed = last.listings.first { $0.source == "jiosaavn" || $0.source == "ytmusic" } ?? last.best
+        // a video of the song first: the server starts YouTube Music's station from one, and a JioSaavn copy needs it
+        // found first (#24)
+        let seed = ["ytmusic", "youtube", "jiosaavn"].lazy.compactMap { source in last.listings.first { $0.source == source } }.first
+            ?? last.best
         // what is still to come (and the song playing): the station must not repeat it. The server leaves out what was
         // played lately on its own, unless that is switched off
         let exclude = queue[index...].flatMap(\.listings)

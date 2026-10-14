@@ -39,8 +39,11 @@ class Autoplay {
     final last = tracks.last;
     if (_seed == last.best.key) return null;
     _seed = last.best.key;
-    // a music source's copy when there is one: their stations follow the song, a video's follows the channel
-    final seed = last.listings.where((l) => l.source == 'jiosaavn' || l.source == 'ytmusic').firstOrNull ?? last.best;
+    // a video of the song first: the server starts YouTube Music's station from one, and a JioSaavn copy needs it
+    // found first (#24)
+    final seed = [for (final source in const ['ytmusic', 'youtube', 'jiosaavn']) ...last.listings.where((l) => l.source == source)]
+            .firstOrNull ??
+        last.best;
     final seen = <String>{};
     final all = [
       for (final t in tracks) ...t.listings,
