@@ -1,5 +1,8 @@
-// Windows' audio plugin on a real Windows machine (#28): a sound loads, plays, and its position moves. Run by
-// .github/workflows/windows-audio.yml, which also counts the engine's "non-platform thread" errors in the output.
+// Windows' audio plugin on a real Windows machine (#28): a sound loads and plays, and is never reported finished
+// before it has played. pub.dev's just_audio_windows 0.2.3 said "completed" the moment the sound loaded (measured on
+// GitHub's Windows runner, 14 Oct: idle → loading → completed → completed+playing), which the app takes as the song
+// having ended. Run by .github/workflows/windows-audio.yml. The runner has no sound device, so the position does not
+// move there; it is printed, not checked.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -35,7 +38,7 @@ Uint8List tone({required int seconds, int rate = 44100}) {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('a sound loads, plays and its position moves', (tester) async {
+  testWidgets('a sound loads and plays, and is not reported finished before it has played', (tester) async {
     await tester.runAsync(() async {
       final file = File('${Directory.systemTemp.path}${Platform.pathSeparator}nn_tone.wav')..writeAsBytesSync(tone(seconds: 4));
       final player = AudioPlayer();
@@ -53,7 +56,8 @@ void main() {
       await played;
       await watching.cancel();
       await player.dispose();
-      expect(at.inMilliseconds, greaterThan(1000), reason: 'the position did not move: states ${states.join(' → ')}');
+      expect(states, contains('ready+playing'), reason: states.join(' → '));
+      expect(states.where((s) => s.startsWith('completed')), isEmpty, reason: states.join(' → '));
     });
   }, skip: !Platform.isWindows);
 }

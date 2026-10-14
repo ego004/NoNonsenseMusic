@@ -1,6 +1,6 @@
-# Plays a generated tone through the Windows audio plugin on a real Windows machine (#28), and counts the engine's
-# "sent a message from native to Flutter on a non-platform thread" errors, with both builds of the plugin side by side:
-# the pinned upstream commit (pubspec.yaml) and pub.dev's 0.2.3. Runs when this check changes, or from the Actions tab.
+# Plays a generated tone through the Windows audio plugin on a real Windows machine (#28), with both builds of the
+# plugin side by side: the pinned upstream commit (pubspec.yaml), which must pass, and pub.dev's 0.2.3, which reported
+# the sound finished as it loaded and is expected to fail. Runs when this check changes, or from the Actions tab.
 name: Windows audio check
 
 on:
