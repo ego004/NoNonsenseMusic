@@ -75,7 +75,7 @@ class Settings extends ChangeNotifier {
   /// Read the stored settings, using each default where a key is missing, then apply them.
   Future<void> load() async {
     _p = await SharedPreferences.getInstance();
-    server = _address(_p.getString('server') ?? Api.defaultServer); // also mends an address saved with a trailing "/"
+    server = _address(_p.getString('server') ?? Api.defaultServer); // also mends one saved with a trailing "/" or no scheme
     material =
         WindowMaterial.values.asNameMap()[_p.getString('material')] ??
         WindowMaterial.acrylic;
@@ -160,13 +160,26 @@ class Settings extends ChangeNotifier {
   Future<void> setTranslateLyrics(bool on) =>
       _set('lyricsTranslated', on, () => translateLyrics = on);
 
-  /// [s] as the app joins paths to it: trimmed, without trailing slashes. Api joins `$base/$path`, so
-  /// "https://host/" asked for "https://host//search", which the server answers 404: every request failed.
-  static String _address(String s) => s.trim().replaceFirst(RegExp(r'/+$'), '');
+  /// [s] as the app joins paths to it: trimmed, without trailing slashes, with a scheme; blank is the SERVER
+  /// compile-time define. Api joins `$base/$path`, so "https://host/" asked for "https://host//search", which the
+  /// server answers 404. And "music.example.com", pasted without a scheme, parsed with no host: every request failed
+  /// as "Can't connect" (14 Oct, #23). A name gets https; localhost, an IP address or a .local name gets http, as a
+  /// server on this device or the local network runs without TLS (certificates are issued to names).
+  static String _address(String s) {
+    final a = s.trim().replaceFirst(RegExp(r'/+$'), '');
+    if (a.isEmpty) return Api.defaultServer;
+    if (a.contains('://')) return a;
+    final authority = a.split('/').first;
+    final host = authority.startsWith('[') ? authority.substring(1).split(']').first : authority.split(':').first;
+    final parts = host.split('.');
+    final ip = parts.length == 4 && parts.every((p) => RegExp(r'^\d{1,3}$').hasMatch(p) && int.parse(p) <= 255);
+    final local = host == 'localhost' || host.endsWith('.local') || host.contains(':') || ip;
+    return '${local ? 'http' : 'https'}://$a';
+  }
 
   /// Point the app at [s] and persist it; a blank [s] falls back to the SERVER compile-time define.
   Future<void> setServer(String s) async {
-    server = _address(s.trim().isEmpty ? Api.defaultServer : s);
+    server = _address(s);
     await _p.setString('server', server);
     _apply();
     notifyListeners();

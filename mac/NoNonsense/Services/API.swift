@@ -2,11 +2,28 @@ import Foundation
 
 /// Every call the app makes to your FastAPI server.
 enum API {
-    static let defaultServer = "http://127.0.0.1:8000"
+    nonisolated static let defaultServer = "http://127.0.0.1:8000"
 
     static var baseURL: URL {
-        URL(string: UserDefaults.standard.string(forKey: "serverURL") ?? defaultServer)
+        URL(string: address(UserDefaults.standard.string(forKey: "serverURL") ?? defaultServer))
             ?? URL(string: defaultServer)!
+    }
+
+    /// A typed server address as a URL the app can use. People paste "music.example.com" without a scheme, which
+    /// leaves a URL with no host: every request failed as "Can't connect" (14 Oct, #23). A name gets https; localhost,
+    /// an IP address or a .local name gets http, as a server on this Mac or the local network runs without TLS
+    /// (certificates are issued to names). Blank is the default server.
+    nonisolated static func address(_ typed: String) -> String {
+        var s = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        while s.hasSuffix("/") { s.removeLast() }
+        if s.isEmpty { return defaultServer }
+        if s.contains("://") { return s }
+        let authority = s.prefix { $0 != "/" }
+        let host = authority.hasPrefix("[") ? String(authority.prefix { $0 != "]" }.dropFirst())
+                                            : String(authority.prefix { $0 != ":" })
+        let local = host == "localhost" || host.hasSuffix(".local") || host.contains(":")    // IPv6
+            || host.split(separator: ".").count == 4 && host.split(separator: ".").allSatisfy { UInt8($0) != nil }
+        return (local ? "http://" : "https://") + s
     }
 
     /// The signed-in session's token (AUTH-1), set by `Account`. Every request carries it as `Authorization: Bearer …`

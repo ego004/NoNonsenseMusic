@@ -60,7 +60,7 @@ struct SignInView: View {
     @State private var working = false
     @State private var shakes = 0
     @FocusState private var focus: Field?
-    private enum Field { case username, code, password, device }
+    private enum Field { case username, code, password, device, server }
     /// Sign in, create an account, or set a new password with a recovery code.
     private enum Mode { case signIn, create, recover }
     private var creating: Bool { mode == .create }
@@ -161,9 +161,9 @@ struct SignInView: View {
             if editingServer || account.unreachable {
                 TextField("Server Address", text: $serverDraft, prompt: Text(API.defaultServer))
                     .textFieldStyle(.roundedBorder)
+                    .focused($focus, equals: .server)
                     .onAppear { serverDraft = serverURL }
                     .onSubmit { saveServer() }
-                    .help("Press Return to use this server")
             } else {
                 Button("Server: \(Self.shortAddress(serverURL))") { editingServer = true }
                     .buttonStyle(.link)
@@ -181,6 +181,9 @@ struct SignInView: View {
         .onChange(of: username) { problem = nil }
         .onChange(of: password) { problem = nil }
         .onChange(of: code) { problem = nil }
+        // a pasted address is used once you click away, as any other field: Return alone saved it, so the button
+        // signed in at the old address (14 Oct, #23)
+        .onChange(of: focus) { old, _ in if old == .server { saveServer() } }
     }
 
     private func switchTo(_ next: Mode) {
@@ -191,12 +194,18 @@ struct SignInView: View {
     }
 
     /// The address the field holds, saved as Settings › Server saves it; a running local server is started if needed.
-    private func saveServer() {
-        let typed = serverDraft.trimmingCharacters(in: .whitespaces)
-        serverURL = typed.isEmpty ? API.defaultServer : typed
+    /// Saved only when it changed: an unchanged one may be a test's launch-argument address, not yours (see Settings).
+    /// True when it changed.
+    @discardableResult private func saveServer() -> Bool {
+        guard editingServer || account.unreachable else { return false }
+        let typed = API.address(serverDraft)
         editingServer = false
+        serverDraft = typed
+        guard typed != serverURL else { return false }
+        serverURL = typed
         problem = nil
         Task { await server.ensureRunning() }
+        return true
     }
 
     /// "127.0.0.1:8000" rather than "http://127.0.0.1:8000"; the scheme shows only when it is not plain http.
@@ -208,9 +217,11 @@ struct SignInView: View {
 
     private func go() {
         guard ready else { return }
+        let moved = saveServer()        // the address in the field, even if Return was never pressed
         working = true
         problem = nil
         Task {
+            if moved { await server.ensureRunning() }
             let name = username.trimmingCharacters(in: .whitespaces)
             let reason = mode == .recover
                 ? await account.recover(name, code: code, newPassword: password, device: device)
