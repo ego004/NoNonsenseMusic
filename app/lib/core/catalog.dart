@@ -83,7 +83,7 @@ class SearchResult {
 
   bool get isEmpty => songs.isEmpty && artists.isEmpty && albums.isEmpty;
 
-  /// Sources the search could not ask, by name, for the "unavailable · showing the rest" line.
+  /// Sources whose results are missing because they did not answer, by name, for the line above the results.
   List<String> get unavailable => [for (final s in sources) if (!s.healthy) Listing.nameOfSource(s.source)];
 
   factory SearchResult.fromJson(Map<String, dynamic> j) => SearchResult(

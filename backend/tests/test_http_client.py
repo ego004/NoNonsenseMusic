@@ -99,3 +99,38 @@ def test_server_shutdown_closes_both_sources_connections(monkeypatch):
         clients = [ytmusic.http.client, jiosaavn.http.client]
         assert not any(c.is_closed for c in clients)
     assert all(c.is_closed for c in clients)
+
+
+# ---- SharedClient.get asks once more after a timeout (JioSaavn stalls now and then, 14 Oct) ----
+
+def client_answering(*replies):
+    """A SharedClient whose requests get [replies] in turn: an exception is raised, a status is answered."""
+    calls = []
+
+    def handle(request):
+        reply = replies[len(calls)]
+        calls.append(request.url)
+        if isinstance(reply, Exception):
+            raise reply
+        return httpx.Response(reply)
+    return SharedClient(transport=httpx.MockTransport(handle)), calls
+
+
+@pytest.mark.anyio
+async def test_a_timeout_is_asked_once_more():
+    http, calls = client_answering(httpx.ConnectTimeout("stall"), 200)
+    assert (await http.get("https://example.com/a")).status_code == 200 and len(calls) == 2
+
+
+@pytest.mark.anyio
+async def test_two_timeouts_raise():
+    http, calls = client_answering(httpx.ReadTimeout("stall"), httpx.ReadTimeout("stall"))
+    with pytest.raises(httpx.ReadTimeout):
+        await http.get("https://example.com/a")
+    assert len(calls) == 2
+
+
+@pytest.mark.anyio
+async def test_an_answer_is_not_asked_again():
+    http, calls = client_answering(503)
+    assert (await http.get("https://example.com/a")).status_code == 503 and len(calls) == 1
