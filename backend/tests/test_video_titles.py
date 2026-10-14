@@ -4,6 +4,8 @@ import pytest
 from music_backend.services.video_titles import parse_video_title, without_video_labels
 
 REAL = [
+    # Artist - Song | Album | Year, on the artist's own channel: the part before the dash is the artist
+    ("MC STAN", "MC STAN - Bitch (Official Audio) | INSAAN | 2022", "Bitch", "MC STAN"),
     # a fullwidth hyphen (U+FF0D) between artist and title, as a dash
     ("Sad Slowed Down", "peacock affect － who cares if you exist (eisu remix)", "who cares if you exist (eisu remix)", "peacock affect"),
     ("ElFamosoDemon", "SHAG - Know The Feelin'", "Know The Feelin'", "SHAG"),     # an apostrophe at the end stays

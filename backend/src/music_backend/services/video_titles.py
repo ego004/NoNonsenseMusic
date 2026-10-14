@@ -107,6 +107,10 @@ def parse_video_title(title: str, channel: str) -> tuple[str, list[str]]:
     parts = [p for p in _DASH.split(text) if p.strip() and not re.fullmatch(r"\s*[(\[].*[)\]]\s*", p)]
     if len(parts) >= 2:
         if piped:                                     # "Kesariya - Brahmāstra | ...", "BROWN MUNDE - AP DHILLON | ..."
+            if _same(parts[0], owner) and not _same(parts[1], owner):
+                # "Artist - Song | Album | Year" on the artist's own channel: "MC STAN - Bitch (Official Audio) | INSAAN |
+                # 2022" read as a song called "MC STAN" (14 Oct)
+                return _clean(parts[1]), [_artist(parts[0])]
             artist = parts[1] if _same(parts[1], owner) else (fallback[0] if fallback else parts[1])
             return _clean(parts[0]), [artist]
         artist, name = parts[-2], parts[-1]           # "Artist - Title"; with more dashes, the last two
