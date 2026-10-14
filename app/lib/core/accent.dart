@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:flutter/foundation.dart';
 
-import 'download_store.dart';
+import 'cover_image.dart';
 
 /// Holds the playing cover's most vivid colour, adjusted so it reads on the current background.
 ///
@@ -27,8 +27,8 @@ class Accent extends ValueNotifier<Color?> {
       return;
     }
     try {
-      final kept = DownloadStore.shared.keptCover(url); // a download's kept cover: the accent works offline too
-      final stream = ResizeImage(kept != null ? FileImage(kept) : NetworkImage(url), width: 24, height: 24)
+      // a download's kept cover when there is one: the accent works offline too
+      final stream = ResizeImage(coverProvider(url, px: 24), width: 24, height: 24)
           .resolve(ImageConfiguration.empty);
       final done = Completer<ui.Image>();
       late final ImageStreamListener listener;

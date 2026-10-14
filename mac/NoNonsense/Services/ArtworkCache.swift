@@ -27,6 +27,22 @@ final class ArtworkCache {
     private static func pixels(for points: CGFloat) -> Int { points <= 128 ? 256 : points <= 256 ? 512 : 1200 }
     private static func key(_ url: URL, _ pixels: Int) -> String { "\(pixels)|\(url.absoluteString)" }
 
+    /// The cover's URL asking its host for `pixels`. The server sends every image at its largest (1,200 px from Google's
+    /// hosts, 500 from JioSaavn's: services/images.py, #27); a row needs far less: 300 px of a YouTube Music cover
+    /// is about 40 KB, 1,200 px about 300 KB (measured 14 Oct). Other hosts' URLs name no size and stay as they are.
+    nonisolated static func sized(_ url: URL, pixels: Int) -> URL {
+        let text = url.absoluteString
+        let resized: String
+        if let host = url.host(), host.hasSuffix("googleusercontent.com") || host.hasSuffix("ggpht.com") {
+            resized = text.replacing(/=w\d+-h\d+/, with: "=w\(pixels)-h\(pixels)").replacing(/=s\d+/, with: "=s\(pixels)")
+        } else if url.host()?.hasSuffix("saavncdn.com") == true {
+            resized = text.replacing(/\d+x\d+(?=\.\w+$)/, with: pixels <= 150 ? "150x150" : "500x500")   // its only sizes
+        } else {
+            return url
+        }
+        return URL(string: resized) ?? url
+    }
+
     func cached(_ url: URL, size points: CGFloat = 1000) -> NSImage? {
         images.object(forKey: Self.key(url, Self.pixels(for: points)) as NSString)
     }
@@ -45,7 +61,7 @@ final class ArtworkCache {
             }).value {
                 return image
             }
-            guard let (fetched, _) = try? await URLSession.shared.data(from: url) else { return nil }
+            guard let (fetched, _) = try? await URLSession.shared.data(from: Self.sized(url, pixels: pixels)) else { return nil }
             return await Task.detached(priority: .utility) { Self.decoded(fetched, maxPixels: pixels) }.value
         }
         loading[key] = task

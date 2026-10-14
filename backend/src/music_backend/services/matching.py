@@ -121,20 +121,21 @@ def pick_best(group: list[Listing]) -> Listing:
     ))
 
 
-def pick_cover(group: list[Listing]) -> str | None:
+def pick_cover(group: list) -> str | None:
     """The cover for a group of listings that are all the same recording, or None when none has art.
 
     The listings are the recording's releases (the single, the album, later compilations), each with its own art.
     The choice depends only on the set, never on its order: COVER_PREFERENCE, then the most played (play counts
     compare within one source), then the lowest id. A stored song keeps the cover chosen when it was created
-    (songs.image), so copies linked later never change it.
+    (songs.image), so copies linked later never change it. Albums and artists are picked the same way (their copies
+    have no play count): JioSaavn's artist photo is a 50 px image or a silhouette, YouTube Music's a real one (#27).
     """
     with_art = [listing for listing in group if listing.image]
     if not with_art:
         return None
     return min(with_art, key=lambda listing: (
         COVER_PREFERENCE.get(listing.source, len(COVER_PREFERENCE)),
-        -(listing.popularity or 0),
+        -(getattr(listing, "popularity", None) or 0),
         listing.id,
     )).image
 
@@ -249,7 +250,7 @@ def rank_albums(by_source: list[list[AlbumRef]]) -> list[Album]:
 def to_album(group: list[AlbumRef], score: float = 0.0) -> Album:
     """Build one Album from a group: shown with the preferred source's copy, every copy kept."""
     best = min(group, key = lambda ref: SOURCE_PREFERENCE[ref.source])
-    return Album(title = best.title, artists = best.artists, year = best.year, image = best.image,
+    return Album(title = best.title, artists = best.artists, year = best.year, image = pick_cover(group),
                  song_count = best.song_count, explicit = best.explicit, score = score,
                  best = best, listings = group)
 
@@ -267,4 +268,4 @@ def rank_artists(by_source: list[list[ArtistRef]]) -> list[Artist]:
 def to_artist(group: list[ArtistRef], score: float = 0.0) -> Artist:
     """Build one Artist from a group: shown with the preferred source's copy."""
     best = min(group, key = lambda ref: SOURCE_PREFERENCE[ref.source])
-    return Artist(name = best.name, image = best.image, score = score, best = best, listings = group)
+    return Artist(name = best.name, image = pick_cover(group), score = score, best = best, listings = group)

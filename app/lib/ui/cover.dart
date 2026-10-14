@@ -1,19 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
-import '../core/download_store.dart';
+import '../core/cover_image.dart';
 
 /// A square cover image with rounded corners, decoded at the size it is shown at.
 ///
 /// A full-size decode per list row is the largest memory cost in a scrolling list of covers,
 /// so the decode size is capped to the displayed size in device pixels. Shows a grey square
 /// with a music note while the image loads, when the URL is missing, or when decoding fails.
-/// A cover's image: the file a download keeps for it when there is one (it shows offline), else the network.
-ImageProvider coverProvider(String url) {
-  final kept = DownloadStore.shared.keptCover(url);
-  return kept != null ? FileImage(kept) : NetworkImage(url);
-}
-
 class Cover extends StatelessWidget {
   final String? url;
   final double size;
@@ -37,7 +31,7 @@ class Cover extends StatelessWidget {
           // decoded by its height alone, so it keeps its shape, then cropped to the square by [fit], as the Mac's
           // scaledToFill does. Decoded at px x px, a video's 16:9 thumbnail was squashed into the square (13 Oct). By
           // height, as the covers that are not square are videos' thumbnails, which are wide
-          : Image(image: ResizeImage.resizeIfNeeded(null, px, coverProvider(url!)), width: size, height: size, fit: fit,
+          : Image(image: ResizeImage.resizeIfNeeded(null, px, coverProvider(url!, px: px)), width: size, height: size, fit: fit,
               // gaplessPlayback keeps the previous frame while the new one decodes, so rapid
               // scrolling does not flash the placeholder.
               gaplessPlayback: true, errorBuilder: (_, _, _) => placeholder, frameBuilder: (_, child, frame, sync) => frame == null && !sync ? placeholder : child),

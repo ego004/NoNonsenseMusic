@@ -217,7 +217,7 @@ async def test_youtube_a_live_stream_title_without_views_still_yields_a_listing(
 async def test_jiosaavn_album_search_parses_results(monkeypatch):
     fake_jiosaavn(monkeypatch, json={"results": [
         {"id": "al1", "title": "After Hours", "subtitle": "The Weeknd", "year": "2020",
-         "image": "https://x/150x150/abc.jpg", "list_count": "0", "explicit_content": "1",
+         "image": "https://c.saavncdn.com/0/abc-150x150.jpg", "list_count": "0", "explicit_content": "1",
          "more_info": {"song_count": "14"}},                        # the real count is more_info.song_count
         {"id": "bad", "title": "No Subtitle"},                      # no subtitle/artists: still fine (empty list)
         {"id": "bad2"},                                             # no title at all: skipped
@@ -235,7 +235,7 @@ async def test_jiosaavn_album_search_parses_results(monkeypatch):
 async def test_jiosaavn_artist_search_parses_results(monkeypatch):
     fake_jiosaavn(monkeypatch, json={"results": [
         {"name": "Arijit Singh", "id": "459320", "ctr": 459320, "entity": "artist",
-         "image": "https://x/150x150/a.jpg"},
+         "image": "https://c.saavncdn.com/0/a-150x150.jpg"},
         {"id": "broken"},                                           # no name: skipped
     ]})
     artists = await jiosaavn.search_artists("arijit singh")
@@ -323,7 +323,7 @@ async def test_youtube_channel_search_parses_results(monkeypatch):
 
 def jiosaavn_track(i, title, duration, explicit="0"):
     """One track row from content.getAlbumDetails / topSongs: the same shape as a search row."""
-    return {"id": f"t{i}", "title": title, "image": "https://x/150x150/t.jpg",
+    return {"id": f"t{i}", "title": title, "image": "https://c.saavncdn.com/0/t-150x150.jpg",
             "explicit_content": explicit, "play_count": "1000",
             "more_info": {"artistMap": {"primary_artists": [{"name": "The Weeknd"}]},
                           "album": "After Hours", "duration": str(duration)}}
@@ -333,7 +333,7 @@ def jiosaavn_track(i, title, duration, explicit="0"):
 async def test_jiosaavn_album_page_parses_its_tracks_in_order(monkeypatch):
     fake_jiosaavn(monkeypatch, json={
         "title": "After Hours", "year": "2020", "subtitle": "The Weeknd",
-        "image": "https://x/150x150/ah.jpg", "explicit_content": "0",
+        "image": "https://c.saavncdn.com/0/ah-150x150.jpg", "explicit_content": "0",
         "list": [jiosaavn_track(1, "Alone Again", 240),
                  jiosaavn_track(2, "Blinding Lights", 200, explicit="1"),
                  {"id": "bad", "title": "No More Info"}],              # one odd row must not lose the album
@@ -368,12 +368,12 @@ async def test_jiosaavn_album_page_failures_become_our_errors(monkeypatch, statu
 @pytest.mark.anyio
 async def test_jiosaavn_artist_page_parses_bio_songs_and_albums(monkeypatch):
     fake_jiosaavn(monkeypatch, json={
-        "name": "The Weeknd", "image": "https://x/150x150/w.jpg",
+        "name": "The Weeknd", "image": "https://c.saavncdn.com/0/w-150x150.jpg",
         "bio": json.dumps([{"text": "Abel Tesfaye."}, {"text": "Born in Toronto."}]),
         "follower_count": "3260092",
         "topSongs": [jiosaavn_track(1, "Blinding Lights", 200)],
         "topAlbums": [{"id": "al1", "title": "After Hours", "subtitle": "The Weeknd", "year": "2020",
-                       "image": "https://x/150x150/ah.jpg", "explicit_content": "1",
+                       "image": "https://c.saavncdn.com/0/ah-150x150.jpg", "explicit_content": "1",
                        "more_info": {"song_count": "14"}}],
     })
     artist = await jiosaavn.get_artist("615155")

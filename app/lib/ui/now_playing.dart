@@ -6,6 +6,7 @@ import 'browse_nav.dart';
 import 'browse_widgets.dart';
 import '../core/models.dart';
 import 'copy_menu.dart';
+import '../core/cover_image.dart';
 import 'cover.dart';
 import 'glass.dart';
 import 'jam_panel.dart';
@@ -53,7 +54,7 @@ class NowPlaying extends StatelessWidget {
                     opacity: theme.brightness == Brightness.dark ? 0.55 : 0.4,
                     child: Image(
                       image: ResizeImage(
-                        coverProvider(t.image!),
+                        coverProvider(t.image!, px: 12),
                         width: 12,
                         height: 12,
                       ),

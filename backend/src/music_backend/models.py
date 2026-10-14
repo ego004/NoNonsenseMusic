@@ -8,7 +8,9 @@ import math
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from music_backend.services.images import Image
 
 # The one list of source IDs, used by every model, SOURCES in main.py, and the /play URL.
 # Lowercase, no spaces: they appear in URLs (/play/ytmusic/...) and must never drift between files.
@@ -23,8 +25,8 @@ class Listing(BaseModel):
     album: str | None
     duration: int
     popularity : int | None
-    # artwork URL, already rewritten to a large size by the source adapter
-    image : str | None = None
+    # artwork URL, at its host's largest size (services/images.py)
+    image : Image = None
     # the explicit version (JioSaavn's explicit_content, YouTube Music's E badge); None: not known (older rows)
     explicit : bool | None = None
 
@@ -49,17 +51,20 @@ class ListingIn(Listing):
     album : str | None = Field(max_length = 300)
     duration : int = Field(gt = 0, le = MAX_DURATION)
     popularity : int | None = Field(ge = 0, le = 10**13)
-    image : str | None = Field(default = None, max_length = 1000)
+    image : Image = Field(default = None, max_length = 1000)
 
 
 class BaseSong(BaseModel):
+    # search sets a stored song's cover after building it: that goes through Image too
+    model_config = ConfigDict(validate_assignment = True)
+
     title: str
     artists: list[str] | None
     duration: int
     best: Listing
     listings: list[Listing]
     # the song's cover, the same whichever copy plays: songs.image for a stored song, else pick_cover
-    image: str | None = None
+    image: Image = None
 
 class LibrarySong(BaseSong):
     """A stored song as the app shows it: identity from the database, display from its best listing."""
@@ -88,7 +93,7 @@ class AlbumRef(BaseModel):
     title : str
     artists : list[str]
     year : int | None = None
-    image : str | None = None
+    image : Image = None
     song_count : int | None = None
     explicit : bool | None = None
 
@@ -98,7 +103,7 @@ class Album(BaseModel):
     title : str
     artists : list[str]
     year : int | None = None
-    image : str | None = None
+    image : Image = None
     song_count : int | None = None
     explicit : bool | None = None
     score : float
@@ -111,13 +116,13 @@ class ArtistRef(BaseModel):
     source : SourceName
     id : str
     name : str
-    image : str | None = None
+    image : Image = None
 
 
 class Artist(BaseModel):
     """The same artist found on one or more sources (a channel on plain YouTube counts)."""
     name : str
-    image : str | None = None
+    image : Image = None
     score : float
     best : ArtistRef
     listings : list[ArtistRef]
@@ -134,7 +139,7 @@ class AlbumDetail(BaseModel):
     title : str
     artists : list[str]
     year : int | None = None
-    image : str | None = None
+    image : Image = None
     explicit : bool | None = None
     songs : list[Song] = []
 
@@ -144,7 +149,7 @@ class ArtistDetail(BaseModel):
     source : SourceName
     id : str
     name : str
-    image : str | None = None
+    image : Image = None
     bio : str | None = None
     followers : int | None = None
     monthly_listeners : int | None = None

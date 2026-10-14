@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'accent.dart';
 import 'auth.dart';
+import 'cover_image.dart';
 import 'download_store.dart';
 import 'library.dart';
 import 'links.dart';
@@ -196,7 +197,8 @@ class HomeScreenWidget {
     final kept = DownloadStore.shared.keptCover(url);
     if (kept != null) return _remember(url, kept.path);
     try {
-      final r = await _http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
+      // the widget's cover is at most ~100 dp: 300 px, not the 1200 px the server names (#27)
+      final r = await _http.get(Uri.parse(sizedImage(url, 300))).timeout(const Duration(seconds: 15));
       if (r.statusCode != 200) return null;
       final dir = Directory('${(await getApplicationSupportDirectory()).path}/widget');
       await dir.create(recursive: true);

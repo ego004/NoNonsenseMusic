@@ -126,7 +126,7 @@ def thumbnail_of(row: dict) -> str | None:
 
 
 def thumb_url(thumbnails) -> str | None:
-    """Return the largest thumbnail of a raw list, resized to 544 px; None if absent.
+    """Return the largest thumbnail of a raw list (services/images.py asks for the full size); None if absent.
 
     Detail pages store thumbnails under different keys from search rows, hence this separate
     helper.
@@ -134,10 +134,7 @@ def thumb_url(thumbnails) -> str | None:
     if not thumbnails:
         return None
     url = thumbnails[-1].get("url") if isinstance(thumbnails[-1], dict) else None
-    if not url:
-        return None
-    # the size lives in the URL itself: ...=w120-h120 → ...=w544-h544
-    return re.sub(r"=w\d+-h\d+", "=w544-h544", url)
+    return url or None
 
 
 def int_or_none(value) -> int | None:
@@ -472,12 +469,11 @@ VIDEO_ID_PATHS = [
 
 
 def artwork(item: dict) -> str | None:
-    """The row's cover image, rewritten from the 60/120 px search thumbnail to 544 px."""
+    """The row's cover image (a 60/120 px search thumbnail: services/images.py asks for the full size)."""
     thumbnails = item.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [])
     if not thumbnails:
         return None
-    # the size lives in the URL itself: ...=w120-h120-l90-rj
-    return re.sub(r"=w\d+-h\d+", "=w544-h544", thumbnails[-1]["url"])
+    return thumbnails[-1]["url"]
 
 
 def video_id(item: dict) -> str:

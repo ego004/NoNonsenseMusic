@@ -68,7 +68,7 @@ def album_ref(result: dict) -> AlbumRef:
         # artists_match's word-set rule still matches it against another source's list
         artists = [html.unescape(result["subtitle"])] if result.get("subtitle") else [],
         year = int_or_none(result.get("year")),
-        image = result["image"].replace("150x150", "500x500") if result.get("image") else None,
+        image = result.get("image"),
         song_count = int_or_none(info.get("song_count")),
         explicit = result["explicit_content"] == "1" if "explicit_content" in result else None,
     )
@@ -86,7 +86,7 @@ async def search_artists(query: str) -> list[ArtistRef]:
                 source = "jiosaavn",
                 id = result["id"],
                 name = html.unescape(result["name"]),
-                image = result["image"].replace("150x150", "500x500") if result.get("image") else None,
+                image = result.get("image"),
             ))
         except (ValidationError, KeyError):
             logger.warning("JioSaavn: skipped a bad artist result %s", result.get("id"))
@@ -174,7 +174,7 @@ async def get_album(album_id: str) -> AlbumDetail | None:
         title = html.unescape(d["title"]),
         artists = [html.unescape(d["subtitle"])] if d.get("subtitle") else [],
         year = int_or_none(d.get("year")),
-        image = d["image"].replace("150x150", "500x500") if d.get("image") else None,
+        image = d.get("image"),
         explicit = explicit,
         songs = songs,
     )
@@ -214,7 +214,7 @@ async def get_artist(artist_id: str) -> ArtistDetail | None:
         source = "jiosaavn",
         id = artist_id,
         name = html.unescape(d["name"]),
-        image = d["image"].replace("150x150", "500x500") if d.get("image") else None,
+        image = d.get("image"),
         bio = artist_bio(d.get("bio")),
         followers = int_or_none(d.get("follower_count")),
         songs = songs,
@@ -259,8 +259,7 @@ def to_listing(result: dict) -> Listing:
         # both arrive as text ("200", "38250621"); Listing's int fields convert them
         duration = info["duration"],
         popularity = result.get("play_count") or None,
-        # the search gives a 150x150 cover; the same URL with 500x500 is the large one
-        image = result["image"].replace("150x150", "500x500") if result.get("image") else None,
+        image = result.get("image"),
         # "1" or "0"; missing would mean JioSaavn changed its reply: then unknown, not clean
         explicit = result["explicit_content"] == "1" if "explicit_content" in result else None,
     )
