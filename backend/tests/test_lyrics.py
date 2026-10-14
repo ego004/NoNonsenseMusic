@@ -415,11 +415,30 @@ def ytmusic_copy(title: str, artists: list[str], duration: int) -> Listing:
 
 
 @pytest.mark.anyio
-async def test_a_youtube_upload_stored_under_its_channel_finds_its_lyrics_as_the_titles_artist(monkeypatch):
-    asked = []
+async def test_a_youtube_upload_stored_under_its_channel_finds_its_lyrics_as_the_catalogue_names_it(monkeypatch):
+    asked, queries = [], []
     monkeypatch.setattr(lyrics, "LYRICS_SOURCES", {"lrclib": lrclib_knowing("slow days", "Lomtre", asked)})
+    monkeypatch.setattr(lyrics.ytmusic, "search", catalog_with(ytmusic_copy("slow days", ["Lomtre"], 165), queries=queries))
     found, _ = await lyrics.find_lyrics(LyricsRequest(song_name="Lomtre - slow days", artist_name="Ikigai", song_duration=165))
+    assert queries == ["Lomtre - slow days"]
     assert found.synced and asked == [("Lomtre - slow days", "Ikigai", 165), ("slow days", "Lomtre", 165)]
+
+
+@pytest.mark.anyio
+async def test_an_upload_the_catalogues_do_not_know_is_asked_as_both_readings_of_its_title(monkeypatch):
+    asked = []
+    monkeypatch.setattr(lyrics, "LYRICS_SOURCES", {"lrclib": lrclib_knowing("Lomtre", "slow days", asked)})
+    found, _ = await lyrics.find_lyrics(LyricsRequest(song_name="Lomtre - slow days", artist_name="Ikigai", song_duration=165))
+    assert found.synced
+    assert asked == [("Lomtre - slow days", "Ikigai", 165), ("slow days", "Lomtre", 165), ("Lomtre", "slow days", 165)]
+
+
+@pytest.mark.anyio
+async def test_a_title_without_two_sides_is_not_read(monkeypatch):
+    asked = []
+    monkeypatch.setattr(lyrics, "LYRICS_SOURCES", {"lrclib": lrclib_knowing("x", "y", asked)})
+    await lyrics.find_lyrics(LyricsRequest(song_name="Coke Studio | Season 14 | Pasoori", artist_name="Coke Studio Pakistan", song_duration=228))
+    assert asked == [("Coke Studio | Season 14 | Pasoori", "Coke Studio Pakistan", 228)]
 
 
 @pytest.mark.anyio
@@ -438,8 +457,8 @@ async def test_a_song_the_catalogues_know_is_asked_as_they_name_it(monkeypatch):
     monkeypatch.setattr(lyrics.ytmusic, "search", catalog_with(ytmusic_copy("Pasoori", ["Ali Sethi", "Shae Gill"], 224), queries=queries))
     found, _ = await lyrics.find_lyrics(LyricsRequest(song_name="Coke Studio | Season 14 | Pasoori | Ali Sethi x Shae Gill",
                                                       artist_name="Coke Studio Pakistan", song_duration=228))
-    # searched by the title read out of the pipes (the channel is no artist here); asked with the catalogue's length; 4 s apart, so still timed
-    assert queries == ["Pasoori"]
+    # searched by the video's own title; asked with the catalogue's length; 4 s apart, so still timed
+    assert queries == ["Coke Studio | Season 14 | Pasoori | Ali Sethi x Shae Gill"]
     assert asked[-1] == ("Pasoori", "Ali Sethi", 224) and found.synced
 
 

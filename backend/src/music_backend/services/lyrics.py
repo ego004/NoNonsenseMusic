@@ -8,11 +8,12 @@ reply has no lines, and the app says "Couldn't find lyrics".
 import asyncio
 import logging
 import re
+from collections.abc import AsyncIterator
 
 from music_backend.core.http_client import SharedClient
 from music_backend.models import LyricLine, LyricsRequest, LyricsResponse
 from music_backend.services.matching import normalise
-from music_backend.services.video_titles import parse_video_title
+from music_backend.services.video_titles import without_video_labels
 from music_backend.sources import jiosaavn, ytmusic
 
 LRCLIB_URL = "https://lrclib.net/api/get"
@@ -73,6 +74,9 @@ def youtube_lyrics(video_id: str) -> dict:
 LYRICS_SOURCES = {"lrclib": get_lyrics_lrclib, "ytmusic": get_lyrics_ytmusic}
 # seconds the identified song may differ from the video for its timed lyrics to still fit it
 TIMING_SLACK = 10
+# a video's title with more than a song's name in it: "Lomtre - slow days", "Coke Studio | Season 14 | Pasoori"
+_SEVERAL_PARTS = re.compile(r"\s-\s|:\s|\|")
+_DASH = re.compile(r"\s+-\s+")
 
 
 async def find_lyrics(song: LyricsRequest) -> tuple[LyricsResponse, bool]:
@@ -80,32 +84,37 @@ async def find_lyrics(song: LyricsRequest) -> tuple[LyricsResponse, bool]:
     source's failure never raises. The bool is True when every source answered, meaning the reply is the best
     available; the cache stores an untimed reply only in that case (LyricsCache in cache.py).
 
-    Nothing found for a song named by its video ("Lomtre - slow days" by the channel Ikigai): asked once more, as the
-    song it is (_identify).
+    Nothing found for a song named by its video ("Lomtre - slow days" by the channel Ikigai): asked again under the
+    names it may have (_other_names).
     """
     found, complete = await _ask_sources(song)
     if found.lines:
         return found, complete
-    named = await _identify(song)
-    if named is None:
-        return found, complete
-    again, complete_again = await _ask_sources(named)
-    if not again.lines:
-        return found, complete
-    if again.synced and abs(named.song_duration - song.song_duration) > TIMING_SLACK:
-        # timed for another cut (a music video with an intro): the words are right, the times are not
-        again = again.model_copy(update={"synced": False, "lines": [l.model_copy(update={"start_ms": None}) for l in again.lines]})
-    return again, complete and complete_again
+    async for named in _other_names(song):
+        again, complete_again = await _ask_sources(named)
+        if not again.lines:
+            continue
+        if again.synced and abs(named.song_duration - song.song_duration) > TIMING_SLACK:
+            # timed for another cut (a music video with an intro): the words are right, the times are not
+            again = again.model_copy(update={"synced": False, "lines": [l.model_copy(update={"start_ms": None}) for l in again.lines]})
+        return again, complete and complete_again
+    return found, complete
 
 
-async def _identify(song: LyricsRequest) -> LyricsRequest | None:
-    """The song a video is: as YouTube Music or JioSaavn have it (their copy's name, artist, length and id), else as
-    its title reads (services/video_titles.py). None for a song whose title reads as given: named properly already."""
-    title, artists = parse_video_title(song.song_name, song.artist_name)
-    if not artists or (title, artists[0]) == (song.song_name, song.artist_name):
-        return None
-    return (await _catalog_copy(song, title)
-            or LyricsRequest(song_name=title, artist_name=artists[0], song_duration=song.song_duration))
+async def _other_names(song: LyricsRequest) -> AsyncIterator[LyricsRequest]:
+    """The names a video's song may have, each only a question: a source answers just its own song. First the
+    catalogues' copy, searched by the video's title (_catalog_copy). Then both readings of "A - B": LRCLIB matches the
+    title, the artist and the length (±5 s), so the wrong order finds nothing ("The Weeknd" by "Blinding Lights" did
+    not, 14 Oct). Nothing for a title that is a name alone ("Kesariya" by Arijit Singh)."""
+    if not _SEVERAL_PARTS.search(song.song_name):
+        return
+    copy = await _catalog_copy(song, song.song_name)
+    if copy:
+        yield copy
+    sides = _DASH.split(without_video_labels(song.song_name.split("|")[0]))
+    if len(sides) == 2 and all(s.strip() for s in sides):
+        for name, artist in ((sides[1], sides[0]), (sides[0], sides[1])):
+            yield LyricsRequest(song_name=name.strip(), artist_name=artist.strip(), song_duration=song.song_duration)
 
 
 async def _catalog_copy(song: LyricsRequest, query: str) -> LyricsRequest | None:

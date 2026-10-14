@@ -698,7 +698,7 @@ async def test_youtube_radio_failures_become_our_errors(monkeypatch):
 # YouTube Music watch-page and playlist rows as they came back on 13 Oct (titles and channels real, ids made up)
 @pytest.mark.parametrize("row,expected", [
     ({"title": "slipfunc - until dawn", "artists": [{"name": "Ikigai"}], "videoType": "MUSIC_VIDEO_TYPE_UGC"},
-     ("until dawn", ["slipfunc"])),                                       # an upload: read like plain YouTube
+     ("slipfunc - until dawn", ["Ikigai"])),                              # an upload: read like plain YouTube
     ({"title": "Blinding Lights (Official Video)", "artists": [{"name": "The Weeknd"}], "videoType": "MUSIC_VIDEO_TYPE_OMV"},
      ("Blinding Lights", ["The Weeknd"])),                                # a music video: its labels go
     ({"title": "Blinding Lights", "artists": [{"name": "The Weeknd"}], "videoType": "MUSIC_VIDEO_TYPE_ATV"},
