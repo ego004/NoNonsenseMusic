@@ -77,13 +77,13 @@ Lyrics are fetched from several sources, currently LRCLIB and YouTube Music, and
 <img src=".github/screenshots/lyrics.png" alt="Lyrics and translation" width="760">
 
 ### Playback, caching and downloads
-Songs are cached on your device and search results on the server, and the next song is fetched in advance, so playback starts quickly. Downloaded songs and playlists play without an internet connection.
+Songs are cached on your device and search results on the server, and the next song is fetched in advance, so playback starts quickly. Downloaded songs and playlists play without an internet connection. On Android, music keeps playing in the background with lock-screen controls, and a home-screen widget plays, skips and likes without opening the app.
 
 ### Autoplay
 When the queue ends, Autoplay continues with similar songs. They appear in Up Next (under their own heading) after the songs you added.
 
 ### Jams
-A jam lets friends listen together. One device plays the music, and everyone in the jam can add songs and control playback. You can invite friends from the jam, or share its code.
+A jam lets friends listen together. Every device in the jam plays the music, in step, and everyone can add songs and control playback. The host can choose to play the jam on their device alone (friends in one room, one set of speakers), or to control playback alone. You can invite friends from the jam, or share its code.
 
 <img src=".github/screenshots/jam.png" alt="A jam" width="520">
 
@@ -165,6 +165,13 @@ uv run uvicorn music_backend.main:app --host 127.0.0.1 --port 8000 --workers 1 -
 ```
 
 Set `TRUSTED_PROXIES` in `.env` to the proxy's address, so that rate limits apply to each user rather than to the proxy. The server reads forwarded addresses only from that proxy, which is why uvicorn's own handling is turned off. Run a single worker: jam rooms, live notifications and rate limits are kept in the server's memory.
+
+## Thanks
+
+NoNonsenseMusic is made by ego004, with special thanks to:
+
+- **[@vivekkk77](https://github.com/vivekkk77)**, for the Windows app, jams where everyone hears the music, the Downloads page, the smoother volume slider, and performance work across the server and every app.
+- **[@SingeyDorje21](https://github.com/SingeyDorje21)**, for the phone redesign, the Android home-screen widget, and testing on Windows.
 
 ## Sources and licences
 
