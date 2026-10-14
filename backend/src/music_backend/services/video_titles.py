@@ -11,7 +11,7 @@ import re
 
 from music_backend.services.matching import normalise
 
-_FULLWIDTH = str.maketrans({"（": "(", "）": ")", "【": "[", "】": "]", "‒": "-", "–": "-", "—": "-", "―": "-"})
+_FULLWIDTH = str.maketrans({"（": "(", "）": ")", "【": "[", "】": "]", "‒": "-", "–": "-", "—": "-", "―": "-", "－": "-"})
 # words that describe the video, not the song. "(Eisu remix)", "(slowed)", "(Live ...)", "(Acoustic)" name another
 # recording and stay
 _LABEL = (r"official|\baudio\b|music\s+video|lyrics?\s+video|lyrical\s+video|lyrics?|letra|visuali[sz]er|\bm/?v\b|\bhd\b|"
