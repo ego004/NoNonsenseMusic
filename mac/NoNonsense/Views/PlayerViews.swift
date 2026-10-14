@@ -1161,8 +1161,8 @@ struct UpNextView: View {
     }
 }
 
-/// One song in Up Next: double-click plays it now; drag to move it (ReorderableStack); ✕ (on hover) or right-click
-/// removes it.
+/// One song in Up Next: a click plays it now (it is already queued: nothing to select it for); drag to move it
+/// (ReorderableStack); ✕ (on hover) or right-click removes it.
 private struct UpNextRow: View {
     let track: Track
     let play: () -> Void
@@ -1192,7 +1192,7 @@ private struct UpNextRow: View {
         .padding(.horizontal, 6).padding(.vertical, 4)
         .background(hovering ? AnyShapeStyle(.primary.opacity(0.06)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 8, style: .continuous))
         .contentShape(.rect)
-        .onTapGesture(count: 2, perform: play)             // no List under it now: a gesture here stops no drag
+        .onTapGesture(perform: play)                       // no List under it now: a gesture here stops no drag
         .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
         .contextMenu {
             Button("Play Now", action: play)
@@ -1203,7 +1203,7 @@ private struct UpNextRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("\(track.title). Double-click to play now; drag to move")
+        .accessibilityLabel("\(track.title). Click to play now; drag to move")
     }
 }
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nononsense/core/auth.dart';
@@ -105,6 +106,31 @@ void main() {
         expect(artwork, findsOneWidget);
         expect(tester.takeException(), isNull);
       }
+    });
+  }
+
+  for (final platform in [TargetPlatform.macOS, TargetPlatform.android]) {
+    testWidgets('one click on a song in Up Next plays it (${platform.name})', (tester) async {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const size = Size(1280, 800);
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      Track song(String id) => Track(Listing(source: 'ytmusic', id: id, title: 'Song $id', artists: const ['A'], album: null, duration: 200), const []);
+      final player = Player()
+        ..panel = 'upNext'
+        ..queue.load([song('1'), song('2'), song('3')], 0, shuffled: false);
+      addTearDown(player.dispose);
+      await tester.pumpWidget(screen(player, size));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Song 3'));
+      await tester.pump(const Duration(milliseconds: 400));         // past a double-tap's wait: one click must be enough
+      expect(player.queue.current?.title, 'Song 3');
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(minutes: 1));                 // the song's load gives up: no timer left behind
+      debugDefaultTargetPlatformOverride = null;
     });
   }
 

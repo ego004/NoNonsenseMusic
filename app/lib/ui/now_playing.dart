@@ -17,7 +17,7 @@ import 'scope.dart';
 import 'song_row.dart';
 
 /// Displays the full-window Now Playing view: a large cover, the song details, progress and transport controls, with
-/// the Up Next queue beside them. Rows in Up Next can be dragged to reorder, double-clicked to play, and dismissed
+/// the Up Next queue beside them. Rows in Up Next can be dragged to reorder, clicked to play, and dismissed
 /// with the remove icon. Escape or the chevron closes the view.
 class NowPlaying extends StatelessWidget {
   const NowPlaying({super.key});
@@ -489,9 +489,9 @@ class UpNext extends StatelessWidget {
         final heading = entries.indexWhere(
           (e) => e.autoplay,
         ); // where Autoplay's part begins; -1: none
-        // A phone taps to play, long-presses for the song's menu and drags by the handle, so a swipe scrolls (the
-        // whole row was draggable: a swipe picked a song up instead, 13 Oct). A mouse double-clicks, right-clicks and
-        // drags the row.
+        // A tap or a click plays the song: it is already queued, so there is nothing to select it for. A phone
+        // long-presses for the song's menu and drags by the handle, so a swipe scrolls (the whole row was draggable: a
+        // swipe picked a song up instead, 13 Oct). A mouse right-clicks and drags the row.
         Widget row(Track t, int offset, int index) {
           void play() => p.jump(p.queue.index + 1 + offset);
           void menu(Offset at) => showSongMenu(
@@ -502,8 +502,7 @@ class UpNext extends StatelessWidget {
             remove: (label: 'Remove from Up Next', run: () => p.removeFromUpNext(offset)),
           );
           return GestureDetector(
-            onTap: isTouchDevice ? play : null,
-            onDoubleTap: isTouchDevice ? null : play,
+            onTap: play,
             onLongPressStart: isTouchDevice ? (d) => menu(d.globalPosition) : null,
             onSecondaryTapUp: (d) => menu(d.globalPosition),
             child: ListTile(
