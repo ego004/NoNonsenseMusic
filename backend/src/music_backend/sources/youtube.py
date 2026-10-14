@@ -64,55 +64,6 @@ async def search(query: str) -> list[Listing]:
 # get_album is missing for the same reason: GET /album/youtube/… answers 404 "no albums"
 
 
-async def radio(source_id: str, limit: int = 25) -> list[Listing]:
-    """Return the RD mix for one video as listings.
-
-    yt-dlp runs extract_flat on watch?v=…&list=RD… on a worker thread, taking about 1-2 s. The Innertube
-    next call with playlistId=RD+videoId returns no panel at all, so yt-dlp's flat playlist provides the
-    mix. An unknown video yields [], because the mix does not exist.
-    """
-    if not VIDEO_ID.fullmatch(source_id):
-        return []
-    return await asyncio.to_thread(radio_blocking, source_id, limit)
-
-
-def radio_blocking(source_id: str, limit: int) -> list[Listing]:
-    """Fetch the RD mix with yt-dlp and return its entries, in YouTube's newest-album-cut order."""
-    opts = {"extract_flat" : True, "quiet" : True, "no_warnings" : True,
-            "playlistend" : limit + 1, "socket_timeout": SOCKET_TIMEOUT}
-    try:
-        with YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f"{WATCH_URL}{source_id}&list=RD{source_id}", download=False)
-    except DownloadError as e:
-        if _missing_or_raise(e):
-            return []
-    if info is None:
-        return []
-    channel = info.get("channel") or info.get("uploader") or ""
-    listings = []
-    for entry in info.get("entries") or []:
-        # live/upcoming entries have no duration and are not playable songs
-        if not entry or not entry.get("id") or not entry.get("duration"):
-            continue
-        try:
-            entry_thumbs = entry.get("thumbnails") or []
-            title, artists = parse_video_title(entry["title"], entry.get("channel") or channel)
-            listings.append(Listing(
-                source = "youtube",
-                id = entry["id"],
-                title = title,
-                artists = artists,
-                album = None,
-                duration = entry["duration"],
-                popularity = entry.get("view_count"),
-                image = entry_thumbs[-1]["url"] if entry_thumbs else None,
-                explicit = None,
-            ))
-        except (KeyError, TypeError, ValueError) as e:
-            logger.warning("YouTube: skipped a bad radio video: %r", e)
-    return listings
-
-
 async def get_artist(artist_id: str) -> ArtistDetail | None:
     """Return a channel's videos, newest first.
 

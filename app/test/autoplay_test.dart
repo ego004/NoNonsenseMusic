@@ -46,13 +46,15 @@ void main() {
     expect(Autoplay().due(PlayQueue(), enabled: true), isNull);
   });
 
-  test('the seed is the jiosaavn or ytmusic copy when there is one, else the playing copy', () {
-    final video = const Listing(source: 'youtube', id: 'v', title: 'Video', artists: ['Kai'], duration: 200);
-    final music = const Listing(source: 'ytmusic', id: 'm', title: 'Video', artists: ['Kai'], duration: 200);
-    final q = PlayQueue()..load([Track(video, [video, music], choosingVersion: false)], 0, shuffled: false);
-    expect(Autoplay().due(q, enabled: true)!.seed, music);
-    final only = PlayQueue()..load([Track(video, [video])], 0, shuffled: false);
-    expect(Autoplay().due(only, enabled: true)!.seed, video);
+  test('the seed is a video of the song: YouTube Music\'s copy, else YouTube\'s, else JioSaavn\'s (#24)', () {
+    const jio = Listing(source: 'jiosaavn', id: 'j', title: 'Song', artists: ['Kai'], duration: 200);
+    const video = Listing(source: 'youtube', id: 'v', title: 'Song', artists: ['Kai'], duration: 200);
+    const music = Listing(source: 'ytmusic', id: 'm', title: 'Song', artists: ['Kai'], duration: 200);
+    Listing seedOf(List<Listing> copies) =>
+        Autoplay().due(PlayQueue()..load([Track(copies.first, copies, choosingVersion: false)], 0, shuffled: false), enabled: true)!.seed;
+    expect(seedOf([jio, video, music]), music);
+    expect(seedOf([jio, video]), video);
+    expect(seedOf([jio]), jio);
   });
 
   test('every listing already in the queue is excluded, once, the newest 100 at most', () {

@@ -645,56 +645,6 @@ async def test_ytmusic_radio_network_failure_is_unavailable(monkeypatch):
         await ytmusic.radio("seed", 25)
 
 
-@pytest.mark.anyio
-async def test_youtube_radio_parses_the_rd_mix(monkeypatch):
-    asked = []
-
-    def returning(reply):
-        class FakeYoutubeDL:
-            def __init__(self, options):
-                pass
-            def __enter__(self):
-                return self
-            def __exit__(self, *exc):
-                return False
-            def extract_info(self, url, download):
-                asked.append(url)
-                return reply
-        return FakeYoutubeDL
-
-    info = {"channel": "The Weeknd", "entries": [
-        {"id": "seed", "title": "Blinding Lights", "duration": 263, "view_count": 1000,
-         "thumbnails": [{"url": "https://x/seed.jpg"}]},
-        {"id": "v2", "title": "Starboy", "duration": 230, "view_count": 2000,
-         "thumbnails": [{"url": "https://x/v2.jpg"}]},
-        {"id": "live", "title": "Live", "duration": None},               # live: skipped
-    ]}
-    monkeypatch.setattr(youtube, "YoutubeDL", returning(info))
-    listings = await youtube.radio("seed", 25)
-    assert asked == ["https://www.youtube.com/watch?v=seed&list=RDseed"]
-    assert [l.id for l in listings] == ["seed", "v2"]
-    assert listings[1].title == "Starboy" and listings[1].duration == 230  # RAW title (MUS-13)
-    assert listings[1].artists == ["The Weeknd"]
-
-
-@pytest.mark.anyio
-async def test_youtube_radio_a_video_that_does_not_exist_is_empty(monkeypatch):
-    gone = ExtractorError("[youtube] seed: Video unavailable", expected=True)
-    monkeypatch.setattr(youtube, "YoutubeDL", fake_ytdlp_raising(gone))
-    assert await youtube.radio("seed", 25) == []
-
-
-@pytest.mark.anyio
-async def test_youtube_radio_failures_become_our_errors(monkeypatch):
-    bot = ExtractorError("[youtube] seed: Sign in to confirm you’re not a bot", expected=True)
-    monkeypatch.setattr(youtube, "YoutubeDL", fake_ytdlp_raising(bot))
-    with pytest.raises(SourceBlocked):
-        await youtube.radio("seed", 25)
-    monkeypatch.setattr(youtube, "YoutubeDL", fake_ytdlp_raising(TransportError("connection reset")))
-    with pytest.raises(SourceUnavailable):
-        await youtube.radio("seed", 25)
-
-
 # YouTube Music watch-page and playlist rows as they came back on 13 Oct (titles and channels real, ids made up)
 @pytest.mark.parametrize("row,expected", [
     ({"title": "slipfunc - until dawn", "artists": [{"name": "Ikigai"}], "videoType": "MUSIC_VIDEO_TYPE_UGC"},

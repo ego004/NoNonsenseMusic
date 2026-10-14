@@ -265,8 +265,27 @@ def to_listing(result: dict) -> Listing:
         explicit = result["explicit_content"] == "1" if "explicit_content" in result else None,
     )
 
+async def get_song(song_id: str) -> Listing:
+    """One song by its id, as a listing: what a song only JioSaavn has is called, for finding it elsewhere."""
+    try:
+        return to_listing(await song_details(song_id))
+    except (ValidationError, KeyError, TypeError) as e:
+        raise SongNotFound(song_id) from e
+
+
 async def get_song_url(song_id: str, kbps : str = "320") -> str:
     """Direct audio URL for a JioSaavn song id (320 kbps AAC by default)."""
+    song = await song_details(song_id)
+    try:
+        return decrypt_media_url(song["more_info"]["encrypted_media_url"])[:-7] + "_" + kbps + ".mp4"
+    except KeyError as e:
+        raise SongNotFound(song_id) from e
+    except ValueError as e:
+        raise SourceUnavailable(f"JioSaavn: {e!r}") from e
+
+
+async def song_details(song_id: str) -> dict:
+    """The song.getDetails row for one id, in the search-row shape."""
     try:
         r = await http.client.get(SEARCH_URL, params = {"__call" : "song.getDetails", "pids" : song_id} | PREAMBLE_PARAMS)
         if r.status_code == 429:
@@ -281,13 +300,7 @@ async def get_song_url(song_id: str, kbps : str = "320") -> str:
     # a real id gives {"songs": [...]}; a made-up one gives {"status": ..., "msg": ...} with no "songs"
     if "songs" not in r or r["songs"] == []:
         raise SongNotFound(song_id)
-
-    try:
-        return decrypt_media_url(r["songs"][0]["more_info"]["encrypted_media_url"])[:-7] + "_" + kbps + ".mp4"
-    except KeyError as e:
-        raise SongNotFound(song_id) from e
-    except ValueError as e:
-        raise SourceUnavailable(f"JioSaavn: {e!r}") from e
+    return r["songs"][0]
 
 def decrypt_media_url(encrypted: str) -> str:
     """Unwrap JioSaavn's encrypted_media_url, in reverse order of how it was wrapped.

@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import time
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import get_args, Annotated, Literal
@@ -13,7 +12,7 @@ from psycopg import errors
 
 from music_backend.core import db, ratelimit
 from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications, jam, served, spotify_import
-from music_backend.services.matching import rank_songs, merge_youtube, rank_albums, rank_artists, by_relevance, coverage, normalise
+from music_backend.services.matching import rank_songs, merge_youtube, rank_albums, rank_artists, by_relevance, coverage, normalise, artists_match
 from music_backend.models import (SpotifyImportRequest, SpotifyImportStatus, EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
@@ -450,26 +449,25 @@ async def prefetch_urls(body: PrefetchRequest, request: Request, user: Annotated
 # ---------- radio (MUS-3) ----------
 
 async def station_video(seed: PrefetchListing, copies: list[dict]) -> str | None:
-    """A video to start YouTube's Mix from: the seed when it is a video, else the song's own YouTube or YouTube Music
-    copy, else (a song only JioSaavn has) the first YouTube Music result for its title and artist. Not necessarily the
-    same recording: the Mix only needs the song to start from, and JioSaavn's own station was the weakest of the three
-    (13 Oct). A seed Autoplay added and never played is not stored: as a video, it is still one."""
-    if seed.source in ("youtube", "ytmusic"):
+    """A video of the seed song, to start YouTube Music's station from: the seed itself when it is a video (YouTube and
+    YouTube Music share ids), else a stored copy's, else a YouTube Music result with the song's title and artist. A
+    song not stored yet (the app asks before the song's first "play" is recorded) is looked up on JioSaavn by its id.
+    None when no video is the same song."""
+    if seed.source != "jiosaavn":
         return seed.source_id
     own = next((c["source_id"] for c in copies if c["source"] in ("youtube", "ytmusic")), None)
-    if own is not None or not copies:
+    if own is not None:
         return own
     try:
-        found = await ytmusic.search(f"{copies[0]['title']} {(copies[0]['artists'] or [''])[0]}")
-    except SourceUnavailable:
+        if copies:
+            title, artists = copies[0]["title"], copies[0]["artists"] or []
+        else:
+            song = await jiosaavn.get_song(seed.source_id)
+            title, artists = song.title, song.artists or []
+        found = await ytmusic.search(f"{title} {(artists or [''])[0]}")
+    except (SongNotFound, SourceUnavailable):
         return None
-    return found[0].id if found else None
-
-
-# songs by one artist in one radio reply, at most. YouTube's Mix for an upload on a one-artist channel is that channel:
-# 22 of 26 songs by Lee, and each refill, seeded from the queue's last song, stayed there (13 Oct). YouTube Music's
-# station for the same video had 20 artists in 26; it fills what the spread leaves
-ARTIST_SPREAD = 3
+    return next((l.id for l in found if normalise(l.title) == normalise(title) and artists_match(l.artists, artists)), None)
 
 
 @app.post("/radio")
@@ -477,42 +475,30 @@ async def radio(body: RadioRequest, request: Request,
                 user: Annotated[User, Depends(per_account("radio"))]) -> RadioResponse:
     """More songs to keep playing, seeded from the last song in the queue (MUS-3).
 
-    The stations are asked best first: YouTube's Mix, then YouTube Music's station, for a video of the song
-    (station_video), then the seed's own source; a later one only while the reply is short. Dropped: the seeds, the
-    app's exclude list, (skip_recent, on unless the app turned it off) the account's last 50 played songs, and any song
-    past an artist's ARTIST_SPREAD in this reply. The reply is ranked with the same machinery as search (group
-    duplicates, keep the stations' order). 200 with fewer songs (possibly none: the app stops asking) is a normal
-    answer; 502 only when every station was unreachable.
+    YouTube Music's station, started from a video of the song (station_video); JioSaavn's own station only for a song
+    with no such video. YouTube's Mix was asked first on 13-14 Oct: it follows the uploader's channel (12-13
+    of its first 15 songs by the seed artist, all plain videos), and 75% of the 106 videos it played were skipped
+    (#24). YouTube Music's station spreads artists itself (14-20 in 25, measured on six seeds).
+
+    Dropped: the seed, the app's exclude list and (skip_recent, on unless the app turned it off) the account's last 50
+    played songs. The reply keeps the station's order (rank_songs groups duplicates). 200 with fewer songs (possibly
+    none: the app stops asking) is a normal answer; 502 only when the station was unreachable.
     """
     async with request.app.state.pool.connection() as conn:
         copies = await library.copies_of(conn, body.seed.source, body.seed.source_id)
         exclude = await library.recent_listing_refs(conn, user.id) if body.skip_recent else set()
     video = await station_video(body.seed, copies)
-    candidates = ([("youtube", video), ("ytmusic", video)] if video else []) + [(body.seed.source, body.seed.source_id)]
+    source, seed_id = ("ytmusic", video) if video else (body.seed.source, body.seed.source_id)
     exclude |= {(ref.source, ref.source_id) for ref in body.exclude}
-    exclude |= {(body.seed.source, body.seed.source_id)} | set(candidates)
-    kept, seen, by_artist, unreachable = [], set(), Counter(), []
-    for source, seed_id in candidates:
-        try:
-            # one extra listing: every station leads with its own seed
-            listings = await SOURCES[source].radio(seed_id, body.limit + 1)
-        except SourceUnavailable as e:
-            logger.warning("%s unavailable while seeding radio from %r: %s", source, seed_id, e)
-            unreachable.append(source)
-            continue
-        for listing in listings:
-            artist = normalise(listing.artists[0]) if listing.artists else ""
-            # a video's id is the same on YouTube and YouTube Music: one song, though both stations have it
-            if (listing.source, listing.id) in exclude or listing.id in seen or by_artist[artist] >= ARTIST_SPREAD:
-                continue
-            seen.add(listing.id)
-            by_artist[artist] += 1
-            kept.append(listing)
-        if len(kept) >= body.limit:
-            break
-    if not kept and len(unreachable) == len(candidates):
-        raise HTTPException(status_code=502, detail=f"{unreachable[0]} is unavailable right now")
-    kept = kept[: body.limit]
+    exclude |= {(body.seed.source, body.seed.source_id), (source, seed_id)}
+    try:
+        # one extra listing: every station leads with its own seed
+        listings = await SOURCES[source].radio(seed_id, body.limit + 1)
+    except SourceUnavailable as e:
+        logger.warning("%s unavailable while seeding radio from %r: %s", source, seed_id, e)
+        raise HTTPException(status_code=502, detail=f"{source} is unavailable right now")
+    # a video's id is the same on YouTube and YouTube Music: a song played as either is excluded
+    kept = [l for l in listings if (l.source, l.id) not in exclude and ("youtube", l.id) not in exclude][: body.limit]
     songs = rank_songs([kept])
     remember_served(request, songs)
     return RadioResponse(songs = songs)
