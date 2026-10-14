@@ -1,0 +1,43 @@
+# Plays a generated tone through the Windows audio plugin on a real Windows machine (#28), and counts the engine's
+# "sent a message from native to Flutter on a non-platform thread" errors. Run it from the Actions tab; "plugin" picks
+# the build: the pinned upstream commit (pubspec.yaml) or pub.dev's 0.2.3, to compare the two.
+name: Windows audio check
+
+on:
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: "just_audio_windows build"
+        type: choice
+        options: [pinned, pub]
+        default: pinned
+
+jobs:
+  play:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.6"
+          channel: stable
+          cache: true
+      - if: inputs.plugin == 'pub'
+        run: |
+          python - <<'EOF'
+          import re
+          s = open("pubspec.yaml").read()
+          s = re.sub(r"  just_audio_windows:\n    git:\n(      .*\n)+", "  just_audio_windows: 0.2.3\n", s)
+          open("pubspec.yaml", "w").write(s)
+          EOF
+          grep -n "just_audio_windows" pubspec.yaml
+      - run: flutter pub get
+      - run: flutter test integration_test/windows_audio_test.dart -d windows 2>&1 | tee audio-check.log
+      - if: always()
+        run: |
+          echo "non-platform thread errors: $(grep -c 'non-platform thread' audio-check.log || true)"
+          grep "AUDIO-CHECK" audio-check.log || true
