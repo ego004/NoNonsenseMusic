@@ -197,12 +197,12 @@ enum SearchFilter: String, CaseIterable, Identifiable {
 }
 
 struct SearchView: View {
-    /// ⌘F, from anywhere in the window (RootView counts the presses): each one focuses the search bar
+    /// ⌘K or ⌘F on the Search page, which has no command bar (RootView counts the presses): each focuses the search bar
     var focusRequests = 0
     @Environment(Player.self) private var player
     /// Searches that led to a song you played, newest first (RecentSearches): the idle screen offers them again.
     @AppStorage("recentSearches") private var recentRaw = ""
-    @State private var query = ""
+    @State private var query: String
     @State private var results: [Track] = []
     @State private var artists: [SearchArtist] = []
     @State private var albums: [AlbumRef] = []
@@ -212,6 +212,12 @@ struct SearchView: View {
     @State private var failed = false
     @State private var task: Task<Void, Never>?
     @FocusState private var fieldFocused: Bool
+
+    /// `initialQuery`: words searched at once, as the command bar's "All results for “…”" opens Search.
+    init(focusRequests: Int = 0, initialQuery: String = "") {
+        self.focusRequests = focusRequests
+        _query = State(initialValue: initialQuery)
+    }
 
     private var unhealthy: [SourceInfo] { sources.filter { !$0.healthy } }
 
@@ -312,10 +318,13 @@ struct SearchView: View {
             guard let id, !isIdle, results.contains(where: { $0.id == id }) else { return }
             recentRaw = RecentSearches.adding(query, to: recentRaw)
         }
-        .onAppear { fieldFocused = true }
+        .onAppear {
+            fieldFocused = true
+            if !isIdle, task == nil { schedule(query, delay: .zero) }   // opened with words (All results): searched at once
+        }
         // a search still on its way would land after this and hand its results to the Prefetcher again
         .onDisappear { task?.cancel(); Prefetcher.shared.searchChanged([]) }
-        // ⌘F while Search is already open: RootView holds the shortcut, so it works from every screen (it lived
+        // ⌘K or ⌘F while Search is open: RootView holds the shortcuts, so they work from every screen (⌘F lived
         // here, so it worked only on Search: audit, 7 Oct)
         .onChange(of: focusRequests) { fieldFocused = true }
     }

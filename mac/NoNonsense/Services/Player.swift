@@ -352,43 +352,61 @@ final class Player {
     /// still be 0 from the song's start (it changes only on events), so nothing would change. Lyrics follow this.
     private(set) var seeks = 0
 
-    /// Space plays/pauses anywhere in the window, and ← → seek 5 s, except while typing in a text field. And while typing, ⌘← ⌘→ ⌘↑ ⌘↓
+    /// Space plays/pauses anywhere in the window, ← → seek 5 s, L likes or unlikes the song, M mutes or unmutes, and /
+    /// puts the keyboard in the command bar, except while typing in a text field. And while typing, ⌘← ⌘→ ⌘↑ ⌘↓
     /// move the cursor, as in any text field: menus answer their shortcuts before the field sees the key, so the
     /// Controls menu's Next, Previous and Volume took them (audit, 7 Oct). A monitor sees the key before the menus do.
     func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            // arrow keys also carry the numeric-pad and function flags: only ⌘ itself counts
-            let isCommandArrow = (123...126).contains(event.keyCode)
-                && event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]) == .command
-            if isCommandArrow {
-                let typed = MainActor.assumeIsolated { () -> Bool in
-                    guard let field = NSApp.keyWindow?.firstResponder as? NSTextView else { return false }
-                    field.keyDown(with: event)                  // the field's own ⌘-arrow: start or end of line or text
-                    return true
-                }
-                return typed ? nil : event
-            }
-            // ← → : 5 s back or on (as on YouTube). Not while typing (the field's cursor) or on a focused slider
-            let isPlainArrow = (event.keyCode == 123 || event.keyCode == 124)
-                && event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]).isEmpty
-            if isPlainArrow {
-                let seeked = MainActor.assumeIsolated { () -> Bool in
-                    let focused = NSApp.keyWindow?.firstResponder
-                    guard let self, self.current != nil, !(focused is NSText), !(focused is NSSlider) else { return false }
-                    self.seek(by: event.keyCode == 124 ? 5 : -5)
-                    return true
-                }
-                return seeked ? nil : event
-            }
-            let isPlainSpace = event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
-            guard isPlainSpace else { return event }
-            let handled = MainActor.assumeIsolated { () -> Bool in
-                guard let self, self.current != nil, !(NSApp.keyWindow?.firstResponder is NSText) else { return false }
-                self.togglePlayPause()
-                return true
-            }
+            // decided on the main actor as a plain Bool (an NSEvent cannot cross isolation); consumed outside
+            let handled = MainActor.assumeIsolated { self?.heard(event) ?? false }
             return handled ? nil : event
+        }
+    }
+
+    /// Whether a key down is the window's own (true: nothing else gets it).
+    private func heard(_ event: NSEvent) -> Bool {
+        // arrow keys also carry the numeric-pad and function flags: only ⌘ itself counts
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+        let focused = (event.window ?? NSApp.keyWindow)?.firstResponder       // a text field's editor while typing
+        if (123...126).contains(event.keyCode), modifiers == .command {
+            guard let field = focused as? NSTextView else { return false }
+            field.keyDown(with: event)                      // the field's own ⌘-arrow: start or end of line or text
+            return true
+        }
+        // the rest never while typing: the key is the field's (a space typed into Search once paused the song)
+        guard !(focused is NSText) else { return false }
+        let key = event.charactersIgnoringModifiers ?? ""
+        // / : the command bar, where it is on screen (also where / is a shifted key, as ⇧7 on a German keyboard)
+        if key == "/", modifiers.subtracting(.shift).isEmpty, CommandBarState.shared.onScreen, !showNowPlaying {
+            if !event.isARepeat { CommandBarState.shared.summon() }
+            return true
+        }
+        guard modifiers.isEmpty else { return false }
+        switch event.keyCode {
+        case 123, 124:                                      // ← → : 5 s back or on (as on YouTube), not on a focused slider
+            guard current != nil, !(focused is NSSlider) else { return false }
+            seek(by: event.keyCode == 124 ? 5 : -5)
+            return true
+        case 49:                                            // Space
+            guard current != nil else { return false }
+            togglePlayPause()
+            return true
+        default:
+            break
+        }
+        // L and M once per press: held down, they neither repeat nor beep
+        switch key {
+        case "l":
+            guard let song = current else { return false }
+            if !event.isARepeat { Task { await library.toggleLike(song) } }
+            return true
+        case "m":
+            if !event.isARepeat { toggleMute() }
+            return true
+        default:
+            return false
         }
     }
 
