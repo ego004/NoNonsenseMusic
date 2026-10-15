@@ -3,6 +3,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/catalog.dart';
 import 'browse_pages.dart';
+import 'concept.dart';
 import 'glass.dart';
 import 'layout.dart';
 import 'now_playing.dart';
@@ -141,7 +142,8 @@ class BrowseHost extends StatelessWidget {
                 offstage: i != path.length - 1,
                 child: TickerMode(
                   enabled: i == path.length - 1,
-                  child: Column(
+                  // the concept (13 Oct): a pushed page slides in once, as on the Mac
+                  child: PushIn(child: Column(
                     children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -159,7 +161,7 @@ class BrowseHost extends StatelessWidget {
                       ),
                       Expanded(child: BrowsePage(target: target)),
                     ],
-                  ),
+                  )),
                 ),
               ),
             ),

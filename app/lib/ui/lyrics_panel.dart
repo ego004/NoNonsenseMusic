@@ -7,7 +7,9 @@ import '../core/api.dart';
 import '../core/models.dart';
 import '../core/player.dart';
 import '../core/translation.dart';
+import 'concept.dart';
 import 'in_front.dart';
+import 'layout.dart';
 import 'lyric_layout.dart';
 import 'scope.dart';
 
@@ -125,7 +127,7 @@ class TranslatedLyrics extends StatelessWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SelectableText(lines[i].text, style: theme.textTheme.bodyMedium?.copyWith(color: muted.color)),
             const SizedBox(height: 3),
-            SelectableText(done[i], style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            SelectableText(done[i], style: theme.textTheme.titleMedium?.merge(lyricsStyle)),
           ]),
         );
       },
@@ -145,7 +147,7 @@ class _Plain extends StatelessWidget {
         itemCount: lyrics.lines.length,
         itemBuilder: (_, i) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 3),
-          child: NotedLyricLine(text: lyrics.lines[i].text, style: Theme.of(context).textTheme.titleMedium, note: notes[i], url: notesUrl),
+          child: NotedLyricLine(text: lyrics.lines[i].text, style: Theme.of(context).textTheme.titleMedium?.merge(lyricsStyle), note: notes[i], url: notesUrl),
         ),
       );
 }
@@ -233,7 +235,7 @@ class _TimedState extends State<_Timed> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final p = Scope.of(context).player;
-    final base = DefaultTextStyle.of(context).style.merge(theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700));
+    final base = DefaultTextStyle.of(context).style.merge(theme.textTheme.titleMedium?.merge(lyricsStyle));
     final direction = Directionality.of(context);
     final scaler = MediaQuery.textScalerOf(context);
     // separate paint layer: a line change repaints the lyrics only, not the page
@@ -273,70 +275,221 @@ class _TimedState extends State<_Timed> {
 
 // ---- Genius notes (experimental) ----
 
-/// A single lyric line, underlined in a faint accent when a Genius note is attached.
+/// A single lyric line, in the accent colour when a Genius note is attached (15 Oct: it was underlined).
 ///
-/// A tap opens the note rather than invoking [onTap]; lines without a note play from their own time.
-class NotedLyricLine extends StatelessWidget {
+/// With a mouse, resting on a noted line shows the note in a glass card beside it; a click (or a tap) opens the whole
+/// note in a glass window. Lines without a note play from their own time.
+class NotedLyricLine extends StatefulWidget {
   final String text;
   final TextStyle? style;
   final GeniusNote? note;
   final String? url;
   final VoidCallback? onTap; // no note on the line: play from it (timed lyrics)
-  final VoidCallback? onPlay; // "Play from here" inside the note dialog
+  final VoidCallback? onPlay; // "Play from here" inside the note's window
   const NotedLyricLine({super.key, required this.text, this.style, this.note, this.url, this.onTap, this.onPlay});
 
   @override
+  State<NotedLyricLine> createState() => _NotedLyricLineState();
+}
+
+class _NotedLyricLineState extends State<NotedLyricLine> {
+  final _card = OverlayPortalController();
+  final _link = LayerLink();
+  Timer? _wait;
+  bool _below = true; // the card opens below the line, or above it in the lower half of the window
+
+  void _enter() {
+    if (widget.note == null || isTouchDevice) return;
+    _wait?.cancel();
+    // a short rest first: moving the pointer across the lyrics does not flash a card on every line it passes
+    _wait = Timer(const Duration(milliseconds: 280), () {
+      if (!mounted) return;
+      final box = context.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize) {
+        _below = box.localToGlobal(box.size.center(Offset.zero)).dy < MediaQuery.sizeOf(context).height / 2;
+      }
+      _card.show();
+    });
+  }
+
+  void _leave() {
+    _wait?.cancel();
+    if (_card.isShowing) _card.hide();
+  }
+
+  @override
+  void dispose() {
+    _wait?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final note = widget.note;
     final accent = Theme.of(context).colorScheme.primary;
-    // a long line wraps in every script; the panel's line heights are measured for that (LyricLayout)
-    final shown = Text(text,
-        style: note == null ? style : (style ?? const TextStyle()).copyWith(decoration: TextDecoration.underline, decorationColor: accent.withValues(alpha: 0.6)));
-    final tap = note == null ? onTap : () => showGeniusNote(context, note!, url, onPlay: onPlay);
-    return InkWell(borderRadius: BorderRadius.circular(8), onTap: tap, child: shown);
+    final style = widget.style ?? const TextStyle();
+    // a long line wraps in every script; the panel's line heights are measured for that (LyricLayout). The colour keeps
+    // the line's own brightness (the line being sung is the brightest), never fainter than can be read
+    final shown = Text(widget.text,
+        style: note == null ? widget.style : style.copyWith(color: accent.withValues(alpha: (style.color?.a ?? 1).clamp(0.6, 1.0))));
+    final tap = note == null
+        ? widget.onTap
+        : () {
+            _leave();
+            showGeniusNote(context, note, widget.url, onPlay: widget.onPlay);
+          };
+    // a hand over a noted line, as over a link: it opens its note (Flutter gives a tappable widget the arrow on a computer)
+    final line = InkWell(borderRadius: BorderRadius.circular(8), mouseCursor: note == null ? null : SystemMouseCursors.click, onTap: tap, child: shown);
+    if (note == null) return line;
+    return CompositedTransformTarget(
+      link: _link,
+      child: OverlayPortal(
+        controller: _card,
+        overlayChildBuilder: (_) => Positioned(
+          left: 0,
+          top: 0,
+          child: CompositedTransformFollower(
+            link: _link,
+            showWhenUnlinked: false,
+            targetAnchor: _below ? Alignment.bottomLeft : Alignment.topLeft,
+            followerAnchor: _below ? Alignment.topLeft : Alignment.bottomLeft,
+            offset: Offset(0, _below ? 8 : -8),
+            child: IgnorePointer(child: _NoteCard(note: note)),
+          ),
+        ),
+        child: MouseRegion(onEnter: (_) => _enter(), onExit: (_) => _leave(), child: line),
+      ),
+    );
   }
 }
 
-/// Shows a Genius note in a dialog over the lyrics.
-///
-/// The dialog holds the note text, credits Genius and, when the line carries a time, offers "Play from here".
-Future<void> showGeniusNote(BuildContext context, GeniusNote note, String? url, {VoidCallback? onPlay}) => showDialog(
-      context: context,
-      builder: (c) => AlertDialog(
-        content: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 360), child: SelectableText(note.text)),
-        actions: [
-          _GeniusCredit(url: url, verified: note.verified),
-          if (onPlay != null) TextButton(onPressed: () { Navigator.pop(c); onPlay(); }, child: const Text('Play from here')),
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Close')),
-        ],
+/// The note shown on hover: its first lines, on glass, coming in once.
+class _NoteCard extends StatelessWidget {
+  final GeniusNote note;
+  const _NoteCard({required this.note});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // the glass comes in by itself (GlassCard.appear): faded from outside, it showed black until the fade ended
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      builder: (_, t, content) => Transform.scale(
+        scale: 0.96 + 0.04 * t,
+        alignment: Alignment.topLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320),
+          child: GlassCard(appear: t, padding: const EdgeInsets.fromLTRB(14, 12, 14, 12), child: content!),
+        ),
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(note.text, maxLines: 7, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium?.copyWith(height: 1.4)),
+          const SizedBox(height: 8),
+          Text(note.verified ? 'Genius · verified by the artist · click for all of it' : 'Genius · click for all of it',
+              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.55))),
+        ]),
       ),
     );
+  }
+}
 
-/// Shows Genius's "About this song" in a dialog: its description, who produced it and what it samples.
-Future<void> showGeniusAbout(BuildContext context, GeniusAbout about, String? url) => showDialog(
+/// A window in the player's glass, over the player: a title, what it holds (scrolling when long), and its buttons.
+Future<void> _showGlassWindow(BuildContext context,
+        {String? title, required Widget body, required Widget credit, required List<Widget> Function(BuildContext) buttons}) =>
+    showGeneralDialog(
       context: context,
-      builder: (c) {
+      barrierDismissible: true,
+      barrierLabel: 'Close',
+      barrierColor: Colors.black.withValues(alpha: 0.18),
+      transitionDuration: const Duration(milliseconds: 320),
+      // the window brings its own glass in (GlassCard.appear) and grows to its size with a small overshoot, as a Mac
+      // window opens; it is never faded from outside, which showed black until the fade ended (15 Oct)
+      transitionBuilder: (_, _, _, child) => child,
+      pageBuilder: (c, animation, _) {
         final theme = Theme.of(c);
-        Widget fact(String title, String value) => Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                Text(value),
-              ]),
-            );
-        return AlertDialog(
-          title: const Text('About This Song'),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 360),
-            child: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-              if (about.description != null) SelectableText(about.description!),
-              if (about.producedBy.isNotEmpty) fact('Produced by', about.producedBy.join(', ')),
-              if (about.samples.isNotEmpty) fact('Samples', about.samples.join('\n')),
-            ])),
+        return Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: 460, maxHeight: MediaQuery.sizeOf(c).height * 0.75),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: AnimatedBuilder(
+                animation: animation,
+                builder: (_, content) {
+                  // opening: the glass comes up and the window grows past its size and settles; closing: both go quickly
+                  final opening = animation.status != AnimationStatus.reverse;
+                  final appear = (opening ? Curves.easeOutCubic : Curves.easeInCubic).transform(animation.value);
+                  final grow = (opening ? Curves.easeOutBack : Curves.easeInCubic).transform(animation.value);
+                  return Transform.scale(
+                    scale: 0.94 + 0.06 * grow,
+                    child: GlassCard(appear: appear, radius: 22, padding: const EdgeInsets.fromLTRB(22, 20, 14, 12), child: content!),
+                  );
+                },
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    if (title != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12, right: 8),
+                        child: Text(title, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                      ),
+                    Flexible(child: SingleChildScrollView(padding: const EdgeInsets.only(right: 8), child: body)),
+                    const SizedBox(height: 12),
+                    credit,
+                    // the buttons on the right, one above the other when a narrow window has no room for them in a row
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OverflowBar(spacing: 4, overflowAlignment: OverflowBarAlignment.end, children: buttons(c)),
+                    ),
+                  ]),
+                ),
+              ),
+            ),
           ),
-          actions: [_GeniusCredit(url: url, verified: false), TextButton(onPressed: () => Navigator.pop(c), child: const Text('Close'))],
         );
       },
     );
+
+/// Shows a Genius note in a glass window over the lyrics.
+///
+/// The window holds the note text, credits Genius and, when the line carries a time, offers "Play from here".
+Future<void> showGeniusNote(BuildContext context, GeniusNote note, String? url, {VoidCallback? onPlay}) => _showGlassWindow(
+      context,
+      body: SelectableText(note.text, style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.45)),
+      credit: _GeniusCredit(url: url, verified: note.verified),
+      buttons: (c) => [
+        if (onPlay != null) TextButton(onPressed: () { Navigator.pop(c); onPlay(); }, child: const Text('Play from here')),
+        TextButton(onPressed: () => Navigator.pop(c), child: const Text('Close')),
+      ],
+    );
+
+/// Shows Genius's "About this song" in a glass window: its description, who produced it and what it samples.
+Future<void> showGeniusAbout(BuildContext context, GeniusAbout about, String? url) {
+  final theme = Theme.of(context);
+  Widget fact(String title, String value) => Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          Text(value),
+        ]),
+      );
+  return _showGlassWindow(
+    context,
+    title: 'About This Song',
+    body: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      if (about.description != null) SelectableText(about.description!, style: theme.textTheme.bodyLarge?.copyWith(height: 1.45)),
+      if (about.producedBy.isNotEmpty) fact('Produced by', about.producedBy.join(', ')),
+      if (about.samples.isNotEmpty) fact('Samples', about.samples.join('\n')),
+    ]),
+    credit: _GeniusCredit(url: url, verified: false),
+    buttons: (c) => [
+      TextButton(onPressed: () => Navigator.pop(c), child: const Text('Close')),
+    ],
+  );
+}
 
 /// Credits Genius as the source of the notes, marked "verified by the artist" when the artist confirmed them.
 ///

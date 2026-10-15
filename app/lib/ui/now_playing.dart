@@ -4,9 +4,9 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import 'browse_nav.dart';
 import 'browse_widgets.dart';
+import 'concept.dart';
 import '../core/models.dart';
 import 'copy_menu.dart';
-import '../core/cover_image.dart';
 import 'cover.dart';
 import 'glass.dart';
 import 'jam_panel.dart';
@@ -39,48 +39,48 @@ class NowPlaying extends StatelessWidget {
           builder: (context, _) {
             final t = p.current;
             if (t == null) return const SizedBox.shrink();
+            final small = MediaQuery.sizeOf(context).width < 700 || MediaQuery.sizeOf(context).height < 600;
+            final dark = theme.brightness == Brightness.dark;
             return Stack(
               fit: StackFit.expand,
               children: [
-                if (MediaQuery.sizeOf(context).width < 700 ||
-                    MediaQuery.sizeOf(context).height < 600)
+                if (small)
                   const PhoneBackdrop()
                 else
                   ColoredBox(color: theme.colorScheme.surface),
-                // The background takes the cover's colours: the cover is decoded at 12 pixels and stretched by the GPU.
-                // A real blur would be redrawn with every frame; this stays one small texture.
+                // The background takes the cover's colours, blurred once per song and stretched by the GPU (CoverBackdrop):
+                // a live blur would be redrawn with every frame; this stays one small texture. The concept (13 Oct): a
+                // computer's is stronger, strongest behind the song and deepening toward the edges
                 if (t.image != null)
                   Opacity(
-                    opacity: theme.brightness == Brightness.dark ? 0.55 : 0.4,
-                    child: Image(
-                      image: ResizeImage(
-                        coverProvider(t.image!, px: 12),
-                        width: 12,
-                        height: 12,
-                      ),
-                      fit: BoxFit.cover,
-                      filterQuality: FilterQuality.high,
-                      gaplessPlayback: true,
-                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                    ),
+                    opacity: small ? (dark ? 0.55 : 0.4) : (dark ? 0.78 : 0.55),
+                    child: CoverBackdrop(url: t.image!),
                   ),
                 DecoratedBox(
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        theme.colorScheme.surface.withValues(alpha: 0.35),
-                        theme.colorScheme.surface.withValues(alpha: 0.75),
-                      ],
-                    ),
+                    gradient: small
+                        ? LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              theme.colorScheme.surface.withValues(alpha: 0.35),
+                              theme.colorScheme.surface.withValues(alpha: 0.75),
+                            ],
+                          )
+                        : LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            stops: const [0, 0.45, 1],
+                            colors: [
+                              theme.colorScheme.surface.withValues(alpha: 0.5),
+                              theme.colorScheme.surface.withValues(alpha: 0.18),
+                              theme.colorScheme.surface.withValues(alpha: 0.82),
+                            ],
+                          ),
                   ),
                 ),
                 LayoutBuilder(
                   builder: (context, box) {
-                    final side = (box.maxHeight - 370)
-                        .clamp(180.0, 500.0)
-                        .toDouble();
                     final info = Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -337,103 +337,159 @@ class NowPlaying extends StatelessWidget {
                             ),
                           )
                         : null;
-                    return Stack(
-                      children: [
-                        Positioned(
-                          left: 24,
-                          top: phone
-                              ? MediaQuery.paddingOf(context).top + 8
-                              : 18,
-                          child: IconButton(
-                            tooltip: 'Close (Esc)',
-                            iconSize: 20,
-                            style: phone
-                                ? IconButton.styleFrom(
-                                    backgroundColor: theme.colorScheme.surface
-                                        .withValues(alpha: 0.55),
-                                  )
-                                : null,
-                            onPressed: () => p.setShowNowPlaying(false),
-                            icon: const Icon(
-                              FluentIcons.chevron_down_24_regular,
+                    if (body != null) {
+                      return Stack(
+                        children: [
+                          Positioned(
+                            left: 24,
+                            top: MediaQuery.paddingOf(context).top + 8,
+                            child: IconButton(
+                              tooltip: 'Close (Esc)',
+                              iconSize: 20,
+                              style: IconButton.styleFrom(
+                                backgroundColor: theme.colorScheme.surface.withValues(alpha: 0.55),
+                              ),
+                              onPressed: () => p.setShowNowPlaying(false),
+                              icon: const Icon(FluentIcons.chevron_down_24_regular),
                             ),
                           ),
+                          body,
+                        ],
+                      );
+                    }
+                    // The concept (13 Oct): Apple Music's Now Playing on a computer. Everything below animates once,
+                    // when it changes, and then holds still.
+                    // the cover gives way to the controls: the window's height less the bar on top and the controls
+                    final art = (box.maxHeight - 440).clamp(170.0, 470.0).toDouble();
+                    const panelGap = 56.0, panelWidth = 380.0;
+                    final title = Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Expanded(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 320),
+                          transitionBuilder: (child, a) => FadeTransition(
+                            opacity: a,
+                            child: SlideTransition(position: Tween(begin: const Offset(0, 0.25), end: Offset.zero).animate(a), child: child),
+                          ),
+                          layoutBuilder: (current, previous) => Stack(alignment: Alignment.topLeft, children: [...previous, ?current]),
+                          child: Column(key: ValueKey(t.id), crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Row(children: [
+                              Flexible(child: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontFamily: displayFont, fontSize: 26, fontWeight: FontWeight.w700, letterSpacing: -0.5, height: 1.15))),
+                              if (t.isExplicit) const Padding(padding: EdgeInsets.only(left: 8), child: ExplicitBadge()),
+                            ]),
+                            const SizedBox(height: 3),
+                            ArtistLinks(artists: t.artists, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w500, color: theme.colorScheme.primary)),
+                            const SizedBox(height: 4),
+                            CopyMenu(track: t),
+                          ]),
                         ),
-                        // a computer: the panel buttons by the window's corner, the panel beside the song
-                        if (!phone) Positioned(right: 24, top: 18, child: panelButtons),
-                        if (body != null)
-                          body
-                        else
-                          Center(
-                            child: Padding(
-                              padding: const EdgeInsets.only(top: 40),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  SizedBox(
-                                    width: side,
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            borderRadius: BorderRadius.circular(
-                                              14,
-                                            ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                blurRadius: 40,
-                                                offset: const Offset(0, 18),
-                                                color: Colors.black.withValues(
-                                                  alpha: 0.35,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          child: Cover(
-                                            t.image,
-                                            size: side,
-                                            radius: 14,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 26),
-                                        info,
-                                        const SizedBox(height: 18),
-                                        Progress(key: ValueKey('np${t.id}')),
-                                        const SizedBox(height: 10),
-                                        const Transport(size: 22, play: 52),
-                                        const SizedBox(height: 14),
-                                        Center(
-                                          child: Volume(width: side * 0.45),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (p.panel != 'none') ...[
-                                    const SizedBox(width: 56),
-                                    Container(
-                                      width: 340,
-                                      height: (box.maxHeight - 140)
-                                          .clamp(300.0, 560.0)
-                                          .toDouble(),
-                                      decoration: panelBox,
-                                      padding: const EdgeInsets.fromLTRB(
-                                        14,
-                                        14,
-                                        10,
-                                        10,
-                                      ),
-                                      child: panel,
-                                    ),
-                                  ],
-                                ],
+                      ),
+                      LikeButton(track: t, size: 22),
+                      SongMoreButton(track: t, size: 22),
+                    ]);
+                    final column = SizedBox(
+                      width: art,
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Stagger(order: 0, child: SpringCover(image: t.image, id: t.id, size: art, playing: p.isPlaying || p.isBuffering)),
+                        const SizedBox(height: 30),
+                        Stagger(order: 1, child: title),
+                        const SizedBox(height: 18),
+                        Stagger(order: 2, child: AppleScrubber(key: ValueKey('scrub${t.id}'))),
+                        const SizedBox(height: 12),
+                        const Stagger(order: 3, child: ConceptTransport()),
+                        const SizedBox(height: 14),
+                        const Stagger(order: 4, child: AppleVolume()),
+                      ]),
+                    );
+                    final glass = BoxDecoration(
+                      color: theme.colorScheme.surface.withValues(alpha: dark ? 0.42 : 0.6),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: ink.withValues(alpha: 0.08)),
+                      boxShadow: [BoxShadow(blurRadius: 40, offset: const Offset(0, 20), color: Colors.black.withValues(alpha: 0.18))],
+                    );
+                    return Stack(children: [
+                      // the bar along the top: close, what is playing, and the two panels as pills
+                      Positioned(
+                        left: 24, right: 24, top: 16,
+                        child: Stagger(
+                          order: 0,
+                          child: Stack(alignment: Alignment.center, children: [
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Pressable(
+                                tooltip: 'Close (Esc)',
+                                onTap: () => p.setShowNowPlaying(false),
+                                child: Container(
+                                  width: 38, height: 38,
+                                  decoration: BoxDecoration(color: ink.withValues(alpha: 0.08), shape: BoxShape.circle),
+                                  child: Icon(FluentIcons.chevron_down_24_regular, size: 18, color: ink.withValues(alpha: 0.85)),
+                                ),
                               ),
                             ),
-                          ),
-                      ],
-                    );
+                            // what is playing, over the middle of the window and the song: centred between the close
+                            // button and the wider pills, it sat 77 points left of the song (15 Oct)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 220),
+                              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                                Text('NOW PLAYING', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 1.6, color: ink.withValues(alpha: 0.5))),
+                                if (t.albumTitle != null)
+                                  Text(t.albumTitle!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ink.withValues(alpha: 0.85))),
+                              ]),
+                            ),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                PillToggle(icon: FluentIcons.comment_quote_24_regular, label: 'Lyrics', on: p.panel == 'lyrics', onTap: () => p.setPanel('lyrics')),
+                                const SizedBox(width: 8),
+                                PillToggle(icon: FluentIcons.text_bullet_list_ltr_24_regular, label: 'Up Next', on: p.panel == 'upNext', onTap: () => p.setPanel('upNext')),
+                              ]),
+                            ),
+                          ]),
+                        ),
+                      ),
+                      Padding(
+                        // as much room below as the bar takes above: the song sits in the middle of the window
+                        padding: const EdgeInsets.fromLTRB(24, 64, 24, 64),
+                        // a window shorter than the column scales it down whole rather than cutting the volume off the bottom
+                        child: Center(child: FittedBox(fit: BoxFit.scaleDown,
+                          // the song and the panel are centred together; the panel is as tall as the song, from the top
+                          // of the cover to the volume
+                          child: Stack(clipBehavior: Clip.none, children: [
+                            Row(mainAxisSize: MainAxisSize.min, children: [
+                              column,
+                              // the room the panel takes beside the song: the song moves over as it opens
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 420),
+                                curve: Curves.easeOutCubic,
+                                width: p.panel == 'none' ? 0 : panelGap + panelWidth,
+                              ),
+                            ]),
+                            Positioned(
+                              left: art + panelGap,
+                              top: 0,
+                              bottom: 0,
+                              width: panelWidth,
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 300),
+                                transitionBuilder: (child, a) => FadeTransition(
+                                  opacity: a,
+                                  child: SlideTransition(position: Tween(begin: const Offset(0.08, 0), end: Offset.zero).animate(a), child: child),
+                                ),
+                                child: p.panel == 'none'
+                                    ? const SizedBox.shrink(key: ValueKey('no panel'))
+                                    : Container(
+                                        key: ValueKey(p.panel),
+                                        decoration: glass,
+                                        padding: const EdgeInsets.fromLTRB(16, 16, 12, 12),
+                                        child: panel,
+                                      ),
+                              ),
+                            ),
+                          ]),
+                        )),
+                      ),
+                    ]);
                   },
                 ),
               ],

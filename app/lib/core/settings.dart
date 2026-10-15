@@ -9,24 +9,28 @@ import 'lyrics.dart';
 import 'models.dart';
 import 'player.dart';
 
-/// A background material for the window on Windows, drawn by Windows itself rather than by the app.
+/// The window's background on Windows, drawn by Windows itself rather than by the app (no CPU of the app's), with the
+/// app's panels as glass over it. Solid Dark and Solid Light set the theme too (themeFor).
 enum WindowMaterial {
-  acrylic(
-    'Acrylic',
-    'A live blur of what is behind the window. On some PCs, dragging the window stutters with it.',
-  ),
-  mica('Mica', 'A soft tint from your wallpaper. The lightest.'),
-  solid('Solid', 'No see-through at all.');
+  glass('Glass', 'Translucent, your wallpaper blurred behind it. The default. On some PCs, dragging the window stutters.'),
+  mica('Mica', 'A soft tint from your wallpaper. The lightest for the PC.'),
+  acrylic('Acrylic', 'Semi-transparent with a deeper tint. On some PCs, dragging the window stutters.'),
+  solidDark('Solid Dark', 'A plain dark window, in the dark theme.'),
+  solidLight('Solid Light', 'A plain light window, in the light theme.'),
+  clear('Clear', 'See-through with no blur: the most transparent.');
 
   final String label, note;
   const WindowMaterial(this.label, this.note);
+
+  /// The theme this background sets, when it sets one: a solid window is one colour, light or dark.
+  ThemeMode? get theme => switch (this) { solidDark => ThemeMode.dark, solidLight => ThemeMode.light, _ => null };
 }
 
 /// Holds every setting and keeps it between launches. A change applies at once.
 class Settings extends ChangeNotifier {
   late SharedPreferences _p;
   String server = Api.base;
-  WindowMaterial material = WindowMaterial.acrylic;
+  WindowMaterial material = WindowMaterial.glass;
 
   /// Whether to play a song's explicit version when one exists.
   bool explicit = true;
@@ -56,6 +60,9 @@ class Settings extends ChangeNotifier {
   /// Appearance: light, dark, or matching the system.
   ThemeMode theme = ThemeMode.system;
 
+  /// The theme in use: a solid background's own (Solid Dark, Solid Light), else [theme].
+  ThemeMode get themeShown => material.theme ?? theme;
+
   /// The size of all text, from 0.85 to 1.4, matching the Mac app's Text size.
   double textScale = 1;
 
@@ -70,15 +77,21 @@ class Settings extends ChangeNotifier {
 
   /// Settings › Storage › Keep songs on this device: the audio cache's limit in MB, 0 is off.
   int audioCacheMB = AudioCache.defaultLimitMB;
+
+  /// Settings › Appearance › Cover glow: the window takes a soft light from the playing song's cover (UI v2, 15 Oct).
+  bool coverGlow = true;
+
+  /// Settings › Storage › Download location: the folder the user chose for downloads, null for the app's own.
+  String? downloadFolder;
   bool _loaded = false;
 
   /// Read the stored settings, using each default where a key is missing, then apply them.
   Future<void> load() async {
     _p = await SharedPreferences.getInstance();
     server = _address(_p.getString('server') ?? Api.defaultServer); // also mends one saved with a trailing "/" or no scheme
-    material =
-        WindowMaterial.values.asNameMap()[_p.getString('material')] ??
-        WindowMaterial.acrylic;
+    // a saved 'solid' (before the six backgrounds, 15 Oct) is the dark one
+    final saved = _p.getString('material');
+    material = saved == 'solid' ? WindowMaterial.solidDark : WindowMaterial.values.asNameMap()[saved] ?? WindowMaterial.glass;
     explicit = _p.getBool('explicit') ?? true;
     preferredSource = _p.getString('preferredSource') ?? '';
     autoplay = _p.getBool('autoplay') ?? true;
@@ -94,6 +107,8 @@ class Settings extends ChangeNotifier {
     lyricsMotion = _p.getDouble('lyricsMotion') ?? 0.9;
     geniusNotes = _p.getBool('geniusNotes') ?? false;
     audioCacheMB = _p.getInt('audioCacheMB') ?? AudioCache.defaultLimitMB;
+    downloadFolder = _p.getString('downloadFolder');
+    coverGlow = _p.getBool('coverGlow') ?? true;
     _loaded = true;
     _apply();
   }
@@ -144,6 +159,15 @@ class Settings extends ChangeNotifier {
     await _set('audioCacheMB', mb, () => audioCacheMB = mb);
     AudioCache.shared.evict();
   }
+
+  /// After DownloadStore.moveTo has moved the songs there; null is the app's own folder.
+  Future<void> setDownloadFolder(String? path) async {
+    downloadFolder = path;
+    if (_loaded) path == null ? await _p.remove('downloadFolder') : await _p.setString('downloadFolder', path);
+    notifyListeners();
+  }
+
+  Future<void> setCoverGlow(bool on) => _set('coverGlow', on, () => coverGlow = on);
 
   Future<void> setGeniusNotes(bool on) =>
       _set('geniusNotes', on, () => geniusNotes = on);

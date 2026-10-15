@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'concept.dart';
 import 'layout.dart';
 
 /// Shows [builder]'s panel from the control [anchor] belongs to: a bottom sheet on a phone, a popover under the
@@ -28,27 +29,35 @@ Future<void> showPanel(BuildContext anchor, {required WidgetBuilder builder, dou
   final screen = MediaQuery.sizeOf(anchor);
   final top = from.dy + box.size.height + 4;
   final right = (screen.width - from.dx - box.size.width).clamp(8.0, screen.width);
-  final theme = Theme.of(anchor);
   return showGeneralDialog<void>(
     context: anchor,
     barrierDismissible: true,
     barrierLabel: MaterialLocalizations.of(anchor).modalBarrierDismissLabel,
     barrierColor: Colors.transparent,
-    transitionDuration: Duration.zero,
-    pageBuilder: (context, _, _) => Stack(children: [
+    // the concept (15 Oct): on the player's glass, growing from under its control as the menus do (glass_menu.dart);
+    // it was an opaque sheet that appeared at once. Never faded from outside: that showed the glass black
+    transitionDuration: const Duration(milliseconds: 260),
+    transitionBuilder: (_, _, _, child) => child,
+    pageBuilder: (context, animation, _) => Stack(children: [
       Positioned(
         top: top,
         right: right,
         width: width,
         child: ConstrainedBox(
           constraints: BoxConstraints(maxHeight: (screen.height - top - 24).clamp(200.0, 640.0)),
-          child: Material(
-            color: theme.popupMenuTheme.color ?? theme.colorScheme.surfaceContainerHighest,
-            elevation: 8,
-            shadowColor: Colors.black,
-            borderRadius: BorderRadius.circular(10),
-            clipBehavior: Clip.antiAlias,
-            child: builder(context),
+          child: AnimatedBuilder(
+            animation: animation,
+            builder: (_, panel) {
+              final opening = animation.status != AnimationStatus.reverse;
+              final appear = (opening ? Curves.easeOutCubic : Curves.easeInCubic).transform(animation.value);
+              final grow = (opening ? Curves.easeOutBack : Curves.easeInCubic).transform(animation.value);
+              return Transform.scale(
+                scale: 0.94 + 0.06 * grow,
+                alignment: Alignment.topRight,
+                child: GlassCard(appear: appear, radius: 14, padding: EdgeInsets.zero, child: panel!),
+              );
+            },
+            child: Material(type: MaterialType.transparency, child: builder(context)),
           ),
         ),
       ),

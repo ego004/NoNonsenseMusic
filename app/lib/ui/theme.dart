@@ -126,12 +126,19 @@ ThemeData buildTheme(Brightness b, Color? song) {
       overlayShape: SliderComponentShape.noOverlay,
       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
     ),
+    // A tooltip as Windows 11 draws one: a dark bubble with white text in the dark theme, a white one with dark text in
+    // the light. Its text colour is set here: left to the scheme's inverse colours, the dark theme's text was as dark as
+    // its bubble (unreadable everywhere, #20). An edge and a shadow keep it apart from any backdrop, a cover's included.
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 600),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: dark ? const Color(0xFF2C2C2E) : const Color(0xFF16161A),
-        borderRadius: BorderRadius.circular(4),
+        color: dark ? const Color(0xFF2B2B2E) : Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: dark ? Colors.white.withValues(alpha: 0.14) : Colors.black.withValues(alpha: 0.1)),
+        boxShadow: [BoxShadow(blurRadius: 12, offset: const Offset(0, 4), color: Colors.black.withValues(alpha: dark ? 0.4 : 0.14))],
       ),
+      textStyle: TextStyle(color: dark ? Colors.white : const Color(0xFF1B1B1F), fontSize: 12.5, fontWeight: FontWeight.w500),
     ),
     navigationBarTheme: NavigationBarThemeData(
       height: mobile ? 64 : 64,

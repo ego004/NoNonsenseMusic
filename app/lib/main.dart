@@ -40,7 +40,8 @@ Future<void> main() async {
   try {
     await AudioCache.shared.open();
     AudioCache.shared.limitMB = settings.audioCacheMB;
-    await DownloadStore.shared.load();
+    final chosen = settings.downloadFolder;
+    await DownloadStore.shared.load(at: chosen == null ? null : Directory(chosen));
   } catch (e) {
     debugPrint('audio storage unavailable, songs play from the network: $e'); // the cache and downloads stay off
   }
@@ -56,8 +57,8 @@ Future<void> main() async {
   final started = auth.start(); // The stored token, checked with the server: the sign-in screen or the app.
   MediaControls(player).start();
   HomeScreenWidget(player, library, auth, accent).start(); // Android's home-screen widget
-  settings.addListener(() => applyMaterial(settings.material));
-  await applyMaterial(settings.material);
+  settings.addListener(() => applyMaterial(settings));
+  await applyMaterial(settings);
   watchInFront();
   // Measurement only: the window reports itself as behind after two seconds; BEHIND is unset in a normal build.
   if (const bool.fromEnvironment('BEHIND')) Timer(const Duration(seconds: 2), () => inFront.value = false);
@@ -90,12 +91,25 @@ Future<void> main() async {
 
 /// Sets the window's background to the material [m]: Acrylic, Mica or solid, drawn by Windows itself.
 ///
-/// Platforms other than Windows return unchanged. The platform's brightness picks the tint.
-Future<void> applyMaterial(WindowMaterial m) async {
+/// Platforms other than Windows return unchanged. The theme in use (the system's, the user's, or a solid
+/// background's own) picks the tint. Glass and Acrylic are both Windows' acrylic blur: Glass with a light tint, so the
+/// wallpaper shows through; Acrylic with a deeper one. Clear is a window with no background at all.
+Future<void> applyMaterial(Settings settings) async {
   if (!Platform.isWindows) return;
-  final dark = SchedulerBinding.instance.platformDispatcher.platformBrightness == Brightness.dark;
-  final effect = switch (m) { WindowMaterial.acrylic => WindowEffect.acrylic, WindowMaterial.mica => WindowEffect.mica, WindowMaterial.solid => WindowEffect.solid };
-  await Window.setEffect(effect: effect, dark: dark, color: m == WindowMaterial.acrylic ? (dark ? const Color(0xAA1C1C1C) : const Color(0xAAF3F3F3)) : Colors.transparent);
+  final m = settings.material;
+  final dark = switch (settings.themeShown) {
+    ThemeMode.dark => true,
+    ThemeMode.light => false,
+    ThemeMode.system => SchedulerBinding.instance.platformDispatcher.platformBrightness == Brightness.dark,
+  };
+  final (effect, color) = switch (m) {
+    WindowMaterial.glass => (WindowEffect.acrylic, dark ? const Color(0x401C1C1E) : const Color(0x40F3F3F5)),
+    WindowMaterial.acrylic => (WindowEffect.acrylic, dark ? const Color(0xAA1C1C1C) : const Color(0xAAF3F3F3)),
+    WindowMaterial.mica => (WindowEffect.mica, Colors.transparent),
+    WindowMaterial.solidDark || WindowMaterial.solidLight => (WindowEffect.solid, buildTheme(dark ? Brightness.dark : Brightness.light, null).colorScheme.surface),
+    WindowMaterial.clear => (WindowEffect.transparent, Colors.transparent),
+  };
+  await Window.setEffect(effect: effect, dark: dark, color: color);
 }
 
 class NoNonsenseApp extends StatelessWidget {
@@ -125,7 +139,7 @@ class NoNonsenseApp extends StatelessWidget {
             darkTheme: buildTheme(Brightness.dark, song),
             home: AuthGate(auth: auth, settings: settings, signedIn: (_) => const Shell()),
             // Settings › Appearance: light, dark or the system's theme, and the size of all the text.
-            themeMode: settings.theme,
+            themeMode: settings.themeShown,
             builder: (context, child) => MediaQuery(
               data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(settings.textScale)),
               child: child!,

@@ -97,7 +97,7 @@ void main() {
     expect(tester.takeException(), isNull);
     final name = find.text('A playlist with a rather long name');
     expect(tester.getTopLeft(find.byType(PlaylistCover)).dx, 32);
-    expect(tester.getTopLeft(name).dx, 32 + 172 + 22);
+    expect(tester.getTopLeft(name).dx, 32 + 200 + 28);         // the concept's larger cover (13 Oct)
   });
 
   for (final brightness in Brightness.values) {

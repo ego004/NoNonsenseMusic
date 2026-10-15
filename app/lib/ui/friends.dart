@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/social.dart';
+import 'glass_menu.dart';
 import 'layout.dart';
 import 'playlist_screen.dart';
 
@@ -90,7 +91,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   }
 
   Future<void> _add() async {
-    final sentTo = await showDialog<String>(context: context, builder: (_) => AddFriendDialog(social: widget.social));
+    final sentTo = await showGlassDialog<String>(context: context, builder: (_) => AddFriendDialog(social: widget.social));
     if (sentTo != null && mounted) _say('Request sent to $sentTo');
   }
 
@@ -178,10 +179,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
             rows(
               s.friends,
               (f) => PersonRow(name: f.username, detail: _on('Friends since', f.since), actions: [
-                PopupMenuButton<String>(
+                GlassMenuButton<String>(
                   tooltip: 'More about ${f.username}',
                   icon: const Icon(FluentIcons.more_horizontal_24_regular, size: 20),
-                  itemBuilder: (_) => const [PopupMenuItem(value: 'remove', child: Text('Remove Friend…'))],
+                  entries: () => const [GlassMenuEntry('remove', 'Remove Friend…')],
                   onSelected: (_) => _remove(f),
                 ),
               ]),
@@ -231,7 +232,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return GlassDialog(
       title: const Text('Add Friend'),
       content: SizedBox(
         width: 320,

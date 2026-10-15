@@ -1,10 +1,14 @@
-# The app icon for Android and Windows, made from the Mac's (mac/Icon/make_icon.swift draws all three images):
+# The app icon for Android and Windows, from the logo's SVGs in assets/icon (logo.svg, adaptive-foreground.svg,
+# monochrome.svg; the Mac app's icon set is rendered from logo.svg too). The PNGs here are those SVGs rendered at 1024 px
+# with resvg (https://github.com/linebender/resvg), e.g. `resvg -w 1024 logo.svg icon.png`; then:
 #   dart run flutter_launcher_icons
 flutter_launcher_icons:
-  image_path: "assets/icon/icon.png"                       # the whole icon: Windows, and Android before version 8
+  image_path: "assets/icon/icon.png"                       # logo.svg, the whole icon: Windows, and Android before version 8
   android: true
   adaptive_icon_background: "assets/icon/background.png"   # Android 8+: the paper, cut to the launcher's shape
-  adaptive_icon_foreground: "assets/icon/foreground.png"   # the N, inside the safe zone
+  adaptive_icon_foreground: "assets/icon/foreground.png"   # adaptive-foreground.svg: the mark, inside the safe zone
+  adaptive_icon_monochrome: "assets/icon/monochrome.png"   # Android 13+ themed icons: the mark in one colour
+  adaptive_icon_foreground_inset: 0                        # the images already place the mark in the safe zone
   ios: false
   windows:
     generate: true

@@ -17,7 +17,8 @@ class DownloadItem {
       required this.bytes, required this.added});
 
   final String key; // the downloaded copy: "source:id"
-  final String file; // its name in the folder
+  /// Its name in the folder: the song's title ("source-id.m4a" before 15 Oct). A move to another folder may change it.
+  String file;
   final Listing best;
   final List<Listing> listings;
   /// The song's cover as shown when it was downloaded.
@@ -43,8 +44,10 @@ class DownloadItem {
       );
 }
 
-/// Songs kept on this device to play with no server and no internet. The files live in their own folder beside an
-/// `index.json` with each song's details. A download is never evicted, unlike the audio cache: only the user removes it.
+/// Songs kept on this device to play with no server and no internet. The folder ([folder]: the user's choice in
+/// Settings › Storage, else the app's own) holds only their audio, each file named after its song. The list of them and
+/// their kept covers and lyrics are the app's own, in [data]: before 15 Oct they lay beside the music. A download is
+/// never evicted, unlike the audio cache: only the user removes it.
 class DownloadStore extends ChangeNotifier {
   DownloadStore({AudioCache? cache, AudioDownloads? fetches, RangeFetcher? fetcher, Future<Uri> Function(Listing)? linkFor,
       http.Client? client})
@@ -64,13 +67,24 @@ class DownloadStore extends ChangeNotifier {
 
   static Future<Uri> _serverLink(Listing l) async => Uri.parse(await Api.audioUrl(l));
 
+  /// Where the songs' audio is. Null when downloads are off: storage unavailable, or the chosen folder not there.
   Directory? folder;
+
+  /// The chosen folder when it was not there at the start (a drive unplugged): downloads are off until it is back or
+  /// another is chosen, and the list stays as it was. Dropping its songs as removed by hand would lose them all.
+  Directory? missingFolder;
+
+  /// The app's own folder for the list of downloads and their kept covers and lyrics.
+  Directory? data;
 
   /// Newest first.
   List<DownloadItem> items = [];
 
   /// Songs being downloaded now (by Track.id).
   final inProgress = <String>{};
+
+  /// File names given to downloads in progress (lower case), so two songs of one title never share one.
+  final _naming = <String>{};
 
   /// Called after each song is downloaded: the app keeps its lyrics beside it (LyricsStore.keep).
   Future<void> Function(Track)? onDownloaded;
@@ -81,17 +95,47 @@ class DownloadStore extends ChangeNotifier {
 
   int get totalBytes => items.fold(0, (sum, i) => sum + i.bytes);
 
-  /// Opens the downloads folder and reads the index. On Windows it sits beside the cache in the local profile, not
-  /// the roaming one, which a managed PC copies to a server at every sign-out.
-  Future<void> load([Directory? at]) async {
-    final base = at ?? Directory('${(Platform.isWindows ? await getApplicationCacheDirectory() : await getApplicationSupportDirectory()).path}/Downloads');
-    await base.create(recursive: true);
-    folder = base;
+  /// The app's own folder: on Windows beside the cache in the local profile, not the roaming one, which a managed PC
+  /// copies to a server at every sign-out.
+  static Future<Directory> _base() async =>
+      Platform.isWindows ? await getApplicationCacheDirectory() : await getApplicationSupportDirectory();
+
+  /// Where songs download to when the user has chosen no folder.
+  static Future<Directory> defaultFolder() async => Directory('${(await _base()).path}${Platform.pathSeparator}Downloads');
+
+  /// Opens the downloads folder ([at], the user's choice, else the app's own) and reads the list from [data].
+  Future<void> load({Directory? at, Directory? data}) async {
+    final details = data ?? Directory('${(await _base()).path}${Platform.pathSeparator}DownloadData');
+    await details.create(recursive: true);
+    this.data = details;
+    final audio = at ?? await defaultFolder();
     try {
-      final saved = (jsonDecode(await File('${base.path}/index.json').readAsString()) as List)
-          .map((j) => DownloadItem.fromJson(j as Map<String, dynamic>));
-      // a file removed by hand is no longer a download
-      items = saved.where((i) => File('${base.path}/${i.file}').existsSync()).toList();
+      await audio.create(recursive: true);
+    } on FileSystemException {
+      folder = null;
+      missingFolder = audio;
+      items = [];
+      notifyListeners();
+      return;
+    }
+    folder = audio;
+    missingFolder = null;
+    await _moveDetailsOut();
+    try {
+      final saved = (jsonDecode(await _index.readAsString()) as List)
+          .map((j) => DownloadItem.fromJson(j as Map<String, dynamic>))
+          .toList();
+      // a file removed by hand is no longer a download, and its kept cover and lyrics go
+      items = [];
+      for (final i in saved) {
+        if (_audio(i).existsSync()) {
+          items.add(i);
+        } else {
+          for (final f in [_coverFile(i), _lyricsFile(i)]) {
+            if (f.existsSync()) f.deleteSync();
+          }
+        }
+      }
     } catch (_) {
       items = [];
     }
@@ -100,6 +144,139 @@ class DownloadStore extends ChangeNotifier {
       if (i.image != null && f.existsSync()) _covers[i.image!] = f;
     }
     notifyListeners();
+  }
+
+  /// Downloads from before 15 Oct: the list, covers and lyrics lay in the folder beside the audio, and each file was
+  /// named "source-id.m4a". The details move to [data] and the files take their songs' names, once: after it the
+  /// folder holds no list. A file that cannot be renamed now (open in another program) keeps its old name.
+  Future<void> _moveDetailsOut() async {
+    final old = File('${folder!.path}/index.json');
+    if (!old.existsSync() || _index.existsSync()) return;
+    final List<DownloadItem> found;
+    try {
+      found = [for (final j in jsonDecode(await old.readAsString()) as List) DownloadItem.fromJson(j as Map<String, dynamic>)];
+    } catch (_) {
+      return;
+    }
+    for (final i in found) {
+      for (final (from, to) in [
+        (File('${folder!.path}/${i.file}.cover'), _coverFile(i)),
+        (File('${folder!.path}/${i.file}.lyrics.json'), _lyricsFile(i)),
+      ]) {
+        try {
+          if (from.existsSync()) await _move(from, to);
+        } catch (_) {}
+      }
+      if (!_audio(i).existsSync()) continue;
+      final name = _freeName(i.track, folder!, {});
+      try {
+        await _move(_audio(i), File('${folder!.path}/$name'));
+        i.file = name;
+      } catch (_) {}
+    }
+    // the details of songs no longer in the list (their audio removed by hand): nothing else in the folder is the app's
+    for (final f in folder!.listSync().whereType<File>()) {
+      if (RegExp(r'\.m4a\.(cover|lyrics\.json)$').hasMatch(f.path)) await f.delete();
+    }
+    await _write(found);
+    await old.delete();
+    final temp = File('${old.path}.tmp');
+    if (temp.existsSync()) await temp.delete();
+  }
+
+  /// [title] as a file name every system takes: the characters Windows forbids become their full-width look-alikes
+  /// ("Why？", as yt-dlp names them), and a name Windows keeps for a device ("CON") or ending in a dot is mended.
+  static String fileTitle(String title) {
+    const lookalike = {'<': '＜', '>': '＞', ':': '：', '"': '＂', '/': '⧸', '\\': '⧹', '|': '｜', '?': '？', '*': '＊'};
+    var s = title
+        .replaceAllMapped(RegExp(r'[<>:"/\\|?*]'), (m) => lookalike[m[0]]!)
+        .replaceAll(RegExp(r'[\x00-\x1F]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (s.length > 120) {
+      s = s.substring(0, 120);
+      if (s.codeUnitAt(119) >= 0xD800 && s.codeUnitAt(119) <= 0xDBFF) s = s.substring(0, 119); // half a character
+    }
+    s = s.replaceAll(RegExp(r'[. ]+$'), '');
+    if (s.isEmpty) return 'Song';
+    final device = RegExp(r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])$', caseSensitive: false);
+    return device.hasMatch(s.split('.').first.trim()) ? '$s (song)' : s;
+  }
+
+  /// A name for [t]'s file that no file in [dir] has: the song's title; when another song of that title is there,
+  /// with its artists too; then numbered. [taken] (lower case) holds names given but not yet written.
+  static String _freeName(Track t, Directory dir, Set<String> taken) {
+    bool free(String name) =>
+        !taken.contains(name.toLowerCase()) && !File('${dir.path}/$name').existsSync() && !File('${dir.path}/$name.part').existsSync();
+    final title = fileTitle(t.title);
+    final named = t.artists.isEmpty ? title : fileTitle('${t.title} - ${t.artists.join(', ')}');
+    for (var n = 1;; n++) {
+      for (final base in n == 1 ? {title, named} : {'$named ($n)'}) {
+        if (free('$base.m4a')) {
+          taken.add('$base.m4a'.toLowerCase());
+          return '$base.m4a';
+        }
+      }
+    }
+  }
+
+  /// Moves a file, also to another drive (where a rename cannot): copied, then the original removed. When that fails,
+  /// the copy is removed instead, and the file stays where it was.
+  static Future<void> _move(File from, File to) async {
+    try {
+      await from.rename(to.path);
+      return;
+    } on FileSystemException {
+      // another drive
+    }
+    await from.copy(to.path);
+    try {
+      await from.delete();
+    } catch (_) {
+      await to.delete();
+      rethrow;
+    }
+  }
+
+  /// Whether a move is under way (moveTo).
+  bool moving = false;
+
+  /// Moves every download to [to], the folder the user chose (Settings › Storage), where new downloads then go. Each
+  /// file keeps its song's name unless a file of that name is there already. On a failure the files moved so far go
+  /// back, and it throws.
+  Future<void> moveTo(Directory to) async {
+    if (inProgress.isNotEmpty || moving) throw StateError('downloads are in progress');
+    await to.create(recursive: true);
+    final from = folder;
+    // the chosen folder was not there at the start: the list is read again for the new one
+    if (from == null) return load(at: to, data: data);
+    if (FileSystemEntity.identicalSync(from.path, to.path)) return;
+    moving = true;
+    notifyListeners();
+    final moved = <(DownloadItem, String)>[]; // with each one's name before
+    try {
+      final taken = <String>{};
+      for (final i in items) {
+        final name = _freeName(i.track, to, taken);
+        await _move(File('${from.path}/${i.file}'), File('${to.path}/$name'));
+        moved.add((i, i.file));
+        i.file = name;
+      }
+      folder = to;
+      await _save();
+    } catch (_) {
+      for (final (i, before) in moved.reversed) {
+        try {
+          await _move(File('${to.path}/${i.file}'), File('${from.path}/$before'));
+          i.file = before;
+        } catch (_) {}
+      }
+      folder = from;
+      rethrow;
+    } finally {
+      moving = false;
+      notifyListeners();
+    }
   }
 
   /// The downloaded item for this song, if any of its copies is downloaded.
@@ -117,23 +294,23 @@ class DownloadStore extends ChangeNotifier {
   File? fileFor(Track t, {Listing? copy}) {
     final i = item(t);
     if (i == null || (copy != null && copy.key != i.key)) return null;
-    return File('${folder!.path}/${i.file}');
+    return _audio(i);
   }
 
   /// Downloads the song: its playing copy, else its other copies in turn. Copies from the cache when the song is
   /// there, otherwise fetches in bounded ranges. Returns whether the song is downloaded.
   Future<bool> download(Track t) async {
-    if (folder == null) return false;
+    if (folder == null || moving) return false;
     if (isDownloaded(t)) return true;
     if (!inProgress.add(t.id)) return true;
     notifyListeners();
+    final name = _freeName(t, folder!, _naming);
     try {
       for (final l in [t.best, ...t.listings.where((l) => l.key != t.best.key)]) {
         try {
-          final name = '${l.source}-${l.id}'.replaceAll(RegExp(r'[^A-Za-z0-9-]'), '_');
-          final target = File('${folder!.path}/$name.m4a');
+          final target = File('${folder!.path}/$name');
           if (!await _copyFromCache(l.key, target) && !await _fetch(l, target)) continue;
-          items.insert(0, DownloadItem(key: l.key, file: '$name.m4a', best: t.best, listings: t.listings, image: t.image,
+          items.insert(0, DownloadItem(key: l.key, file: name, best: t.best, listings: t.listings, image: t.image,
               bytes: await target.length(), added: DateTime.now()));
           await _save();
           await _keepCover(items.first);
@@ -145,6 +322,7 @@ class DownloadStore extends ChangeNotifier {
       }
       return false;
     } finally {
+      _naming.remove(name.toLowerCase());
       inProgress.remove(t.id);
       notifyListeners();
     }
@@ -179,7 +357,7 @@ class DownloadStore extends ChangeNotifier {
 
   /// A downloaded file that would not play is dropped from the list.
   Future<void> dropFile(File f) async {
-    final gone = items.where((i) => File('${folder!.path}/${i.file}').path == f.path).toList();
+    final gone = items.where((i) => _audio(i).path == f.path).toList();
     if (gone.isEmpty) return;
     for (final i in gone) {
       await _delete(i);
@@ -206,14 +384,18 @@ class DownloadStore extends ChangeNotifier {
   }
 
   Future<void> _delete(DownloadItem i) async {
-    for (final f in [File('${folder!.path}/${i.file}'), _coverFile(i), _lyricsFile(i)]) {
+    for (final f in [_audio(i), _coverFile(i), _lyricsFile(i)]) {
       if (await f.exists()) await f.delete();
     }
     _covers.remove(i.image);
   }
 
-  File _coverFile(DownloadItem i) => File('${folder!.path}/${i.file}.cover');
-  File _lyricsFile(DownloadItem i) => File('${folder!.path}/${i.file}.lyrics.json');
+  File _audio(DownloadItem i) => File('${folder!.path}/${i.file}');
+  File get _index => File('${data!.path}/index.json');
+  // by the downloaded copy, which a rename or a move leaves as it was
+  String _detailsName(DownloadItem i) => i.key.replaceAll(RegExp(r'[^A-Za-z0-9-]'), '_');
+  File _coverFile(DownloadItem i) => File('${data!.path}/${_detailsName(i)}.cover');
+  File _lyricsFile(DownloadItem i) => File('${data!.path}/${_detailsName(i)}.lyrics.json');
 
   /// The kept cover for this cover address, if a download has one.
   File? keptCover(String url) => _covers[url];
@@ -241,7 +423,7 @@ class DownloadStore extends ChangeNotifier {
   /// The lyrics kept with a downloaded song, so they show offline.
   Future<Lyrics?> keptLyrics(Track t) async {
     final i = item(t);
-    if (i == null || folder == null) return null;
+    if (i == null || data == null) return null;
     try {
       return Lyrics.fromJson(jsonDecode(await _lyricsFile(i).readAsString()) as Map<String, dynamic>);
     } catch (_) {
@@ -251,14 +433,15 @@ class DownloadStore extends ChangeNotifier {
 
   Future<void> keepLyrics(Track t, Lyrics lyrics) async {
     final i = item(t);
-    if (i == null || folder == null || lyrics.lines.isEmpty) return;
+    if (i == null || data == null || lyrics.lines.isEmpty) return;
     await _lyricsFile(i).writeAsString(jsonEncode(lyrics.toJson()));
   }
 
-  Future<void> _save() async {
-    final index = File('${folder!.path}/index.json');
-    final temp = File('${index.path}.tmp');
-    await temp.writeAsString(jsonEncode([for (final i in items) i.toJson()]));
-    await temp.rename(index.path);
+  Future<void> _save() => _write(items);
+
+  Future<void> _write(List<DownloadItem> list) async {
+    final temp = File('${_index.path}.tmp');
+    await temp.writeAsString(jsonEncode([for (final i in list) i.toJson()]));
+    await temp.rename(_index.path);
   }
 }

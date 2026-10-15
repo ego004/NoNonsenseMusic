@@ -100,13 +100,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ButtonSegment(value: ThemeMode.light, label: Text('Light')),
             ButtonSegment(value: ThemeMode.dark, label: Text('Dark')),
           ],
-          selected: {s.settings.theme},
-          onSelectionChanged: (v) => s.settings.setTheme(v.first),
+          selected: {s.settings.themeShown},
+          // a solid background is one colour, light or dark: it sets the theme while it is chosen
+          onSelectionChanged: s.settings.material.theme == null ? (v) => s.settings.setTheme(v.first) : null,
         ),
+        if (Platform.isWindows && s.settings.material.theme != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text('Set by the ${s.settings.material.label} background below.', style: Theme.of(context).textTheme.bodySmall),
+          ),
         const SizedBox(height: 12),
         _slider(context, 'Text size', s.settings.textScale, 0.85, 1.4, 'Smaller', 'Larger', s.settings.setTextScale),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: s.settings.coverGlow,
+          onChanged: s.settings.setCoverGlow,
+          title: const Text('Cover glow'),
+          subtitle: const Text('The window takes a soft light from the cover of the song playing.'),
+        ),
         if (Platform.isWindows) ...[
-          heading('Window'),
+          heading('Background'),
           RadioGroup<WindowMaterial>(
             groupValue: s.settings.material,
             onChanged: (m) { if (m != null) s.settings.setMaterial(m); },

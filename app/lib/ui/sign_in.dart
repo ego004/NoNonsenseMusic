@@ -6,6 +6,7 @@ import '../core/auth.dart';
 import '../core/settings.dart';
 import 'glass.dart';
 import 'recovery_codes.dart';
+import 'glass_menu.dart';
 
 /// Show the sign-in screen until a session exists, then the signed-in app. A session that ends (expired, or signed
 /// out on another device) brings the screen back, with a notice saying so.
@@ -129,9 +130,9 @@ class _SignInScreenState extends State<SignInScreen> {
   /// the server cannot be reached.
   Future<void> _changeServer() async {
     final field = TextEditingController(text: widget.settings.server);
-    final address = await showDialog<String>(
+    final address = await showGlassDialog<String>(
       context: context,
-      builder: (c) => AlertDialog(
+      builder: (c) => GlassDialog(
         title: const Text('Server'),
         content: TextField(
           controller: field,

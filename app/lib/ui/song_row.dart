@@ -3,8 +3,10 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/download_store.dart';
 import '../core/models.dart';
+import '../core/reveal.dart';
 import 'browse_nav.dart';
 import 'cover.dart';
+import 'glass_menu.dart';
 import 'layout.dart';
 import 'playlist_screen.dart';
 import 'scope.dart';
@@ -29,7 +31,11 @@ class SongRow extends StatefulWidget {
     this.keys,
     this.source,
     this.removeFrom,
+    this.number,
   });
+
+  /// An album's track number, shown in place of the cover (every cover on an album is the same).
+  final int? number;
 
   @override
   State<SongRow> createState() => _SongRowState();
@@ -69,23 +75,31 @@ class _SongRowState extends State<SongRow> {
         // filled it, leaving no gap between a phone's cards
         child: Align(
           alignment: Alignment.topCenter,
-          child: Container(
+          child: ValueListenableBuilder(
+          valueListenable: s.player.currentId,
+          builder: (context, _, row) => AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
           height: songRowExtent(context) - songRowGap(context),
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: phone
+            // the concept (13 Oct): an album's playing song is picked out in the accent, as in Apple Music
+            color: widget.number != null && (s.player.current?.isSameSong(track) ?? false)
+                ? theme.colorScheme.primary.withValues(alpha: 0.12)
+                : phone
                 ? theme.colorScheme.surfaceContainerHighest.withValues(
                     alpha: theme.brightness == Brightness.dark ? 0.38 : 0.7,
                   )
                 : hovering
                 ? theme.colorScheme.onSurface.withValues(alpha: 0.05)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(phone ? 16 : 8),
+            borderRadius: BorderRadius.circular(phone ? 16 : widget.number != null ? 12 : 8),
             border: phone
                 ? Border.all(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.055),
                   )
                 : null,
+          ),
+          child: row,
           ),
           child: Row(
             children: [
@@ -94,16 +108,18 @@ class _SongRowState extends State<SongRow> {
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
                   onTap: play,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Cover(track.image, size: 40),
-                      _PlayingMark(track: track, hovering: hovering),
-                    ],
-                  ),
+                  child: widget.number != null
+                      ? _Number(number: widget.number!, track: track, hovering: hovering)
+                      : Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Cover(track.image, size: 40),
+                            _PlayingMark(track: track, hovering: hovering),
+                          ],
+                        ),
                 ),
               ),
-              const SizedBox(width: 14),
+              SizedBox(width: widget.number != null ? 10 : 14),
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -198,46 +214,33 @@ Future<void> showSongMenu(
 }) async {
   final s = Scope.of(context);
   final liked = s.library.isLiked(track);
-  final chosen = await showMenu<String>(
-    context: context,
-    position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
-    items: [
-      if (play != null) ...[
-        const PopupMenuItem(value: 'play', child: Text('Play')),
-        if (queueable) ...[
-          const PopupMenuItem(value: 'next', child: Text('Play Next')),
-          const PopupMenuItem(value: 'queue', child: Text('Add to Queue')),
-        ],
-        const PopupMenuDivider(),
+  // the concept (15 Oct): on the player's glass, coming in as the Genius window does (glass_menu.dart)
+  final chosen = await showGlassMenu<String>(context, at, [
+    if (play != null) ...[
+      const GlassMenuEntry('play', 'Play'),
+      if (queueable) ...[
+        const GlassMenuEntry('next', 'Play Next'),
+        const GlassMenuEntry('queue', 'Add to Queue'),
       ],
-      PopupMenuItem(
-        value: 'like',
-        child: Text(liked ? 'Remove from Liked' : 'Like'),
-      ),
-      const PopupMenuItem(value: 'playlist', child: Text('Add to Playlist…')),
-      const PopupMenuDivider(),
-      if (DownloadStore.shared.folder != null)
-        if (DownloadStore.shared.isDownloading(track))
-          const PopupMenuItem(enabled: false, child: Text('Downloading…'))
-        else
-          PopupMenuItem(
-            value: 'download',
-            child: Text(
-              DownloadStore.shared.isDownloaded(track)
-                  ? 'Remove Download'
-                  : 'Download',
-            ),
-          ),
-      if (track.artists.isNotEmpty)
-        const PopupMenuItem(value: 'artist', child: Text('Go to Artist')),
-      if (track.albumTitle != null)
-        const PopupMenuItem(value: 'album', child: Text('Go to Album')),
-      if (remove != null) ...[
-        const PopupMenuDivider(),
-        PopupMenuItem(value: 'remove', child: Text(remove.label)),
-      ],
+      const GlassMenuEntry.divider(),
     ],
-  );
+    GlassMenuEntry('like', liked ? 'Remove from Liked' : 'Like'),
+    const GlassMenuEntry('playlist', 'Add to Playlist…'),
+    const GlassMenuEntry.divider(),
+    if (DownloadStore.shared.folder != null)
+      if (DownloadStore.shared.isDownloading(track))
+        const GlassMenuEntry.disabled('Downloading…')
+      else
+        GlassMenuEntry('download', DownloadStore.shared.isDownloaded(track) ? 'Remove Download' : 'Download'),
+    if (canShowInFolder && DownloadStore.shared.folder != null && DownloadStore.shared.isDownloaded(track))
+      const GlassMenuEntry('reveal', 'Show in Folder'),
+    if (track.artists.isNotEmpty) const GlassMenuEntry('artist', 'Go to Artist'),
+    if (track.albumTitle != null) const GlassMenuEntry('album', 'Go to Album'),
+    if (remove != null) ...[
+      const GlassMenuEntry.divider(),
+      GlassMenuEntry('remove', remove.label),
+    ],
+  ]);
   if (!context.mounted) return;
   switch (chosen) {
     case 'play':
@@ -252,6 +255,9 @@ Future<void> showSongMenu(
       DownloadStore.shared.isDownloaded(track)
           ? DownloadStore.shared.remove(track)
           : DownloadStore.shared.download(track);
+    case 'reveal':
+      final file = DownloadStore.shared.fileFor(track);
+      if (file != null) showInFolder(file);
     case 'artist':
       openBrowse(context, ArtistNamed(track.artists.first));
     case 'album':
@@ -262,17 +268,12 @@ Future<void> showSongMenu(
     case 'remove':
       remove?.run();
     case 'playlist':
-      final to = await showMenu<String>(
-        context: context,
-        position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
-        items: [
-          const PopupMenuItem(value: '+', child: Text('New Playlist…')),
-          const PopupMenuDivider(),
-          // Only playlists the user can edit: a viewer cannot add songs, and the server answers 403.
-          for (final p in s.library.playlists.where((p) => p.canEdit))
-            PopupMenuItem(value: p.id, child: Text(p.name)),
-        ],
-      );
+      final to = await showGlassMenu<String>(context, at, [
+        const GlassMenuEntry('+', 'New Playlist…'),
+        const GlassMenuEntry.divider(),
+        // Only playlists the user can edit: a viewer cannot add songs, and the server answers 403.
+        for (final p in s.library.playlists.where((p) => p.canEdit)) GlassMenuEntry(p.id, p.name),
+      ]);
       if (to == null || !context.mounted) return;
       if (to == '+') {
         final name = await askName(
@@ -423,6 +424,32 @@ class _PlayingMark extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// An album row's number: the playing song shows bars in the accent instead (still, never animated), and a play
+/// icon takes its place under the pointer.
+class _Number extends StatelessWidget {
+  final int number;
+  final Track track;
+  final bool hovering;
+  const _Number({required this.number, required this.track, required this.hovering});
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final playing = Scope.of(context).player.current?.isSameSong(track) ?? false;
+    return SizedBox(
+      width: 34,
+      height: 40,
+      child: Center(
+        child: playing
+            ? Icon(FluentIcons.data_bar_vertical_24_filled, size: 18, color: theme.colorScheme.primary)
+            : hovering
+                ? Icon(FluentIcons.play_24_filled, size: 16, color: theme.colorScheme.onSurface)
+                : Text('$number', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.42), fontFeatures: const [FontFeature.tabularFigures()])),
+      ),
     );
   }
 }

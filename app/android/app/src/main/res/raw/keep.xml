@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Resources the release build must keep though no code names them directly: audio_service finds the notification's
+     small icon by its name (AudioServiceConfig.androidNotificationIcon, lib/core/media_controls.dart). -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_nononsense" />

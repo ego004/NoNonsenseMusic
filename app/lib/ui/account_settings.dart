@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../core/account_api.dart';
 import '../core/spotify_import.dart';
+import 'glass_menu.dart';
 import 'recovery_codes.dart';
 import 'scope.dart';
 
@@ -157,9 +158,9 @@ class ImportIntoPlaylistButton extends StatelessWidget {
   Future<void> _link(BuildContext context) async {
     final library = Scope.of(context).library;
     final controller = TextEditingController();
-    final link = await showDialog<String>(
+    final link = await showGlassDialog<String>(
       context: context,
-      builder: (c) => AlertDialog(
+      builder: (c) => GlassDialog(
         title: const Text('Import a YouTube Playlist'),
         content: TextField(
           controller: controller,
@@ -181,13 +182,14 @@ class ImportIntoPlaylistButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: SpotifyImporter.shared,
-      builder: (context, _) => PopupMenuButton<String>(
+      builder: (context, _) => GlassMenuButton<String>(
         enabled: !SpotifyImporter.shared.running,
         tooltip: 'Add songs from Spotify or YouTube',
         onSelected: (v) => v == 'files' ? _files(context) : _link(context),
-        itemBuilder: (_) => const [
-          PopupMenuItem(value: 'files', child: Text('Songs from Files…')),
-          PopupMenuItem(value: 'link', child: Text('Songs from a YouTube Playlist…')),
+        width: 280,
+        entries: () => const [
+          GlassMenuEntry('files', 'Songs from Files…'),
+          GlassMenuEntry('link', 'Songs from a YouTube Playlist…'),
         ],
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

@@ -4,6 +4,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import '../core/download_store.dart';
 import '../core/search_model.dart';
 import 'browse_widgets.dart';
+import 'concept.dart';
 import 'download_button.dart';
 import 'layout.dart';
 import 'list_filter.dart';
@@ -11,6 +12,7 @@ import 'scope.dart';
 import 'song_row.dart';
 import 'storage_settings.dart';
 import 'waiting.dart';
+import 'glass_menu.dart';
 
 /// Shows a search field with the matches below it: filter capsules under the field once something is typed, then
 /// either all three kinds (an Artists shelf, an Albums shelf, then Songs) or a grid of one kind.
@@ -18,7 +20,9 @@ import 'waiting.dart';
 /// A query runs 350 ms after typing stops, the same delay the Mac app uses. Choosing a song plays that song alone:
 /// the other results are not queued, and Autoplay fills Up Next with related songs.
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
+  /// What to search for as it opens: the command bar's "All results".
+  final String initial;
+  const SearchScreen({super.key, this.initial = ''});
   @override
   State<SearchScreen> createState() => _SearchScreenState();
 }
@@ -26,6 +30,16 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final _field = TextEditingController();
   final _model = SearchModel();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initial.isNotEmpty) {
+      _field.text = widget.initial;
+      _model.typed(widget.initial);
+      _model.submit();
+    }
+  }
 
   @override
   void dispose() {
@@ -165,9 +179,9 @@ class _SongListScreenState extends State<SongListScreen> {
   /// Removes every download once the user confirms: the songs stay in the library and play from the internet.
   Future<void> _confirmRemoveAll(DownloadStore store) async {
     final n = store.items.length;
-    final yes = await showDialog<bool>(
+    final yes = await showGlassDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(
+      builder: (c) => GlassDialog(
         title: Text(n == 1 ? 'Remove the download?' : 'Remove all $n downloads?'),
         content: const Text('They stay in your library and still play from the internet.'),
         actions: [
@@ -212,14 +226,14 @@ class _SongListScreenState extends State<SongListScreen> {
             sliver: SliverToBoxAdapter(
               child: Builder(builder: (context) {
                 final heading = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(title, style: theme.textTheme.headlineLarge),
+                  Text(title, style: theme.textTheme.headlineLarge?.copyWith(fontFamily: displayFont, fontWeight: FontWeight.w700, letterSpacing: -0.6)),
                   const SizedBox(height: 4),
                   Text(downloads ? '${songCount(tracks.length)}, ${formatBytes(store.totalBytes)}' : songCount(tracks.length),
                       style: theme.textTheme.bodySmall?.copyWith(fontSize: 13.5)),
                 ]);
                 final actions = Wrap(spacing: 10, runSpacing: 8, children: [
-                  FilledButton.icon(onPressed: () => s.player.play(tracks, wholeList: true), icon: const Icon(FluentIcons.play_24_filled, size: 16), label: const Text('Play')),
-                  OutlinedButton.icon(onPressed: () => s.player.play(tracks, startAt: 0, shuffled: true, wholeList: true), icon: const Icon(FluentIcons.arrow_shuffle_24_regular, size: 16), label: const Text('Shuffle')),
+                  ActionPill(icon: FluentIcons.play_24_filled, label: 'Play', filled: true, onTap: () => s.player.play(tracks, wholeList: true)),
+                  ActionPill(icon: FluentIcons.arrow_shuffle_24_regular, label: 'Shuffle', onTap: () => s.player.play(tracks, startAt: 0, shuffled: true, wholeList: true)),
                   if (downloads)
                     OutlinedButton.icon(
                         onPressed: () => _confirmRemoveAll(store),
@@ -230,9 +244,11 @@ class _SongListScreenState extends State<SongListScreen> {
                   FilterField(controller: _filter),
                 ]);
                 // three buttons do not fit beside the title on a phone: they go under it
+                // the concept (13 Oct): the title, then the buttons, come in once
+                final top = Stagger(order: 0, child: heading), buttons = Stagger(order: 1, child: actions);
                 return isPhone(context)
-                    ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [heading, const SizedBox(height: 12), actions])
-                    : Row(crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: heading), actions]);
+                    ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [top, const SizedBox(height: 12), buttons])
+                    : Row(crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: top), buttons]);
               }),
             ),
           ),

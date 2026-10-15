@@ -192,7 +192,7 @@ void main() {
       linkFor: (l) async => Uri.parse('http://audio.test/${l.id == 'bad' ? 'missing' : 'second'}.mp4'),
       client: MockClient((r) async => r.url.host == 'img.test' ? http.Response.bytes(blob(700), 200) : http.Response('', 404)),
     );
-    await store.load(Directory('${dir.path}/Downloads'));
+    await store.load(at: Directory('${dir.path}/Downloads'), data: Directory('${dir.path}/DownloadData'));
     expect(await store.download(track), isTrue);
     expect(store.keptCover('http://img.test/cover.jpg')?.readAsBytesSync(), blob(700), reason: 'the cover is kept: it shows offline');
     await store.keepLyrics(track, Lyrics('lrclib', true, [LyricLine(1000, 'a line', translation: 'una línea')]));
@@ -204,7 +204,7 @@ void main() {
     expect(store.items.single.track.image, 'http://img.test/cover.jpg');
     // the list survives a restart with no server
     final again = DownloadStore(cache: cache);
-    await again.load(Directory('${dir.path}/Downloads'));
+    await again.load(at: Directory('${dir.path}/Downloads'), data: Directory('${dir.path}/DownloadData'));
     expect(again.items.single.track.title, 'Song bad', reason: 'the song as shown, not the copy that was fetched');
     final kept = again.keptCover('http://img.test/cover.jpg');
     expect(kept, isNotNull, reason: 'a restart finds the kept cover');
@@ -217,7 +217,7 @@ void main() {
     put('jiosaavn:hit', 4000, DateTime(2020));
     final l = song('jiosaavn', 'hit');
     final store = DownloadStore(cache: cache, fetches: AudioDownloads(cache: cache, fetcher: quick(host)), fetcher: quick(host));
-    await store.load(Directory('${dir.path}/Downloads'));
+    await store.load(at: Directory('${dir.path}/Downloads'), data: Directory('${dir.path}/DownloadData'));
     expect(await store.download(Track(l, [l], choosingVersion: false)), isTrue);
     expect(host.asked, isEmpty);
   });

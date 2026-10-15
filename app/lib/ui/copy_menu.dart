@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/models.dart';
+import 'glass_menu.dart';
 import 'scope.dart';
 
 /// Where the playing song plays from ("YouTube Music · AAC 128 kbps"). With more than one copy it is a menu of every
@@ -22,20 +23,15 @@ class CopyMenu extends StatelessWidget {
         final playing = player.playingListing ?? track.best;
         final label = Text('${playing.sourceName} · ${playing.quality}', maxLines: 1, overflow: TextOverflow.ellipsis, style: base);
         if (track.listings.length < 2) return Tooltip(message: 'The only place this song plays from', child: label);
-        return PopupMenuButton<Listing>(
+        return GlassMenuButton<Listing>(
           tooltip: 'Play another copy of this song',
           onSelected: player.switchCopy,
-          itemBuilder: (_) => [
+          width: 300,
+          entries: () => [
             for (final l in track.listings)
-              CheckedPopupMenuItem<Listing>(
-                value: l,
-                checked: l.key == playing.key,
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${l.sourceName} · ${l.quality}'),
-                  Text('${l.artists.join(', ')} · ${formatTime(l.duration.toDouble())}${l.explicit == true ? ' · Explicit' : ''}',
-                      style: TextStyle(fontSize: 12, color: muted)),
-                ]),
-              ),
+              GlassMenuEntry(l, '${l.sourceName} · ${l.quality}',
+                  detail: '${l.artists.join(', ')} · ${formatTime(l.duration.toDouble())}${l.explicit == true ? ' · Explicit' : ''}',
+                  checked: l.key == playing.key),
           ],
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Flexible(child: label),

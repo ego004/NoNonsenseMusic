@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>NoNonsenseMusic mark</title>
+  <defs>
+    <linearGradient id="ink" x1="0.8" y1="0" x2="0.25" y2="1">
+      <stop offset="0" stop-color="#333335"/><stop offset="0.5" stop-color="#141415"/><stop offset="1" stop-color="#060606"/>
+    </linearGradient>
+    <filter id="gloss" x="-15%" y="-15%" width="130%" height="150%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="9" result="tight"/>
+      <feOffset in="tight" dx="-7" dy="8" result="tightToLight"/>
+      <feComposite in="tight" in2="tightToLight" operator="arithmetic" k2="3.2" k3="-3.2" result="tightFacing"/>
+      <feComposite in="tightFacing" in2="SourceAlpha" operator="in" result="rimArea"/>
+      <feFlood flood-color="#d9d9de" flood-opacity="0.85"/>
+      <feComposite in2="rimArea" operator="in" result="rim"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="34" result="broad"/>
+      <feOffset in="broad" dx="-24" dy="28" result="broadToLight"/>
+      <feComposite in="broad" in2="broadToLight" operator="arithmetic" k2="2" k3="-2" result="broadFacing"/>
+      <feComposite in="broadFacing" in2="SourceAlpha" operator="in" result="sheenArea"/>
+      <feFlood flood-color="#ffffff" flood-opacity="0.3"/>
+      <feComposite in2="sheenArea" operator="in" result="sheen"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="16" result="fall"/>
+      <feOffset in="fall" dx="-6" dy="18" result="fallShifted"/>
+      <feFlood flood-color="#000" flood-opacity="0.3"/>
+      <feComposite in2="fallShifted" operator="in" result="shadow"/>
+      <feMerge><feMergeNode in="shadow"/><feMergeNode in="SourceGraphic"/><feMergeNode in="sheen"/><feMergeNode in="rim"/></feMerge>
+    </filter>
+  </defs>
+  <g transform="translate(512 530) scale(1.15347) translate(-616.5 -631.5)"><path d="M 604.500 363.532 C 543.554 374.810, 502.883 416.175, 498.069 471.780 C 494.870 508.733, 505.085 547.218, 537.309 619.614 C 551.255 650.947, 555.582 666.411, 553.042 675.846 C 549.357 689.530, 536.395 680.946, 509.482 647 C 479.925 609.719, 456.494 590.171, 430.952 581.484 C 392.702 568.474, 354.993 587.378, 347.577 623.279 C 338.953 665.032, 368.351 734.190, 424.541 804.334 C 468.001 858.587, 511.157 886.996, 562.500 895.151 C 576.671 897.402, 605.503 896.691, 619 893.758 C 669.605 882.761, 697.213 853.449, 703.960 803.556 C 705.814 789.842, 706.215 770.541, 705.302 739 C 704.378 707.073, 704.602 689.636, 705.927 690.455 C 706.358 690.721, 706.507 689.871, 706.257 688.564 C 705.613 685.197, 708.789 674.751, 710.193 675.619 C 710.895 676.053, 711.027 675.853, 710.550 675.080 C 709.428 673.266, 713.774 669.138, 718.005 667.999 C 725.095 666.089, 735.800 670.519, 745.781 679.493 C 760.414 692.650, 774.596 716.528, 790.031 754 C 816.832 819.063, 829.679 839.575, 856.082 859.465 C 876.039 874.498, 896.132 881.405, 920 881.436 C 960.163 881.489, 993.410 858.780, 1013.562 817.531 C 1039.608 764.219, 1036.848 695.473, 1007.074 655.949 C 995.264 640.272, 981.154 629.361, 953.294 614.360 C 908.256 590.111, 903.682 585.698, 838.942 504.018 C 770.353 417.483, 719.076 378.092, 657.786 364.853 C 645.214 362.137, 615.955 361.412, 604.500 363.532 M 276.500 699.321 C 259.534 703.678, 246.861 716.541, 239.635 736.739 C 236.536 745.400, 236.500 745.718, 236.517 764.500 C 236.532 781.902, 236.758 784.341, 239.206 793.500 C 250.890 837.216, 281.356 872.523, 314.766 881.068 C 343.381 888.387, 367.387 874.355, 376.478 844.998 C 379.391 835.590, 379.694 813.807, 377.100 800.272 C 368.239 754.037, 337.525 712.801, 303.022 700.818 C 295.964 698.366, 283.054 697.638, 276.500 699.321" fill="url(#ink)" filter="url(#gloss)"/></g>
+</svg>

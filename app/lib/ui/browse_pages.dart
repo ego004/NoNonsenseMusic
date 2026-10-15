@@ -4,6 +4,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import '../core/catalog.dart';
 import 'browse_nav.dart';
 import 'browse_widgets.dart';
+import 'concept.dart';
 import 'cover.dart';
 import 'layout.dart';
 import 'scope.dart';
@@ -124,11 +125,14 @@ class ArtistView extends StatelessWidget {
       final narrow = box.maxWidth < _narrow;
       final side = narrow ? 20.0 : 32.0;
       final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
-      final picture = Cover(artist.image, size: narrow ? 130 : 150, radius: narrow ? 65 : 75);
+      final picture = Cover(artist.image, size: narrow ? 140 : 180, radius: narrow ? 70 : 90);
       final text = Column(
         crossAxisAlignment: narrow ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         children: [
-          Text(artist.name, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: narrow ? TextAlign.center : TextAlign.start, style: _title(context, narrow ? 28 : 34)),
+          Text('ARTIST', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.4, color: muted)),
+          const SizedBox(height: 4),
+          Text(artist.name, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: narrow ? TextAlign.center : TextAlign.start,
+              style: _title(context, narrow ? 28 : 36).copyWith(fontFamily: displayFont)),
           if (artist.audience != null) ...[
             const SizedBox(height: 6),
             Text(artist.audience!, style: TextStyle(fontSize: 14, color: muted)),
@@ -142,8 +146,8 @@ class ArtistView extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(side, 20, side, 6),
           sliver: SliverToBoxAdapter(
             child: narrow
-                ? Column(children: [picture, const SizedBox(height: 16), text])
-                : Row(children: [picture, const SizedBox(width: 22), Expanded(child: text)]),
+                ? Column(children: [Stagger(order: 0, child: picture), const SizedBox(height: 16), Stagger(order: 1, child: text)])
+                : Row(children: [Stagger(order: 0, child: picture), const SizedBox(width: 26), Expanded(child: Stagger(order: 1, child: text))]),
           ),
         ),
         if (tracks.isNotEmpty) ...[
@@ -206,54 +210,65 @@ class _AlbumViewState extends State<AlbumView> {
     return LayoutBuilder(builder: (context, box) {
       final narrow = box.maxWidth < _narrow;
       final side = narrow ? 20.0 : 32.0;
+      // the concept (13 Oct): Apple Music's album page. The header comes in once, piece by piece, then holds still.
       final cover = DecoratedBox(
-        decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), boxShadow: [
-          BoxShadow(blurRadius: 14, offset: const Offset(0, 8), color: Colors.black.withValues(alpha: 0.2)),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), boxShadow: [
+          BoxShadow(blurRadius: 18, offset: const Offset(0, 10), color: Colors.black.withValues(alpha: 0.25)),
         ]),
-        child: Cover(album.cover, size: narrow ? 160 : 180, radius: 12),
+        child: Cover(album.cover, size: narrow ? 180 : 230, radius: 14),
       );
       final align = narrow ? CrossAxisAlignment.center : CrossAxisAlignment.start;
       final text = Column(crossAxisAlignment: align, mainAxisSize: MainAxisSize.min, children: [
-        Text(album.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: narrow ? TextAlign.center : TextAlign.start, style: _title(context, narrow ? 24 : 30)),
-        const SizedBox(height: 4),
-        ArtistLinks(artists: album.artists, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: theme.colorScheme.onSurface.withValues(alpha: 0.8))),
-        const SizedBox(height: 4),
-        Text(facts, style: TextStyle(fontSize: 13.5, color: muted)),
-        const SizedBox(height: 14),
-        ListenableBuilder(
-          listenable: library,
-          builder: (context, _) {
-            final pinned = library.pinned(album.ref) != null;
-            return Wrap(spacing: 10, runSpacing: 8, alignment: narrow ? WrapAlignment.center : WrapAlignment.start, children: [
-              FilledButton.icon(
-                onPressed: tracks.isEmpty ? null : () => Scope.of(context).player.play(tracks, wholeList: true),
-                icon: const Icon(FluentIcons.play_24_filled, size: 18),
-                label: const Text('Play'),
-              ),
-              OutlinedButton.icon(
-                onPressed: tracks.isEmpty ? null : () => Scope.of(context).player.play(tracks, shuffled: true, wholeList: true),
-                icon: const Icon(FluentIcons.arrow_shuffle_24_regular, size: 18),
-                label: const Text('Shuffle'),
-              ),
-              Tooltip(
-                message: pinned ? 'Remove this album from Home' : 'Keep this album on Home',
-                child: OutlinedButton.icon(
-                  onPressed: _pinning ? null : _togglePin,
-                  icon: Icon(pinned ? FluentIcons.pin_24_filled : FluentIcons.pin_24_regular, size: 18),
-                  label: Text(pinned ? 'Pinned' : 'Pin to Home'),
+        Stagger(
+          order: 1,
+          child: Column(crossAxisAlignment: align, children: [
+            Text('ALBUM', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.4, color: muted)),
+            const SizedBox(height: 4),
+            Text(album.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: narrow ? TextAlign.center : TextAlign.start,
+                style: _title(context, narrow ? 26 : 34).copyWith(fontFamily: displayFont)),
+            const SizedBox(height: 4),
+            ArtistLinks(artists: album.artists, style: TextStyle(fontSize: narrow ? 17 : 20, fontWeight: FontWeight.w500, color: theme.colorScheme.primary)),
+            const SizedBox(height: 6),
+            Text(facts.toUpperCase(), style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: muted)),
+          ]),
+        ),
+        const SizedBox(height: 18),
+        Stagger(
+          order: 2,
+          child: ListenableBuilder(
+            listenable: library,
+            builder: (context, _) {
+              final pinned = library.pinned(album.ref) != null;
+              return Wrap(spacing: 10, runSpacing: 8, alignment: narrow ? WrapAlignment.center : WrapAlignment.start, children: [
+                ActionPill(
+                  icon: FluentIcons.play_24_filled,
+                  label: 'Play',
+                  filled: true,
+                  onTap: tracks.isEmpty ? null : () => Scope.of(context).player.play(tracks, wholeList: true),
                 ),
-              ),
-            ]);
-          },
+                ActionPill(
+                  icon: FluentIcons.arrow_shuffle_24_regular,
+                  label: 'Shuffle',
+                  onTap: tracks.isEmpty ? null : () => Scope.of(context).player.play(tracks, shuffled: true, wholeList: true),
+                ),
+                RoundAction(
+                  icon: pinned ? FluentIcons.pin_24_filled : FluentIcons.pin_24_regular,
+                  tooltip: pinned ? 'Remove this album from Home' : 'Keep this album on Home',
+                  on: pinned,
+                  onTap: _pinning ? null : _togglePin,
+                ),
+              ]);
+            },
+          ),
         ),
       ]);
       return CustomScrollView(slivers: [
         SliverPadding(
-          padding: EdgeInsets.fromLTRB(side, 20, side, 18),
+          padding: EdgeInsets.fromLTRB(side, 24, side, 22),
           sliver: SliverToBoxAdapter(
             child: narrow
-                ? Column(children: [cover, const SizedBox(height: 16), text])
-                : Row(crossAxisAlignment: CrossAxisAlignment.end, children: [cover, const SizedBox(width: 22), Expanded(child: text)]),
+                ? Column(children: [Stagger(order: 0, child: cover), const SizedBox(height: 18), text])
+                : Row(crossAxisAlignment: CrossAxisAlignment.end, children: [Stagger(order: 0, child: cover), const SizedBox(width: 28), Expanded(child: text)]),
           ),
         ),
         SliverPadding(
@@ -261,7 +276,7 @@ class _AlbumViewState extends State<AlbumView> {
           sliver: SliverFixedExtentList.builder(
             itemExtent: songRowExtent(context),
             itemCount: tracks.length,
-            itemBuilder: (_, i) => SongRow(queue: tracks, index: i),
+            itemBuilder: (_, i) => SongRow(queue: tracks, index: i, number: i + 1),
           ),
         ),
       ]);

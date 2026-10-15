@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
@@ -6,6 +7,7 @@ import '../core/catalog.dart';
 import '../core/models.dart';
 import '../core/search_model.dart';
 import 'browse_nav.dart';
+import 'concept.dart';
 import 'cover.dart';
 import 'layout.dart';
 import 'scope.dart';
@@ -21,14 +23,28 @@ class ArtistLinks extends StatefulWidget {
 }
 
 class _ArtistLinksState extends State<ArtistLinks> {
-  final List<TapGestureRecognizer> _taps = [];
+  List<TapGestureRecognizer> _taps = [];
   int? _hovered;
+
+  /// The line for each artist under the pointer (null: none), each made once and given again. The pointer's enter and
+  /// exit follow the span object: a span made anew at each build was a new one under a resting pointer, so its exit
+  /// and enter set the state again, which built new spans, at every frame, for as long as the pointer rested on a name
+  /// in the player bar (15 Oct: 60 frames a second, most of a core under the cover glow). The taps made at each build
+  /// were never released either: only the list they were never put in was.
+  final _spans = <int?, TextSpan>{};
 
   void _release() {
     for (final t in _taps) {
       t.dispose();
     }
-    _taps.clear();
+    _taps = [];
+    _spans.clear();
+  }
+
+  @override
+  void didUpdateWidget(ArtistLinks old) {
+    super.didUpdateWidget(old);
+    if (!listEquals(old.artists, widget.artists)) _release();
   }
 
   @override
@@ -37,28 +53,36 @@ class _ArtistLinksState extends State<ArtistLinks> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    _release();
-    return Text.rich(
-      TextSpan(children: [
-        for (final (i, name) in widget.artists.indexed) ...[
-          TextSpan(
-            text: name,
-            style: _hovered == i ? const TextStyle(decoration: TextDecoration.underline) : null,
-            recognizer: (TapGestureRecognizer()..onTap = () => openBrowse(context, ArtistNamed(name))),
-            mouseCursor: SystemMouseCursors.click,
-            onEnter: (_) => setState(() => _hovered = i),
-            onExit: (_) => setState(() => _hovered = null),
-          ),
-          if (i < widget.artists.length - 1) const TextSpan(text: ', '),
-        ],
-      ]),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: widget.style,
-    );
+  TextSpan _line(int? hovered) {
+    if (_taps.isEmpty) {
+      _taps = [for (final name in widget.artists) TapGestureRecognizer()..onTap = () => openBrowse(context, ArtistNamed(name))];
+    }
+    return TextSpan(children: [
+      for (final (i, name) in widget.artists.indexed) ...[
+        TextSpan(
+          text: name,
+          style: hovered == i ? const TextStyle(decoration: TextDecoration.underline) : null,
+          recognizer: _taps[i],
+          mouseCursor: SystemMouseCursors.click,
+          onEnter: (_) {
+            if (_hovered != i) setState(() => _hovered = i);
+          },
+          onExit: (_) {
+            if (_hovered == i) setState(() => _hovered = null);
+          },
+        ),
+        if (i < widget.artists.length - 1) const TextSpan(text: ', '),
+      ],
+    ]);
   }
+
+  @override
+  Widget build(BuildContext context) => Text.rich(
+        _spans.putIfAbsent(_hovered, () => _line(_hovered)),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: widget.style,
+      );
 }
 
 /// Play and Shuffle for a list of songs, as on Liked Songs.
@@ -70,15 +94,16 @@ class PlayShuffleButtons extends StatelessWidget {
   Widget build(BuildContext context) {
     final player = Scope.of(context).player;
     return Wrap(spacing: 10, runSpacing: 8, children: [
-      FilledButton.icon(
-        onPressed: tracks.isEmpty ? null : () => player.play(tracks, wholeList: true),
-        icon: const Icon(FluentIcons.play_24_filled, size: 18),
-        label: const Text('Play'),
+      ActionPill(
+        icon: FluentIcons.play_24_filled,
+        label: 'Play',
+        filled: true,
+        onTap: tracks.isEmpty ? null : () => player.play(tracks, wholeList: true),
       ),
-      OutlinedButton.icon(
-        onPressed: tracks.isEmpty ? null : () => player.play(tracks, shuffled: true, wholeList: true),
-        icon: const Icon(FluentIcons.arrow_shuffle_24_regular, size: 18),
-        label: const Text('Shuffle'),
+      ActionPill(
+        icon: FluentIcons.arrow_shuffle_24_regular,
+        label: 'Shuffle',
+        onTap: tracks.isEmpty ? null : () => player.play(tracks, shuffled: true, wholeList: true),
       ),
     ]);
   }

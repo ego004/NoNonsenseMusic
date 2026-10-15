@@ -37,10 +37,13 @@ void main() {
 
   setUp(() async {
     folder = await Directory.systemTemp.createTemp('downloads');
-    store = DownloadStore()..folder = folder;
+    store = DownloadStore()
+      ..folder = folder
+      ..data = await Directory.systemTemp.createTemp('download_data');
   });
   tearDown(() async {
     if (folder.existsSync()) await folder.delete(recursive: true);
+    if (store.data!.existsSync()) await store.data!.delete(recursive: true);
   });
 
   testWidgets('with nothing downloaded it says how to download', (tester) async {
