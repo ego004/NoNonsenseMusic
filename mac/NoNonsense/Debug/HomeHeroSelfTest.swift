@@ -108,6 +108,10 @@ extension SelfTest {
                 check("Jump Back In: the More arrow shows exactly while more lies to the right",
                       rest != nil && (homeShows["home.shelf"] == "more") == (rest.map { $0.origin < $0.end - 4 } ?? false),
                       "\(homeShows["home.shelf"] ?? "-"), \(describe(rest))")
+                // the scroll view runs under the sidebar: a press is 80% of what shows between the margins, not of that
+                let page = frames["home.recentShelf"]?.width ?? 0
+                check("Jump Back In: what shows is the page's width between its margins", rest.map { abs($0.width - page) < 2 } ?? false,
+                      "\(describe(rest)), the page \(Int(page)) pt")
                 var presses = 0
                 while homeShows["home.shelf"] == "more", presses < 8, let before = homeShelfReading?() {
                     homeShelfMore?()

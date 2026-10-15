@@ -270,15 +270,19 @@ private final class ShelfScrollerView: NSView {
         check()
     }
 
-    /// Where the clip view is, and the farthest it may go: a place past the end, pulled back by AppKit.
+    /// Where the clip view is, how much of the shelf shows, and the farthest it may go: a place past the end, pulled back
+    /// by AppKit. The scroll view runs the window's width, under the sidebar, with insets to the page's margins (CI,
+    /// 15 Oct: 1180 wide, at -260 at rest): what shows is what lies between them.
     var reading: ShelfReading? {
-        guard let clip = enclosingScrollView?.contentView else { return nil }
+        guard let scroll = enclosingScrollView else { return nil }
+        let clip = scroll.contentView
         var far = clip.bounds
         far.origin.x = clip.documentView?.frame.width ?? 0
-        return ShelfReading(origin: clip.bounds.minX, width: clip.bounds.width, end: clip.constrainBoundsRect(far).minX)
+        let shown = clip.bounds.width - scroll.contentInsets.left - scroll.contentInsets.right
+        return ShelfReading(origin: clip.bounds.minX, width: shown, end: clip.constrainBoundsRect(far).minX)
     }
 
-    /// On by 80% of the shelf's width, or to its end: one animation (420 ms, ease-out cubic, as in the Windows app).
+    /// On by 80% of what shows, or to the end: one animation (420 ms, ease-out cubic, as in the Windows app).
     func moveOn() {
         guard let clip = enclosingScrollView?.contentView, let now = reading else { return }
         NSAnimationContext.runAnimationGroup { context in
