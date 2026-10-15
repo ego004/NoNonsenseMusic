@@ -16,6 +16,8 @@ extension SelfTest {
     static var homeShows: [String: String] = [:]
     /// Jump Back In's More arrow, as a click would press it (the shelf sets it): an invisible window takes no clicks.
     static var homeShelfMore: (() -> Void)?
+    /// Where Jump Back In's clip view is, how wide, and its end, as AppKit has them (the shelf sets it).
+    static var homeShelfReading: (() -> ShelfReading?)?
 
     static func drew(_ part: String, _ showing: String = "") {
         homeDraws[part, default: 0] += 1
@@ -93,29 +95,38 @@ extension SelfTest {
             if played {
                 await resize(sizes[0].width, sizes[0].height)
                 let count = min(20, library.recent.count)
-                @MainActor func overflows() -> Bool? {
-                    guard let shelf = frames["home.recentShelf"], let last = frames["home.cover:\(count - 1)"] else { return nil }
-                    return last.maxX > shelf.maxX + 4
+                @MainActor func describe(_ r: ShelfReading?) -> String {
+                    r.map { String(format: "at %.1f of %.1f, %.1f wide", $0.origin, $0.end, $0.width) } ?? "no reading"
                 }
+                // the covers' frames, for comparison: where the last one ends against the page's right margin
+                @MainActor func lastCover() -> String {
+                    guard let shelf = frames["home.recentShelf"], let last = frames["home.cover:\(count - 1)"] else { return "-" }
+                    return String(format: "%.1f pt past the margin", last.maxX - shelf.maxX)
+                }
+                let rest = homeShelfReading?()
+                report("homehero: shelf at rest: \(describe(rest)); the page \(Int(frames["home.recentShelf"]?.width ?? 0)) pt wide; last cover \(lastCover())")
                 check("Jump Back In: the More arrow shows exactly while more lies to the right",
-                      overflows() != nil && (homeShows["home.shelf"] == "more") == overflows(),
-                      "\(homeShows["home.shelf"] ?? "-"), more to the right: \(overflows().map { "\($0)" } ?? "-")")
+                      rest != nil && (homeShows["home.shelf"] == "more") == (rest.map { $0.origin < $0.end - 4 } ?? false),
+                      "\(homeShows["home.shelf"] ?? "-"), \(describe(rest))")
                 var presses = 0
-                while homeShows["home.shelf"] == "more", presses < 8, let shelf = frames["home.recentShelf"],
-                      let first = frames["home.cover:0"], let last = frames["home.cover:\(count - 1)"] {
-                    // 80% of what shows (the shelf runs a margin past the page on each side), or what is left
-                    let expected = min((shelf.width + 64) * 0.8, last.maxX - shelf.maxX)
+                while homeShows["home.shelf"] == "more", presses < 8, let before = homeShelfReading?() {
                     homeShelfMore?()
                     try? await Task.sleep(for: .seconds(0.9))
-                    let moved = first.minX - (frames["home.cover:0"]?.minX ?? first.minX)
                     presses += 1
+                    let after = homeShelfReading?()
+                    // 80% of what shows (the shelf runs a margin past the page on each side), or what is left
+                    let expected = min(before.width * 0.8, before.end - before.origin)
+                    let moved = (after?.origin ?? before.origin) - before.origin
+                    report("homehero: press \(presses): \(describe(before)) → \(describe(after)); last cover \(lastCover())")
                     check("More, press \(presses): the shelf moves on by 80% of its width, or to its end", abs(moved - expected) < 2,
-                          String(format: "moved %.0f pt, expected %.0f", moved, expected))
+                          String(format: "moved %.1f pt, expected %.1f", moved, expected))
                 }
                 if presses == 0 {
                     skip("pressing More", "all \(count) songs fit in the shelf")
                 } else {
-                    check("at the end, the More arrow is gone", homeShows["home.shelf"] == "end" && overflows() == false, homeShows["home.shelf"] ?? "-")
+                    let end = homeShelfReading?()
+                    check("at the end, the More arrow is gone", homeShows["home.shelf"] == "end" && end.map { $0.origin >= $0.end - 4 } == true,
+                          "\(homeShows["home.shelf"] ?? "-"), \(describe(end))")
                     windowShot("homehero-\(named(sizes[0]))-shelf-end")
                 }
             }

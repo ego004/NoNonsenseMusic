@@ -167,8 +167,7 @@ private struct RecentShelf: View {
     let tracks: [Track]
     let side: CGFloat
     let play: (Int) -> Void
-    @State private var position = ScrollPosition(edge: .leading)
-    @State private var place = ShelfPlace()
+    @State private var scroller = ShelfScroller.Handle()
     @State private var more = false
 
     var body: some View {
@@ -184,23 +183,15 @@ private struct RecentShelf: View {
             }
             .padding(.vertical, 12)                         // room for the hover lift and its shadow
             .background(ScrollElasticity(vertical: .none))   // a shelf moves sideways only
+            .background(ShelfScroller(handle: scroller) { more = $0 })
         }
         .scrollIndicators(.never)                           // .hidden still showed them with a mouse
         .defaultScrollAnchor(.leading)
-        .scrollPosition($position)
-        // each scroll step: where the shelf is, kept for the arrow without a redraw; the arrow only when it flips
-        .onScrollGeometryChange(for: ShelfReading.self) { geometry in
-            ShelfReading(offset: geometry.contentOffset.x, width: geometry.containerSize.width,
-                         end: geometry.contentSize.width + geometry.contentInsets.trailing - geometry.containerSize.width)
-        } action: { _, reading in
-            place.reading = reading
-            if more != reading.more { more = reading.more }
-        }
         .shelf(margin: 32)
         // .shelf stops at the page column's edges: this cuts the covers off at the margins, as the rest of the page is
         .clipShape(SidewaysClip())
         .overlay(alignment: .trailing) {
-            Button { moveOn() } label: {
+            Button { scroller.view?.moveOn() } label: {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 40, height: 40)
@@ -216,33 +207,94 @@ private struct RecentShelf: View {
         }
         .selfTestFrame("home.recentShelf")
         #if DEBUG
-        .onAppear { SelfTest.homeShelfMore = { moveOn() } }   // the click, when a click cannot reach
+        .onAppear {                                          // the click, when a click cannot reach
+            SelfTest.homeShelfMore = { scroller.view?.moveOn() }
+            SelfTest.homeShelfReading = { scroller.view?.reading }
+        }
         #endif
+    }
+}
+
+/// Where a shelf's clip view is, how wide it is, and the farthest AppKit lets it scroll (its content margins included).
+struct ShelfReading {
+    let origin: CGFloat
+    let width: CGFloat
+    let end: CGFloat
+}
+
+/// The shelf's AppKit side. SwiftUI's sideways ScrollView is an NSScrollView, and its clip view knows exactly how far
+/// it can scroll (`constrainBoundsRect`, the content margins included): the arrow's press is an animated scroll of the
+/// clip view, and whether more lies to the right is read from it on each scroll step; the shelf hears only when that
+/// flips. SwiftUI's ScrollPosition and scroll geometry did neither reliably: a press moved the shelf 450 pt where 762
+/// were asked, and at the end the geometry still had more to the right (CI, 15 Oct). Behind the content; no clicks.
+private struct ShelfScroller: NSViewRepresentable {
+    let handle: Handle
+    let more: (Bool) -> Void
+
+    /// How the shelf reaches its scroller: a class held in State, so setting it redraws nothing.
+    final class Handle {
+        weak var view: ShelfScrollerView?
+    }
+
+    func makeNSView(context: Context) -> ShelfScrollerView { ShelfScrollerView() }
+
+    func updateNSView(_ view: ShelfScrollerView, context: Context) {
+        handle.view = view
+        view.more = more
+    }
+}
+
+private final class ShelfScrollerView: NSView {
+    var more: (Bool) -> Void = { _ in }
+    private var shown: Bool?
+    private var observers: [NSObjectProtocol] = []
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        guard window != nil, let clip = enclosingScrollView?.contentView, let content = clip.documentView else { return }
+        clip.postsBoundsChangedNotifications = true                     // each scroll step
+        clip.postsFrameChangedNotifications = true                      // the window resized
+        content.postsFrameChangedNotifications = true                   // the songs changed
+        let watched: [(Notification.Name, NSView)] = [(NSView.boundsDidChangeNotification, clip),
+                                                       (NSView.frameDidChangeNotification, clip),
+                                                       (NSView.frameDidChangeNotification, content)]
+        observers = watched.map { name, view in
+            NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.check() }
+            }
+        }
+        check()
+    }
+
+    /// Where the clip view is, and the farthest it may go: a place past the end, pulled back by AppKit.
+    var reading: ShelfReading? {
+        guard let clip = enclosingScrollView?.contentView else { return nil }
+        var far = clip.bounds
+        far.origin.x = clip.documentView?.frame.width ?? 0
+        return ShelfReading(origin: clip.bounds.minX, width: clip.bounds.width, end: clip.constrainBoundsRect(far).minX)
     }
 
     /// On by 80% of the shelf's width, or to its end: one animation (420 ms, ease-out cubic, as in the Windows app).
-    private func moveOn() {
-        let now = place.reading
-        withAnimation(.timingCurve(0.215, 0.61, 0.355, 1, duration: 0.42)) {
-            position.scrollTo(x: min(now.offset + now.width * 0.8, now.end))
+    func moveOn() {
+        guard let clip = enclosingScrollView?.contentView, let now = reading else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.42
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.215, 0.61, 0.355, 1)
+            clip.animator().setBoundsOrigin(NSPoint(x: min(now.origin + now.width * 0.8, now.end), y: clip.bounds.minY))
         }
     }
-}
 
-/// Where a shelf has scrolled to, as its scroll view reports it (content offsets, its content margin included).
-private nonisolated struct ShelfReading: Equatable {
-    var offset: CGFloat = 0
-    var width: CGFloat = 0                                  // what shows
-    var end: CGFloat = 0                                    // the offset at the far end
-
-    /// More lies to the right (with 4 pt to spare, as in the Windows app).
-    var more: Bool { offset < end - 4 }
-}
-
-/// A shelf's last reading, kept for its More arrow: a class held in State, so storing a reading on every scroll step
-/// redraws nothing.
-private final class ShelfPlace {
-    var reading = ShelfReading()
+    /// Tells the shelf when more comes to lie to the right, or stops (4 pt to spare, as in the Windows app). Later, not
+    /// now: this can run while SwiftUI lays the shelf out, when its state must not change.
+    private func check() {
+        guard let now = reading.map({ $0.origin < $0.end - 4 }), now != shown else { return }
+        shown = now
+        Task { @MainActor [weak self] in self?.more(now) }
+    }
 }
 
 // MARK: - Your Library
