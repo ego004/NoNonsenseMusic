@@ -118,6 +118,7 @@ jobs:
       - name: Self-test, sidebar, Library and Jam (NN_SELFTEST_SHELL)
         if: ${{ !cancelled() }}
         run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
           env NN_SELFTEST_SHELL=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
             perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
             -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
@@ -127,6 +128,7 @@ jobs:
       - name: Self-test, downloads as files and their folder (NN_SELFTEST_DOWNLOADFILES)
         if: ${{ !cancelled() }}
         run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
           env NN_SELFTEST_DOWNLOADFILES=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
             perl -e 'alarm shift; exec @ARGV' 180 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
             -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
@@ -136,6 +138,7 @@ jobs:
       - name: Self-test, album, artist and playlist pages (NN_SELFTEST_PAGES)
         if: ${{ !cancelled() }}
         run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
           env NN_SELFTEST_PAGES=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
             perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
             -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
@@ -145,6 +148,7 @@ jobs:
       - name: Self-test, player bar and Now Playing (NN_SELFTEST_BAR2)
         if: ${{ !cancelled() }}
         run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
           env NN_SELFTEST_BAR2=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
             perl -e 'alarm shift; exec @ARGV' 180 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
             -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
@@ -154,6 +158,7 @@ jobs:
       - name: Self-test, Home (NN_SELFTEST_HOMEHERO)
         if: ${{ !cancelled() }}
         run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
           env NN_SELFTEST_HOMEHERO=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
             perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
             -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
@@ -163,6 +168,7 @@ jobs:
       - name: Self-test, the command bar and its keys (NN_SELFTEST_COMMANDBAR)
         if: ${{ !cancelled() }}
         run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
           env NN_SELFTEST_COMMANDBAR=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
             perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
             -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
