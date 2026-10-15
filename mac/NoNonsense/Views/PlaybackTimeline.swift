@@ -12,21 +12,29 @@ struct PlaybackTimeline: View {
     var thickness: CGFloat = 3
     var textStyle: Font.TextStyle = .caption2
     var timesBelow = false                                    // Now Playing: the line full width, the times under its ends
-    /// The player bar's: Now Playing covers it, and its blur re-blurs the whole window whenever anything under it
-    /// changes. So while Now Playing is open, this line holds still and its times stop (nobody can see them).
+    /// The player bar's and Home's: Now Playing covers them, and its blur re-blurs the whole window whenever anything
+    /// under it changes. So while Now Playing is open, this line holds still and its times stop (nobody can see them).
     var underNowPlaying = false
+    /// Home's Now card (15 Oct, as in the Windows app): the line, then "0:26 / 3:36" at its right end in a box of its
+    /// own, so a new time never moves the line; nothing to drag, the line only shows where the song is.
+    var timesAfter = false
+    /// A text size of its own, in points before Settings › Text size (Home's 12.5); nil: `textStyle`'s.
+    var textSize: CGFloat? = nil
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
     @Environment(\.textScale) private var textScale
+    /// An artist or album page open over the screen this line is on (Home's): it holds still, as under Now Playing.
+    @Environment(\.pageCovered) private var pageCovered
     @AppStorage("haptics") private var haptics = true
     @State private var hovering = false
     @State private var dragged: Double?                       // seconds, while you drag
 
     var body: some View {
-        let fontSize = textStyle.macPointSize * textScale
-        let labelWidth = (fontSize * 3.6).rounded(.up)          // "-10:00" in monospaced digits
-        // (showNowPlaying is read only by the bar's line: Now Playing's own line must not observe it)
-        let covered = underNowPlaying && player.showNowPlaying
+        let fontSize = (textSize ?? textStyle.macPointSize) * textScale
+        // "-10:00" in monospaced digits; after the line, "10:00 / 10:00" (104 pt at 12.5 pt, as in the Windows app)
+        let labelWidth = (fontSize * (timesAfter ? 8.32 : 3.6)).rounded(.up)
+        // (showNowPlaying is read only by the lines under Now Playing: Now Playing's own line must not observe it)
+        let covered = underNowPlaying && player.showNowPlaying || pageCovered
         TimelineLayers(position: player.position,
                        running: player.isPlaying && !player.isBuffering && dragged == nil && !covered,
                        duration: player.duration,
@@ -35,29 +43,32 @@ struct PlaybackTimeline: View {
                        fontSize: fontSize,
                        labelWidth: labelWidth,
                        timesBelow: timesBelow,
-                       fill: NSColor(theme.color(.progress) ?? Color.primary.opacity(0.7)),
+                       timesAfter: timesAfter,
+                       fill: NSColor(theme.color(.progress) ?? Color.primary.opacity(timesAfter ? 0.8 : 0.7)),
                        now: { [player] in player.livePosition })
             .frame(height: timesBelow ? 14 + fontSize * 1.5 : max(14, fontSize * 1.4))
             .overlay {
-                // the drag area: the line (between the two times, or the full width above them)
-                GeometryReader { geo in
-                    let track = timesBelow ? geo.size.width : max(1, geo.size.width - 2 * (labelWidth + 8))
-                    Color.clear
-                        .contentShape(.rect)
-                        .frame(width: track, height: timesBelow ? 14 : geo.size.height)
-                        // the gesture before `.position`: its x then counts from the line's left end. After it, x
-                        // counted from the bar's left edge, the elapsed time's width included, so a click on the bar
-                        // landed that much further on (~44 pt; Now Playing's full-width line was right: 7 Oct)
-                        .gesture(DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                dragged = max(0, min(1, value.location.x / track)) * player.duration
-                            }
-                            .onEnded { _ in
-                                if let d = dragged { player.seek(to: d) }
-                                dragged = nil
-                            })
-                        .onHover { hovering = $0 }
-                        .position(x: geo.size.width / 2, y: timesBelow ? 7 : geo.size.height / 2)
+                // the drag area: the line (between the two times, or the full width above them). Home's has none
+                if !timesAfter {
+                    GeometryReader { geo in
+                        let track = timesBelow ? geo.size.width : max(1, geo.size.width - 2 * (labelWidth + 8))
+                        Color.clear
+                            .contentShape(.rect)
+                            .frame(width: track, height: timesBelow ? 14 : geo.size.height)
+                            // the gesture before `.position`: its x then counts from the line's left end. After it, x
+                            // counted from the bar's left edge, the elapsed time's width included, so a click on the bar
+                            // landed that much further on (~44 pt; Now Playing's full-width line was right: 7 Oct)
+                            .gesture(DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    dragged = max(0, min(1, value.location.x / track)) * player.duration
+                                }
+                                .onEnded { _ in
+                                    if let d = dragged { player.seek(to: d) }
+                                    dragged = nil
+                                })
+                            .onHover { hovering = $0 }
+                            .position(x: geo.size.width / 2, y: timesBelow ? 7 : geo.size.height / 2)
+                    }
                 }
             }
             // while scrubbing: a tick each time the drag crosses a whole minute
@@ -77,6 +88,7 @@ private struct TimelineLayers: NSViewRepresentable {
     let fontSize: CGFloat
     let labelWidth: CGFloat
     let timesBelow: Bool
+    let timesAfter: Bool
     let fill: NSColor
     let now: () -> Double
 
@@ -84,7 +96,7 @@ private struct TimelineLayers: NSViewRepresentable {
 
     func updateNSView(_ view: TimelineLayersView, context: Context) {
         view.configure(running: running, duration: duration, shown: dragged, thickness: thickness, fontSize: fontSize,
-                       labelWidth: labelWidth, timesBelow: timesBelow, fill: fill, now: now)
+                       labelWidth: labelWidth, timesBelow: timesBelow, timesAfter: timesAfter, fill: fill, now: now)
     }
 }
 
@@ -102,6 +114,7 @@ final class TimelineLayersView: NSView {
     private var fontSize: CGFloat = 10
     private var labelWidth: CGFloat = 36
     private var timesBelow = false
+    private var timesAfter = false                             // Home: "0:26 / 3:36" in one layer after the line
     private var fill = NSColor.labelColor
     private var now: () -> Double = { 0 }
 
@@ -122,11 +135,12 @@ final class TimelineLayersView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }      // SwiftUI's overlay takes the clicks and drags
 
     func configure(running: Bool, duration: Double, shown: Double?, thickness: CGFloat, fontSize: CGFloat,
-                   labelWidth: CGFloat, timesBelow: Bool, fill: NSColor, now: @escaping () -> Double) {
+                   labelWidth: CGFloat, timesBelow: Bool, timesAfter: Bool, fill: NSColor, now: @escaping () -> Double) {
         let restyled = fontSize != self.fontSize || fill != self.fill || thickness != self.thickness || labelWidth != self.labelWidth
-            || timesBelow != self.timesBelow
+            || timesBelow != self.timesBelow || timesAfter != self.timesAfter
         self.running = running; self.duration = duration; self.shown = shown; self.now = now
         self.thickness = thickness; self.fontSize = fontSize; self.labelWidth = labelWidth; self.timesBelow = timesBelow; self.fill = fill
+        self.timesAfter = timesAfter
         if restyled { needsLayout = true }
         restart()
     }
@@ -137,7 +151,9 @@ final class TimelineLayersView: NSView {
         let width = bounds.width
         // AppKit layers count y from the bottom: in "below" mode the line sits 7 pt from the top
         let mid = timesBelow ? bounds.height - 7 : bounds.midY
-        let lineX = timesBelow ? 0 : labelWidth + 8, lineWidth = max(1, width - 2 * lineX)
+        // the line between the two times, full width above them, or (Home) from the left up to the times after it
+        let lineX: CGFloat = timesBelow || timesAfter ? 0 : labelWidth + 8
+        let lineWidth = max(1, timesAfter ? width - labelWidth : width - 2 * lineX)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         track.frame = CGRect(x: lineX, y: mid - thickness / 2, width: lineWidth, height: thickness)
         track.cornerRadius = thickness / 2
@@ -147,7 +163,7 @@ final class TimelineLayersView: NSView {
         let textY = timesBelow ? 0 : mid - fontSize * 0.62
         elapsed.alignmentMode = timesBelow ? .left : .right
         remaining.alignmentMode = timesBelow ? .right : .left
-        for (layer, x) in [(elapsed, 0.0), (remaining, width - labelWidth)] {
+        for (layer, x) in [(elapsed, timesAfter ? width - labelWidth : 0), (remaining, width - labelWidth)] {
             layer.frame = CGRect(x: x, y: textY, width: labelWidth, height: fontSize * 1.3)
             layer.contentsScale = scale
         }
@@ -221,11 +237,16 @@ final class TimelineLayersView: NSView {
     private func setTimes() {
         let time = max(0, shown ?? now())
         let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
-        let colour = resolved(.secondaryLabelColor)
+        let colour = resolved(timesAfter ? NSColor.labelColor.withAlphaComponent(0.6) : .secondaryLabelColor)
         func text(_ s: String) -> NSAttributedString { NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: colour]) }
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        elapsed.string = text(formatTime(time))
-        remaining.string = text("-" + formatTime(max(0, duration - time)))
+        if timesAfter {
+            elapsed.string = text("\(formatTime(time)) / \(formatTime(duration))")
+            remaining.string = nil
+        } else {
+            elapsed.string = text(formatTime(time))
+            remaining.string = text("-" + formatTime(max(0, duration - time)))
+        }
         CATransaction.commit()
     }
 

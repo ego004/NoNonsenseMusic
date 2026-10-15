@@ -569,7 +569,8 @@ enum SelfTest {
     }
 
     /// With `NN_SELFTEST_HOME="<search>"` (test server only): fills the test library (a playlist of 4 songs, 3 liked
-    /// songs), waits on Home, reports what Home holds and snapshots it, then cleans up (unlikes, deletes the playlist).
+    /// songs), waits on Home, reports what Home holds and pictures it, checks the playlist is in Your Library after
+    /// Liked Songs, then cleans up (unlikes, deletes the playlist). Home's top: NN_SELFTEST_HOMEHERO.
     static func runHomeCheckIfAsked(library: LibraryStore, player: Player) {
         guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_HOME"] else { return }
         Task {
@@ -588,13 +589,18 @@ enum SelfTest {
             report("home: recent \(library.recent.count), liked \(library.liked.count), playlists \(library.playlists.count)")
             try? await Task.sleep(for: .seconds(4))              // covers download, sections fade in
             snap("home")
+            windowShot("home")
             report("home: on screen: \(appeared.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", "))")
-            // window pictures cannot draw scroll views: draw the cards themselves, off screen, to see their design
+            // Your Library (15 Oct): one grid of tiles, Liked Songs first, the playlists after it
+            if let liked = frames["home.tile:Liked Songs"], let mix = frames["home.tile:\(name)"] {
+                report("home \((liked.minY, liked.minX) < (mix.minY, mix.minX) ? "PASS" : "FAIL") Your Library: Liked Songs, then the new playlist")
+            } else {
+                report("home FAIL Your Library shows Liked Songs and the new playlist")
+            }
+            // snap cannot draw scroll views: draw the shelves' cards themselves, off screen, to see their design
             let sample = VStack(alignment: .leading, spacing: 22) {
                 HStack(alignment: .top, spacing: 20) {
                     ForEach(Array(library.recent.prefix(3)), id: \.id) { CoverTile(track: $0) {} }
-                    ForEach(library.playlists.prefix(2)) { PlaylistCard(playlist: $0, side: Look.cardSize) {} }
-                    PlaylistCover(images: PlaylistCover.images(of: (library.liked + library.recent).lazy.map(\.image)), size: Look.cardSize, seed: "grid")
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(library.liked.prefix(3)), id: \.id) { CompactSongTile(track: $0, width: 300) {} }
