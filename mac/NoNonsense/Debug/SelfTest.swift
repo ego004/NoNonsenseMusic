@@ -1532,6 +1532,21 @@ enum SelfTest {
         }
     }
 
+    /// A real picture of the app's window alone, as it is on screen (glass, materials and the toolbar included, which
+    /// `snap` cannot draw), as `<folder>/<name>-window.png`. Needs `NN_SELFTEST_VISIBLE=1` (the window is otherwise
+    /// see-through) and Screen Recording; says so without them (15 Oct).
+    static func windowShot(_ name: String) {
+        guard let folder = ProcessInfo.processInfo.environment["NN_SELFTEST_SNAP"],
+              let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) else { return }
+        let file = URL(filePath: folder).appending(path: "\(name)-window.png")
+        let shot = Process()
+        shot.executableURL = URL(filePath: "/usr/sbin/screencapture")
+        shot.arguments = ["-x", "-o", "-l\(window.windowNumber)", file.path]
+        try? shot.run()
+        shot.waitUntilExit()
+        report(FileManager.default.fileExists(atPath: file.path) ? "wrote \(file.path)" : "no window picture (Screen Recording not allowed?)")
+    }
+
     /// Written straight through, not buffered: with the output going to a file, `print` held every line until the
     /// app quit, so nothing outside could follow a run while it happened (6 Oct).
     static func report(_ line: String) { FileHandle.standardOutput.write(Data("SELFTEST \(line)\n".utf8)) }

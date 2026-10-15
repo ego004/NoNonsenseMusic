@@ -35,6 +35,7 @@ struct RootView: View {
                     Group {
                         switch selection ?? .section(.home) {
                         case .section(.home): HomeView { selection = $0 }
+                        case .section(.library): LibraryView { selection = $0 }
                         case .section(.search): SearchView(focusRequests: searchRequests)
                         case .section(.liked): SongListView(item: .liked)
                         case .section(.recent): SongListView(item: .recent)

@@ -1,13 +1,13 @@
 import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case home, search, liked, recent, downloads, friends
+    case home, library, search, liked, recent, downloads, friends
     var id: String { rawValue }
     var title: String {
-        switch self { case .home: "Home"; case .search: "Search"; case .liked: "Liked Songs"; case .recent: "Recently Played"; case .downloads: "Downloads"; case .friends: "Friends" }
+        switch self { case .home: "Home"; case .library: "Library"; case .search: "Search"; case .liked: "Liked Songs"; case .recent: "Recently Played"; case .downloads: "Downloads"; case .friends: "Friends" }
     }
     var symbol: String {
-        switch self { case .home: "house"; case .search: "magnifyingglass"; case .liked: "heart"; case .recent: "clock"; case .downloads: "arrow.down.circle"; case .friends: "person.2" }
+        switch self { case .home: "house"; case .library: "books.vertical"; case .search: "magnifyingglass"; case .liked: "heart"; case .recent: "clock"; case .downloads: "arrow.down.circle"; case .friends: "person.2" }
     }
 }
 

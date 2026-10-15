@@ -745,7 +745,16 @@ extension View {
             .clipShape(SidewaysClip())
             .padding(.horizontal, -margin)
     }
+
+    /// A page's column (15 Oct, as in the Windows app): at most `maxPageWidth` wide, centred in a wider window, so
+    /// lines and shelves never stretch across a large display.
+    func pageColumn() -> some View {
+        frame(maxWidth: maxPageWidth).frame(maxWidth: .infinity)
+    }
 }
+
+/// The widest a page grows: 1440 inside its 32 pt margins.
+let maxPageWidth: CGFloat = 1504
 
 /// Whether the visible screen has scrolled content under the title bar. Set by ScrollTitle when it flips, read by
 /// TitleBarStrip. One screen is visible at a time, so one value serves the window.
