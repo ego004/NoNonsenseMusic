@@ -141,6 +141,9 @@ extension NoNonsenseApp {
         SelfTest.runSearchScrollCheckIfAsked()
         SelfTest.runShotsIfAsked(account: account, library: library, player: player)
         SelfTest.runTranslateCheckIfAsked(player: player, lyrics: lyrics)
+        SelfTest.runShellCheckIfAsked(account: account, library: library, player: player, downloads: downloads)
+        SelfTest.runDownloadFilesCheckIfAsked(downloads: downloads)
+        SelfTest.runPagesCheckIfAsked(library: library, player: player, theme: theme, downloads: downloads)
     }
 }
 #endif
