@@ -188,8 +188,12 @@ jobs:
           for i in $(seq 1 60); do grep -q "idle: on Home now" idle.log && break; sleep 1; done
           sleep 8                                                  # Home settles: covers, the entrance
           # top's first sample has no interval behind it: the 20 after it are the measurement
-          top -l 21 -s 1 -pid $app -stats cpu | awk '/^[0-9.]+$/ { n++; if (n > 1) { s += $1; c++ } }
-            END { if (c) printf "CPU at rest on Home: %.1f%% of one core, %d one-second samples\n", s / c, c }'
+          top -l 21 -s 1 -pid $app -stats cpu > cpu.txt || true
+          awk 'NF == 1 && $1 ~ /^[0-9]+([.][0-9]+)?$/ { n++; if (n > 1) { s += $1; c++ } }
+            END { if (c) printf "CPU at rest on Home: %.1f%% of one core, %d one-second samples\n", s / c, c;
+                  else print "CPU at rest on Home: no samples; top ended with:" }' cpu.txt
+          tail -4 cpu.txt
+          grep SELFTEST idle.log || true
           wait $app || true
       - uses: actions/upload-artifact@v4
         if: always()
