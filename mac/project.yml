@@ -10,16 +10,24 @@ settings:
     # UI code runs on the main thread by default; background work opts out explicitly
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
+    # the release, in one place: UpdateCheck compares it with GitHub's latest, and the widget's must be the app's
+    MARKETING_VERSION: "0.2.4"
+    CURRENT_PROJECT_VERSION: "6"
+    CODE_SIGN_IDENTITY: "-"   # ad-hoc signature: runs on this Mac, no developer account needed
+    CODE_SIGN_STYLE: Manual
+    ENABLE_HARDENED_RUNTIME: NO
 targets:
   NoNonsense:
     type: application
     platform: macOS
     sources: [NoNonsense]
+    dependencies:
+      - target: NoNonsenseWidget       # embedded in Contents/PlugIns
     info:
       path: NoNonsense/Info.plist
       properties:
         CFBundleDisplayName: NoNonsenseMusic
-        # the version is MARKETING_VERSION below, in one place (Info.plist said 1.0 while the release was 0.2.0)
+        # the version is MARKETING_VERSION above, in one place (Info.plist said 1.0 while the release was 0.2.0)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.music
@@ -38,13 +46,8 @@ targets:
         PRODUCT_NAME: NoNonsenseMusic
         # no sandbox: the app must reach Discord's local socket and your local server
         ENABLE_APP_SANDBOX: NO
-        ENABLE_HARDENED_RUNTIME: NO
-        CODE_SIGN_IDENTITY: "-"   # ad-hoc signature: runs on this Mac, no developer account needed
-        CODE_SIGN_STYLE: Manual
-        MARKETING_VERSION: "0.2.4"   # the release; UpdateCheck compares it with GitHub's latest
         # the app icon: NoNonsense/Assets.xcassets/AppIcon, rendered from app/assets/icon/logo.svg (the one logo for every app)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        CURRENT_PROJECT_VERSION: "6"
         NN_URL_SCHEME: nononsense
       configs:
         Debug:
@@ -53,3 +56,32 @@ targets:
           # nor share your app's identity: its preferences, audio cache and session (a test copy running beside your
           # app wrote to the same cache folder and settings)
           PRODUCT_BUNDLE_IDENTIFIER: app.nononsense.music.debug
+  # The widget (#22): the song playing, on the desktop and in Notification Centre. macOS runs app extensions sandboxed
+  NoNonsenseWidget:
+    type: app-extension
+    platform: macOS
+    sources: [NoNonsenseWidget]
+    info:
+      path: NoNonsenseWidget/Info.plist
+      properties:
+        CFBundleDisplayName: NoNonsenseMusic
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: NoNonsenseWidget/NoNonsenseWidget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        # the one folder the app writes the song into (WidgetFeed): read only
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /Library/Application Support/NoNonsense/Widget/
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.nononsense.music.widget
+        PRODUCT_NAME: NoNonsenseWidget
+        ENABLE_APP_SANDBOX: YES
+        SKIP_INSTALL: YES
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: app.nononsense.music.debug.widget   # inside the Debug app (its id is the prefix)

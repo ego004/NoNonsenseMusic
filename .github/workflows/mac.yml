@@ -45,6 +45,28 @@ jobs:
           app=build/Build/Products/Release/NoNonsenseMusic.app
           echo "$app: CFBundleName=$(/usr/libexec/PlistBuddy -c 'Print CFBundleName' $app/Contents/Info.plist)," \
                "CFBundleDisplayName=$(/usr/libexec/PlistBuddy -c 'Print CFBundleDisplayName' $app/Contents/Info.plist)"
+      - name: Widget, as macOS sees it (embedded and sandboxed; what pluginkit and chronod say of an ad-hoc signed one)
+        working-directory: mac
+        run: |
+          app=build/Build/Products/Release/NoNonsenseMusic.app
+          ext=$app/Contents/PlugIns/NoNonsenseWidget.appex
+          ls -d "$ext"
+          codesign -dvv "$ext" 2>&1 | grep -E "^(Identifier|Signature|TeamIdentifier|CodeDirectory)"
+          codesign -d --entitlements - "$ext" 2>&1 | grep -v "^Executable"
+          since=$(date '+%Y-%m-%d %H:%M:%S')
+          ditto "$app" /Applications/NoNonsenseMusic.app
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -R -trusted /Applications/NoNonsenseMusic.app
+          pluginkit -a /Applications/NoNonsenseMusic.app/Contents/PlugIns/NoNonsenseWidget.appex || true
+          open -g /Applications/NoNonsenseMusic.app --args -serverURL http://127.0.0.1:8799 -discordEnabled NO
+          sleep 25
+          pkill -x NoNonsenseMusic || true
+          echo "--- pluginkit: ours, then every widget extension"
+          pluginkit -m -A -v -i app.nononsense.music.widget || true
+          pluginkit -m -A -v -p com.apple.widgetkit-extension | head -30
+          echo "--- chronod and pkd on ours"
+          log show --start "$since" --info --debug --style compact --predicate 'process == "chronod" OR process == "pkd"'             | grep -iE "nononsense|purg|restricted|cache it" | head -80
+          echo "--- chronod, everything (first 80 lines)"
+          log show --start "$since" --info --debug --style compact --predicate 'process == "chronod"' | head -80
       - name: Test database (PostgreSQL 18, music_test) and the server's packages
         run: |
           brew install postgresql@18 uv
