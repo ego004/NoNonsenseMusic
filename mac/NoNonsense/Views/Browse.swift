@@ -450,14 +450,20 @@ extension View {
             .listRowInsets(EdgeInsets(top: top, leading: inset, bottom: bottom, trailing: inset))
     }
 
-    /// A row of an artist, album or playlist page or a song list (15 Oct, as in the Windows app): 32 pt from the page's
-    /// edges (song rows 24: their own 8 pt padding brings the cover to the same line), inside the page column. Each
-    /// row keeps to the column, not the List: a List narrower than the window would not scroll from its sides, and its
-    /// scroller would stand in the middle of a wide window.
+    /// A row of an artist, album or playlist page or a song list (15 Oct, as in the Windows app): drawn 32 pt from the
+    /// page's edges (song rows 24: their own 8 pt padding brings the cover to the same line), inside the page column.
+    /// Each row keeps to the column, not the List: a List narrower than the window would not scroll from its sides, and
+    /// its scroller would stand in the middle of a wide window. The row reaches into the List's own margin, so both
+    /// the inset and the column measure from the page's edges.
     func pageRow(top: CGFloat, bottom: CGFloat, inset: CGFloat = 32) -> some View {
         frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, inset)
             .pageColumn()
+            .padding(.horizontal, -listOwnMargin)
             .browseRow(top: top, bottom: bottom, inset: 0)
     }
 }
+
+/// What a List keeps on each side of every row on its own, whatever the row's insets: rows inset 32 were drawn 40 pt
+/// from the List's edge (measured on macOS 26, 15 Oct). So browseRow's 24 draws at 32.
+private let listOwnMargin: CGFloat = 8

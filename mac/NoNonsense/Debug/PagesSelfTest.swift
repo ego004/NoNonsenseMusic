@@ -7,8 +7,9 @@ import SwiftUI
 /// song's mark and fill in the Playing song colour); a playlist page's header at three window widths (its 200 pt cover
 /// on the 32 pt margin, inside the page column). With the internet: an album page at the widest and narrowest windows
 /// (230 pt cover, the text 28 pt beside it on its bottom edge, a round pin), an artist page (180 pt picture) and a
-/// pinned album's numbered rows; without it those say SKIP. Pictures with `NN_SELFTEST_SNAP` and `NN_SELFTEST_VISIBLE=1`:
-/// pages-playlist, pages-liked, and with the internet pages-album, pages-pinned, pages-artist.
+/// pinned album's numbered rows; without it, or when a page's source does not answer, those say SKIP and why. Pictures
+/// with `NN_SELFTEST_SNAP` and `NN_SELFTEST_VISIBLE=1`: pages-playlist, pages-liked, and with the internet pages-album,
+/// pages-pinned, pages-artist.
 extension SelfTest {
     private static var startedPages = false
 
@@ -21,7 +22,7 @@ extension SelfTest {
                 if !ok { failures += 1 }
                 report("pages \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
             }
-            @MainActor func skip(_ what: String) { report("pages SKIP \(what): needs the internet") }
+            @MainActor func skip(_ what: String, _ why: String = "needs the internet") { report("pages SKIP \(what): \(why)") }
             @MainActor func until(_ seconds: Double, _ done: () -> Bool) async -> Bool {
                 for _ in 0..<Int(seconds * 10) where !done() { try? await Task.sleep(for: .milliseconds(100)) }
                 return done()
@@ -130,69 +131,84 @@ extension SelfTest {
                 check("a playlist to look at", false)
             }
 
-            // an album page, its pin, and the same album pinned: a playlist whose rows are numbered
+            // an album page, its pin, and the same album pinned: a playlist whose rows are numbered. The album is asked
+            // for here first: a source that does not answer (a runner's network) is a SKIP, not the page's fault
             if let album = reply?.albums?.first?.best {
-                frames["album.cover"] = nil
-                Navigator.shared.open(.album(album))
-                if await until(15, { frames["album.cover"] != nil }) {
-                    // the narrowest window (900) still leaves the page wider than the Windows app's narrow layout (560)
-                    for width in [1180.0, 900] {
-                        await resize(to: width)
-                        measure("the album page", picture: "album.cover", page: "album.page", side: 230)
-                        if let cover = frames["album.cover"], let text = frames["album.text"] {
-                            check("…its text 28 pt beside the cover, standing on its bottom edge",
-                                  abs(text.minX - cover.maxX - 28) < 1 && abs(text.maxY - cover.maxY) < 1,
-                                  "gap \(text.minX - cover.maxX), bottoms \(text.maxY) / \(cover.maxY)")
-                        }
-                        if let pin = frames["album.pin"] {
-                            check("…Pin to Home a round button", abs(pin.width - pin.height) <= 1, "\(pin.size)")
-                        }
-                    }
-                    await resize(to: 1180)
-                    // its second song plays (muted): the picture shows the playing row
-                    if let detail = try? await API.album(album), detail.songs.count > 1 {
-                        player.play(detail.songs.map(Track.init), startAt: 1)
-                    }
-                    try? await Task.sleep(for: .seconds(4))
-                    windowShot("pages-album")
-
-                    await library.pin(album)
-                    if let pinned = library.pinned(album) {
-                        frames["playlist.row:0"] = nil
-                        NotificationCenter.default.post(name: .selfTestOpen, object: pinned.id)
-                        if await until(10, { frames["playlist.row:0"] != nil }) {
-                            try? await Task.sleep(for: .seconds(1))           // its own rows, not the replaced playlist's
-                            let row = frames["playlist.row:0"]?.height ?? 0
-                            check("a pinned album's rows are numbered: 40 pt number boxes, not 44 pt covers (rows \(Int(row)) pt, with covers \(Int(rowWithCover)) pt)",
-                                  rowWithCover > 0 && row > 0 && row < rowWithCover - 2)
-                            windowShot("pages-pinned")
-                        } else {
-                            check("a pinned album opens with its songs", false)
-                        }
-                        await library.unpin(pinned)
-                    } else {
-                        check("Pin to Home pins the album", false)
-                    }
-                } else {
-                    check("an album opens on its page", false)
+                var detail: AlbumDetail?
+                do { detail = try await API.album(album) } catch {
+                    skip("the album page, its pin and a pinned album's numbered rows", "its source did not answer (\(error.localizedDescription))")
                 }
-                Navigator.shared.path = []
+                if let detail {
+                    frames["album.cover"] = nil
+                    Navigator.shared.open(.album(album))
+                    if await until(15, { frames["album.cover"] != nil }) {
+                        // the narrowest window (900) still leaves the page wider than the Windows app's narrow layout (560)
+                        for width in [1180.0, 900] {
+                            await resize(to: width)
+                            measure("the album page", picture: "album.cover", page: "album.page", side: 230)
+                            if let cover = frames["album.cover"], let text = frames["album.text"] {
+                                check("…its text 28 pt beside the cover, standing on its bottom edge",
+                                      abs(text.minX - cover.maxX - 28) < 1 && abs(text.maxY - cover.maxY) < 1,
+                                      "gap \(text.minX - cover.maxX), bottoms \(text.maxY) / \(cover.maxY)")
+                            }
+                            if let pin = frames["album.pin"] {
+                                check("…Pin to Home a round button", abs(pin.width - pin.height) <= 1, "\(pin.size)")
+                            }
+                        }
+                        await resize(to: 1180)
+                        // its second song plays (muted): the picture shows the playing row
+                        if detail.songs.count > 1 { player.play(detail.songs.map(Track.init), startAt: 1) }
+                        try? await Task.sleep(for: .seconds(4))
+                        windowShot("pages-album")
+
+                        await library.pin(album)
+                        if let pinned = library.pinned(album) {
+                            frames["playlist.row:0"] = nil
+                            NotificationCenter.default.post(name: .selfTestOpen, object: pinned.id)
+                            if await until(10, { frames["playlist.row:0"] != nil }) {
+                                try? await Task.sleep(for: .seconds(1))           // its own rows, not the replaced playlist's
+                                let row = frames["playlist.row:0"]?.height ?? 0
+                                check("a pinned album's rows are numbered: 40 pt number boxes, not 44 pt covers (rows \(Int(row)) pt, with covers \(Int(rowWithCover)) pt)",
+                                      rowWithCover > 0 && row > 0 && row < rowWithCover - 2)
+                                windowShot("pages-pinned")
+                            } else {
+                                check("a pinned album opens with its songs", false)
+                            }
+                            await library.unpin(pinned)
+                        } else {
+                            check("Pin to Home pins the album", false)
+                        }
+                    } else {
+                        check("an album opens on its page (its source answered this test)", false)
+                    }
+                    Navigator.shared.path = []
+                }
             } else {
                 skip("the album page, its pin and a pinned album's numbered rows")
             }
 
-            // an artist page
+            // an artist page, over Home. Unpinned, the pinned album's screen closes itself, and that change of screen
+            // clears the stack of pages: arriving a moment late, it would close an artist page opened straight after (the
+            // likely failure on CI, 15 Oct). The artist is asked for here first, as the album was
+            NotificationCenter.default.post(name: .selfTestOpen, object: Destination.section(.home))
+            try? await Task.sleep(for: .seconds(1))
             if let artist = reply?.artists?.first?.best {
-                frames["artist.picture"] = nil
-                Navigator.shared.open(.artist(artist))
-                if await until(15, { frames["artist.picture"] != nil }) {
-                    try? await Task.sleep(for: .seconds(1))
-                    measure("the artist page", picture: "artist.picture", page: "artist.page", side: 180)
-                    windowShot("pages-artist")
-                } else {
-                    check("an artist opens on their page", false)
+                var found = false
+                do { _ = try await API.artist(artist); found = true } catch {
+                    skip("the artist page", "its source did not answer (\(error.localizedDescription))")
                 }
-                Navigator.shared.path = []
+                if found {
+                    frames["artist.picture"] = nil
+                    Navigator.shared.open(.artist(artist))
+                    if await until(15, { frames["artist.picture"] != nil }) {
+                        try? await Task.sleep(for: .seconds(1))
+                        measure("the artist page", picture: "artist.picture", page: "artist.page", side: 180)
+                        windowShot("pages-artist")
+                    } else {
+                        check("an artist opens on their page (its source answered this test)", false)
+                    }
+                    Navigator.shared.path = []
+                }
             } else {
                 skip("the artist page")
             }
