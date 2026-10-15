@@ -177,6 +177,10 @@ extension SelfTest {
                 check("the list hangs 8 pt under the field, from its left edge, max(field, 440) wide",
                       abs(list.minX - place.minX) < 1 && abs(list.minY - place.maxY - 8) < 1 && abs(list.width - max(place.width, 440)) < 1,
                       "list \(list), field \(place)")
+                // a few rows: the card hugs them, at the top of the room it may take (it filled it, rows in the middle)
+                check("the card is as tall as its rows, not as the room under the field",
+                      bar.listFrame.height > 100 && bar.listFrame.height < list.height - 40 && abs(bar.listFrame.minY - list.minY) < 1,
+                      "card \(bar.listFrame), room \(list)")
             } else {
                 check("the list is drawn", false)
             }

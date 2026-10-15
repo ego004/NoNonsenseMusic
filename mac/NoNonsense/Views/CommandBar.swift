@@ -461,7 +461,6 @@ struct CommandListLayer: View {
                 // read again when the window resizes (this closure runs then): the field moves with the toolbar
                 if let field = bar.fieldFrame {
                     CommandList(width: max(field.width, 440), maxHeight: max(200, min(560, proxy.size.height - 140)))
-                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bar.listFrame = $0 }
                         .selfTestFrame("commandBar.list")
                         .padding(.leading, field.minX - origin.x)
                         .padding(.top, field.maxY + 8 - origin.y)
@@ -509,9 +508,13 @@ private struct CommandList: View {
         }
         .padding(.vertical, 6)
         .frame(width: width, alignment: .leading)
-        .frame(maxHeight: maxHeight)
         .compatGlass(in: .rect(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.18), radius: 20, y: 12)
+        // the card itself: a click outside it closes the list
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bar.listFrame = $0 }
+        // as tall as its rows, up to the room there is: a frame with a height limit takes all of it, so the card went
+        // the full height with its rows in the middle (CI pictures, 15 Oct)
+        .frame(maxHeight: maxHeight, alignment: .top)
         #if DEBUG
         .onChange(of: shown.map(\.text), initial: true) { _, now in SelfTest.commandRows = now }
         .onChange(of: hint, initial: true) { _, now in SelfTest.commandHint = now }

@@ -336,10 +336,13 @@ struct NowPlayingView: View {
                 .ignoresSafeArea()
 
                 if let track = player.current {
-                    // the cover gives way to the controls: the height less the top bar and everything under the cover
-                    // (15 Oct, as in the Windows app), and never so wide that the song and the panel leave the window
+                    // the cover gives way to the controls: the window's height less the top bar and everything under the
+                    // cover (15 Oct, as in the Windows app, whose 440 counts its top bar: so the height is the window's,
+                    // the title strip included; less it, the cover came out 185 pt in a 676 pt window and the title cut
+                    // short), and never so wide that the song and the panel leave the window
                     let beside = panel == .none ? 0 : Self.panelGap + Self.panelWidth
-                    let side = min(min(max(geo.size.height - 440, 170), 470), geo.size.width - 48 - beside)
+                    let tall = geo.size.height + geo.safeAreaInsets.top
+                    let side = min(min(max(tall - 440, 170), 470), geo.size.width - 48 - beside)
                     HStack(spacing: 0) {
                         songColumn(track, side: side)
                             .selfTestFrame("nowPlaying.column")
