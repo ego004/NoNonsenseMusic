@@ -377,15 +377,9 @@ struct SongListView: View {
         // Search narrows the rows; playing one plays what is shown, in that order
         let shown = filter.isEmpty ? tracks : tracks.filter { songMatches($0, filter) }
         List {
-            header(tracks)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 20, leading: 24, bottom: 16, trailing: 24))
+            header(tracks).pageRow(top: 20, bottom: 16)
             ForEach(Array(shown.enumerated()), id: \.element.id) { i, track in
-                SongRow(track: track, queue: shown, index: i)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 1, leading: 24, bottom: 1, trailing: 24))
+                SongRow(track: track, queue: shown, index: i).pageRow(top: 1, bottom: 1, inset: 24)
             }
         }
         .listStyle(.plain)
@@ -425,7 +419,7 @@ struct SongListView: View {
     private func header(_ tracks: [Track]) -> some View {
         HStack(alignment: .bottom, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.title).textStyle(.largeTitle, weight: .bold)
+                Text(item.title).tracking(-0.6).textStyle(size: 32, weight: .bold)         // as the Windows app's (15 Oct)
                 Text(item == .downloads ? "\(Self.count(tracks.count)) · \(formatBytes(downloads.totalBytes)) on this Mac" : Self.count(tracks.count))
                     .textStyle(.body).foregroundStyle(.secondary)
             }
