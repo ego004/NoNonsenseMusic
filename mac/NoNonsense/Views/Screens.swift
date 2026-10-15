@@ -404,7 +404,7 @@ struct SongListView: View {
                     ContentUnavailableView("No liked songs yet", systemImage: item.symbol, description: Text("Click ♥ on any song to keep it here."))
                 case .downloads:
                     ContentUnavailableView("Nothing downloaded yet", systemImage: item.symbol,
-                                           description: Text("Right-click a song › Download, or a playlist's ⋯ › Download Playlist. Downloads play without the server or the internet."))
+                                           description: Text("Right-click a song › Download, or click Download at the top of a playlist. Downloads play without the server or the internet."))
                 default:
                     ContentUnavailableView("Nothing played yet", systemImage: item.symbol, description: Text("Songs you play show up here."))
                 }
@@ -504,7 +504,7 @@ struct DownloadAllButton: View {
                 .contentTransition(.numericText())
         }
         .compatGlassButton()
-        .disabled(all || working || tracks.isEmpty)
+        .disabled(all || working || tracks.isEmpty || !downloads.available)     // the downloads folder is not there
         .help(all ? "Every song here plays without the internet" : "Download every song, to play without the internet")
     }
 }

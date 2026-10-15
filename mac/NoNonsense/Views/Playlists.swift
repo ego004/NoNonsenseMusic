@@ -313,7 +313,8 @@ struct AddToPlaylistMenu: View {
 }
 
 /// A song's library actions, the same wherever a song is offered (a row, a cover, Up Next, the playing song's "…"):
-/// like, add to a playlist, download.
+/// like, add to a playlist, download, and a downloaded song's file in the Finder. The download entries only while a
+/// downloads folder is in use (not while its drive is unplugged).
 struct SongLibraryActions: View {
     let track: Track
     @Environment(LibraryStore.self) private var library
@@ -322,12 +323,15 @@ struct SongLibraryActions: View {
     var body: some View {
         Button(library.isLiked(track) ? "Remove from Liked" : "Like") { Task { await library.toggleLike(track) } }
         AddToPlaylistMenu(track: track)
-        if downloads.isDownloading(track) {
-            Button("Downloading…") {}.disabled(true)
-        } else if downloads.isDownloaded(track) {
-            Button("Remove Download") { downloads.remove(track) }
-        } else {
-            Button("Download") { Task { await downloads.download(track) } }
+        if downloads.available {
+            if downloads.isDownloading(track) {
+                Button("Downloading…") {}.disabled(true)
+            } else if downloads.isDownloaded(track) {
+                Button("Remove Download") { downloads.remove(track) }
+                Button("Show in Finder") { downloads.revealInFinder(track) }
+            } else {
+                Button("Download") { Task { await downloads.download(track) } }
+            }
         }
     }
 }

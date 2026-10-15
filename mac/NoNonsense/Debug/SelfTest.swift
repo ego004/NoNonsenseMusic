@@ -753,13 +753,18 @@ enum SelfTest {
         }
     }
 
+    /// What Show in Finder would have selected (DownloadStore.revealInFinder): in a self-test it opens no Finder window.
+    static var revealed: URL?
+    /// The line under Settings › Footprint › Downloads › Download location, as shown (DownloadLocation).
+    static var downloadLocationNote = ""
+
     /// With `NN_SELFTEST_DOWNLOADS="<search>"` (test server only, muted, the Downloads-selftest folder): downloads two
     /// songs, checks the files and the index, then STOPS THE SERVER and plays a download: it must play from its file.
     static func runDownloadsCheckIfAsked(player: Player, downloads: DownloadStore) {
         guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_DOWNLOADS"] else { return }
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard await onOwnTestServer(), downloads.folder.lastPathComponent == "Downloads-selftest",
+            guard await onOwnTestServer(), let folder = downloads.folder, folder.lastPathComponent == "Downloads-selftest",
                   let found = try? await API.search(query) else { report("downloads: test server, test folder and a search needed"); NSApp.terminate(nil); return }
             var failures = 0
             @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
@@ -774,11 +779,14 @@ enum SelfTest {
             let sizes = downloads.items.map { formatBytes($0.bytes) }
             report(String(format: "downloads: 2 songs in %.1f s: %@ (%@)", Date().timeIntervalSince(start), songs.map(\.title).joined(separator: ", "), sizes.joined(separator: ", ")))
             check("both downloaded, files on disk, each over 500 KB", downloads.items.count == 2 && downloads.items.allSatisfy {
-                $0.bytes > 500_000 && FileManager.default.fileExists(atPath: downloads.folder.appending(path: $0.file).path) })
+                $0.bytes > 500_000 && FileManager.default.fileExists(atPath: folder.appending(path: $0.file).path) })
+            check("each file is named after its song", downloads.items.allSatisfy {
+                $0.file.hasPrefix(DownloadStore.fileTitle($0.best.title)) && $0.file.hasSuffix(".m4a") }, downloads.items.map(\.file).joined(separator: ", "))
             check("the index is saved: a fresh store finds both", DownloadStore().items.count == 2)
             check("songs know they are downloaded", songs.allSatisfy(downloads.isDownloaded))
             let covers = downloads.items.compactMap { $0.image.flatMap(URL.init(string:)).flatMap(downloads.keptCover(for:)) }
-            check("each download keeps its cover beside it", covers.count == 2, "\(covers.count) of 2")
+            check("each download keeps its cover, in the app's data folder", covers.count == 2 && covers.allSatisfy {
+                $0.deletingLastPathComponent().lastPathComponent == downloads.dataFolder.lastPathComponent }, "\(covers.count) of 2")
             check("…an image the cover cache draws offline", covers.allSatisfy { (try? Data(contentsOf: $0)).flatMap { ArtworkCache.decoded($0) } != nil })
 
             ServerLauncher.shared.stop()                                  // now no server at all
@@ -794,8 +802,9 @@ enum SelfTest {
             downloads.remove(songs[0])
             check("remove one: its file is gone", downloads.items.count == 1 && !songs[0].listings.contains { downloads.localURL(for: $0) != nil })
             downloads.removeAll()
-            let left = (try? FileManager.default.contentsOfDirectory(atPath: downloads.folder.path))?.filter { $0 != "index.json" } ?? []
-            check("remove all: the folder is empty", downloads.items.isEmpty && left.isEmpty, "\(left)")
+            let left = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+                + ((try? FileManager.default.contentsOfDirectory(atPath: downloads.dataFolder.path)) ?? []).filter { $0 != "index.json" }
+            check("remove all: the folder is empty, and so is the data folder but for the list", downloads.items.isEmpty && left.isEmpty, "\(left)")
             report("downloads: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
             NSApp.terminate(nil)
         }
@@ -1355,7 +1364,7 @@ enum SelfTest {
         let parts = spec.split(separator: "|").map(String.init)
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard await onOwnTestServer(), parts.count == 3, downloads.folder.lastPathComponent == "Downloads-selftest",
+            guard await onOwnTestServer(), parts.count == 3, downloads.folder?.lastPathComponent == "Downloads-selftest",
                   let found = try? await API.search(parts[0]), found.songs.count >= 3,
                   let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) })
             else { report("lyrics: test server, three searches and the test folder needed"); NSApp.terminate(nil); return }
@@ -1497,8 +1506,8 @@ enum SelfTest {
                 saved = downloads.lyrics(for: song)
                 if saved == nil { try? await Task.sleep(for: .milliseconds(100)) }
             }
-            report("lyrics: downloaded \(song.title): \(downloaded ? "yes" : "no"); lyrics kept beside it: \(describe(saved))")
-            check("a download keeps its lyrics beside the file", downloaded && saved != nil)
+            report("lyrics: downloaded \(song.title): \(downloaded ? "yes" : "no"); lyrics kept with it: \(describe(saved))")
+            check("a download keeps its lyrics", downloaded && saved != nil)
             let fromServer = try? await API.lyrics(for: song)
             check("… the same lyrics the server gives", saved != nil && saved == fromServer)
 
@@ -1515,7 +1524,7 @@ enum SelfTest {
                   "\(String(describing: lyrics.state(for: songs[2])))")
 
             downloads.removeAll()
-            let left = (try? FileManager.default.contentsOfDirectory(atPath: downloads.folder.path))?.filter { $0 != "index.json" } ?? []
+            let left = (try? FileManager.default.contentsOfDirectory(atPath: downloads.dataFolder.path))?.filter { $0 != "index.json" } ?? []
             check("remove all: the lyrics files go too", left.isEmpty, "\(left.count) files left")
             finish()
         }
@@ -1578,7 +1587,7 @@ enum SelfTest {
         return names.isEmpty ? "nothing" : names.joined(separator: " < ")
     }
 
-    private static func snapshot(_ view: NSView, to url: URL) {
+    static func snapshot(_ view: NSView, to url: URL) {
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds),
               let png = { view.cacheDisplay(in: view.bounds, to: rep); return rep.representation(using: .png, properties: [:]) }()
         else { report("could not draw the window"); return }

@@ -88,6 +88,7 @@ struct NoNonsenseApp: App {
                 .environment(theme)
                 .environment(library)                       // Server: a new address reloads the library
                 .environment(player)                        // Playback › Autoplay switched on: Up Next may need songs
+                .environment(downloads)                     // Footprint › Downloads: the download location
                 .preferredColorScheme(appearance.colorScheme)
         }
     }
