@@ -249,8 +249,9 @@ extension SelfTest {
 }
 
 /// With `NN_SELFTEST_GENIUS=1`: Genius notes (experimental, 8 Oct) on made-up lyrics and notes, as if the server had
-/// answered (no Genius, no search: it runs anywhere). Which line each note lands on; the underlined lines; a real click
-/// on one opens its note (and does not play from it); About This Song is offered. Your settings are put back.
+/// answered (no Genius, no search: it runs anywhere). Which line each note lands on; the marked lines (in the accent
+/// colour); a real click on one opens its note (and does not play from it); About This Song is offered. Your settings
+/// are put back.
 extension SelfTest {
     private static var startedGenius = false
 
@@ -290,7 +291,7 @@ extension SelfTest {
                   let view = descendants(of: frame).compactMap({ $0 as? LyricLinesView }).first else {
                 check("Now Playing shows the lyrics", false); finish(failures); return
             }
-            check("the lines with a note are underlined (the others not)", view.noted == [0, 2], "\(view.noted.sorted())")
+            check("the lines with a note are marked (the others not)", view.noted == [0, 2], "\(view.noted.sorted())")
             check("About This Song is offered", frames["lyrics.about"] != nil)
 
             NSApp.activate(); window.makeKeyAndOrderFront(nil)
@@ -310,7 +311,7 @@ extension SelfTest {
             }
             try? await Task.sleep(for: .seconds(1))
             let popover = NSApp.windows.contains { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }
-            check("a click on an underlined line opens its note", popover)
+            check("a click on a marked line opens its note", popover)
             check("…and does not play from that line", abs(player.position - before) < 0.5,
                   String(format: "%.1f s → %.1f s", before, player.position))
             screenshot("genius-note")

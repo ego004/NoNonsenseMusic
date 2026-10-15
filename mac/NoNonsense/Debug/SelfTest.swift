@@ -1015,7 +1015,7 @@ enum SelfTest {
             window.setFrame(NSRect(x: saved.minX, y: saved.minY, width: 900, height: saved.height), display: true)
             try? await Task.sleep(for: .seconds(1))
             layout("narrowest window, \(Int(window.frame.width)) pt")
-            check("narrow: the volume slider folds away to make room", buttonsWidth() < wide, "\(Int(buttonsWidth())) vs \(Int(wide))")
+            check("narrow: buttons fold away to make room", buttonsWidth() < wide, "\(Int(buttonsWidth())) vs \(Int(wide))")
             window.setFrame(saved, display: true)
             try? await Task.sleep(for: .seconds(0.8))
 

@@ -12,7 +12,8 @@ struct PlayerBar: View {
     @AppStorage("barSolid") private var barSolid = Look.barSolid
 
     /// A rounded rectangle, not a capsule: the middle is two rows tall now, and a capsule's round ends crowded the cover.
-    private let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+    /// 26 around a cover of radius 14, 12 in from the edge: the two curves are concentric (15 Oct, as in the Windows app).
+    private let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
 
     /// Opens Now Playing with this panel beside the song (`.none`: the song alone, the centre of attention).
     private func open(_ panel: NowPlayingPanel, symbol: String, help: String) -> some View {
@@ -26,36 +27,38 @@ struct PlayerBar: View {
         .foregroundStyle(.secondary)
         .help(help)
         .accessibilityLabel(help)
+        .selfTestFrame("bar.open.\(panel.rawValue)")
     }
 
     /// Settings › Colours › Player bar: the glass itself, tinted; System leaves it clear.
     var body: some View {
         if let track = player.current {
             PlayerBarLayout {
-                // the song
+                // the song; a right-click has its menu (the bar's "…" button went in the redesign, 15 Oct)
                 HStack(spacing: 12) {
                     Button { player.showNowPlaying = true } label: {
-                        LiveArtwork(url: track.image, size: 48, radius: 10, fades: { [player] in !player.showNowPlaying })
-                            .frame(width: 48, height: 48)
+                        LiveArtwork(url: track.image, size: 52, radius: 14, fades: { [player] in !player.showNowPlaying })
+                            .frame(width: 52, height: 52)
                     }
                     .buttonStyle(.quiet(highlight: false))
                     .help("Open Now Playing (⇧⌘F)")
 
                     VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 4) {
-                            Text(track.title).textStyle(.callout, weight: .semibold).lineLimit(1)
+                        HStack(spacing: 5) {
+                            Text(track.title).textStyle(size: 14, weight: .semibold).lineLimit(1)
                             if track.isExplicit { ExplicitBadge() }
                         }
-                        ArtistLinks(artists: track.artists).textStyle(.caption).foregroundStyle(.secondary)
+                        ArtistLinks(artists: track.artists).textStyle(size: 12.5).foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .contextMenu { SongLibraryActions(track: track) }
                 .selfTestFrame("bar.song")
 
                 // ⏮ ▶ ⏭, and under them the progress line with the time on each side. It used to be a stripe
                 // along the bar's curved bottom edge, which looked stuck on (6 Oct).
                 VStack(spacing: 2) {
-                    TransportControls(size: .title3, playSize: .title)
+                    TransportControls(compact: true)
                         .fixedSize()
                         #if DEBUG
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { SelfTest.controlsFrame = $0 }
@@ -66,15 +69,20 @@ struct PlayerBar: View {
                 }
                 .selfTestFrame("bar.centre")
 
-                // the buttons; in a narrow window the volume slider goes first (the speaker still mutes)
+                // as many of the buttons as there is room for, the one needed least going first: Now Playing (the cover
+                // opens it too), Lyrics, Up Next, then the volume (15 Oct, as in the Windows app; the volume slider used
+                // to go first). Each row is measured whole, so the one shown always fits
                 ViewThatFits(in: .horizontal) {
-                    buttons(track, volumeSlider: true)
-                    buttons(track, volumeSlider: false)
+                    buttons(track, keeping: 4)
+                    buttons(track, keeping: 3)
+                    buttons(track, keeping: 2)
+                    buttons(track, keeping: 1)
+                    buttons(track, keeping: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .selfTestFrame("bar.buttons")
             }
-            .padding(.horizontal, 16).padding(.vertical, 10)
+            .padding(.horizontal, 12).padding(.vertical, 10)
             .background { fill }
             // the whole bar is the bar: with no fill (Liquid Glass, Fill 0) its empty parts were not there for the
             // pointer, so a pinch opened Now Playing only over the progress line (the one part with a hit area), and
@@ -83,7 +91,7 @@ struct PlayerBar: View {
             .compatGlass(in: shape, tint: theme.color(.playerBar)?.opacity(0.35), enabled: barStyle == .glass)
             .compatGlassID("bar", in: glass)
             .compatGlassMaterialize()
-            .frame(maxWidth: 900)
+            .frame(maxWidth: 940)
             .selfTestFrame("bar")
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { player.barFrame = $0 }
             .simultaneousGesture(MagnifyGesture().onEnded { if $0.magnification > 1.15 { player.showNowPlaying = true } })
@@ -91,16 +99,19 @@ struct PlayerBar: View {
         }
     }
 
-    private func buttons(_ track: Track, volumeSlider: Bool) -> some View {
+    /// Like, Lyrics, Up Next, the volume and Now Playing, in that order, less the ones the bar has no room for. `kept`:
+    /// how many stay of the volume, Up Next, Lyrics and Now Playing, taken in that order (the order of need).
+    private func buttons(_ track: Track, keeping kept: Int) -> some View {
         HStack(spacing: 14) {
-            VolumeControl(width: 76, slider: volumeSlider)
             LikeButton(track: track, font: .title3)
-            SongActionsButton(track: track, font: .title3)
-            open(.lyrics, symbol: "quote.bubble", help: "Lyrics")
-            open(.upNext, symbol: "list.bullet", help: "Up Next")
-            open(.none, symbol: "arrow.up.left.and.arrow.down.right", help: "Now Playing (⇧⌘F)")
+                .selfTestFrame("bar.like")
+            if kept >= 3 { open(.lyrics, symbol: "quote.bubble", help: "Lyrics") }
+            if kept >= 2 { open(.upNext, symbol: "list.bullet", help: "Up Next") }
+            if kept >= 1 { VolumeControl().selfTestFrame("bar.volume") }
+            if kept >= 4 { open(.none, symbol: "arrow.up.left.and.arrow.down.right", help: "Now Playing (⇧⌘F)") }
         }
         .fixedSize()
+        .selfTestFrame("bar.row")
     }
 
     /// Settings › Appearance › Surfaces › Player bar. Liquid Glass: an optional fill over the glass (0 = the glass
@@ -123,7 +134,7 @@ struct PlayerBar: View {
 /// The bar's three parts: the song on the left, the controls in the exact centre, the buttons on the right.
 /// The centre gets what the sides leave (within `centre`); both sides always get the same width, so the centre
 /// is the bar's centre whatever the song's title is. The buttons are measured at their full size, so in a
-/// narrow window the centre shrinks to its minimum before the buttons give up the volume slider.
+/// narrow window the centre shrinks to its minimum before any button goes.
 struct PlayerBarLayout: Layout {
     var spacing: CGFloat = 16
     var centre: ClosedRange<CGFloat> = 280...480
@@ -147,68 +158,75 @@ struct PlayerBarLayout: Layout {
     }
 }
 
-/// ⏮ ▶ ⏭, shared by the bar and Now Playing.
+/// Shuffle, ⏮, play, ⏭ and repeat, shared by the bar (`compact`: packed together) and Now Playing (spread across the
+/// cover's width), as in the Windows app (15 Oct): shuffle and repeat are circles tinted in the accent while on, and
+/// play is a disc in the text's colour with its symbol in the window's.
 struct TransportControls: View {
-    var size: Font = .title3
-    var playSize: Font = .title
-    var spinnerSize: ControlSize = .small
-    var modeSize: Font = .body
+    var compact = false
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
+    @Environment(\.colorScheme) private var scheme
 
     /// Settings › Colours › Buttons; System is your Mac's accent.
     private var active: Color { theme.color(.buttons) ?? .accentColor }
+    private var disc: CGFloat { compact ? 38 : 68 }
+    private var skip: CGFloat { compact ? 34 : 48 }                 // the box each skip button takes
 
     var body: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: compact ? 6 : 0) {
             // shuffle and repeat are the same width, one on each side: ▶ stays at the exact centre
             Button { withAnimation(.snappy(duration: 0.25)) { player.toggleShuffle() } } label: {
-                Image(systemName: "shuffle")
-                    .font(modeSize.weight(.semibold))
-                    .foregroundStyle(player.isShuffled ? AnyShapeStyle(active) : AnyShapeStyle(.secondary))
-                    .symbolEffect(.bounce, value: player.isShuffled)
-                    .frame(width: 30, height: 30)
-                    .background { if player.isShuffled { Circle().fill(active.opacity(0.16)).transition(.scale.combined(with: .opacity)) } }
-                    .contentShape(.circle)
+                mode(Image(systemName: "shuffle").symbolEffect(.bounce, value: player.isShuffled), on: player.isShuffled)
             }
             .help(player.isShuffled ? "Shuffle is on (⌘S)" : "Shuffle (⌘S)")
             .accessibilityLabel("Shuffle")
             .accessibilityValue(player.isShuffled ? "On" : "Off")
+            gap
 
             Button { player.previous() } label: {
-                Image(systemName: "backward.fill").font(size).symbolEffect(.bounce.byLayer, value: player.previousPresses)
+                Image(systemName: "backward.fill")
+                    .font(compact ? .title3 : .title)
+                    .symbolEffect(.bounce.byLayer, value: player.previousPresses)
+                    .frame(width: skip, height: skip)
             }
                 .help("Previous (⌘←)")
                 .accessibilityLabel("Previous")
+            gap
             Button { player.togglePlayPause() } label: {
-                // while a song loads (up to ~3 s for YouTube) the button is a spinner, so you know it is coming
                 ZStack {
+                    Circle().fill(Color.primary)
+                    // while a song loads (up to ~3 s for YouTube) the disc holds a spinner, so you know it is coming
                     if player.isBuffering {
-                        ProgressView().controlSize(spinnerSize)
+                        ProgressView()
+                            .controlSize(compact ? .small : .regular)
+                            .environment(\.colorScheme, scheme == .dark ? .light : .dark)     // readable on the disc
                     } else {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(playSize)
+                            .font(.system(size: (disc * 0.42).rounded()))
+                            .foregroundStyle(Color(nsColor: .windowBackgroundColor))
                             .contentTransition(.symbolEffect(.replace))
                     }
                 }
-                .frame(width: 34, height: 34)
+                .frame(width: disc, height: disc)
+                .contentShape(.circle)
             }
+            .buttonStyle(.quiet(highlight: false))                  // a square highlight around a disc looked stuck on
             .help("Play / Pause (Space)")
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+            gap
             Button { player.next() } label: {
-                Image(systemName: "forward.fill").font(size).symbolEffect(.bounce.byLayer, value: player.nextPresses)
+                Image(systemName: "forward.fill")
+                    .font(compact ? .title3 : .title)
+                    .symbolEffect(.bounce.byLayer, value: player.nextPresses)
+                    .frame(width: skip, height: skip)
             }
                 .help("Next (⌘→)")
                 .accessibilityLabel("Next")
+            gap
 
             Button { withAnimation(.snappy(duration: 0.25)) { player.cycleRepeat() } } label: {
-                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                    .font(modeSize.weight(.semibold))
-                    .foregroundStyle(player.repeatMode == .off ? AnyShapeStyle(.secondary) : AnyShapeStyle(active))
-                    .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 30, height: 30)
-                    .background { if player.repeatMode != .off { Circle().fill(active.opacity(0.16)).transition(.scale.combined(with: .opacity)) } }
-                    .contentShape(.circle)
+                mode(Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").contentTransition(.symbolEffect(.replace)),
+                     on: player.repeatMode != .off)
             }
             .help(player.repeatMode.help)
             .accessibilityLabel("Repeat")
@@ -216,51 +234,97 @@ struct TransportControls: View {
         }
         .buttonStyle(.quiet)
     }
+
+    /// Shuffle's or repeat's face: its symbol in a circle, tinted in the accent while on.
+    private func mode(_ symbol: some View, on: Bool) -> some View {
+        let side: CGFloat = compact ? 30 : 40
+        return symbol
+            .font(.system(size: compact ? 13 : 16, weight: .semibold))
+            .foregroundStyle(on ? AnyShapeStyle(active) : AnyShapeStyle(.secondary))
+            .frame(width: side, height: side)
+            .background { if on { Circle().fill(active.opacity(0.16)).transition(.scale.combined(with: .opacity)) } }
+            .contentShape(.circle)
+    }
+
+    /// Now Playing spreads the five across the cover's width; the bar keeps them together.
+    @ViewBuilder private var gap: some View {
+        if !compact { Spacer(minLength: 0) }
+    }
 }
 
 /// What sits beside the artwork in Now Playing: Up Next, Lyrics (MUS-12), or nothing (the song alone, centred).
 enum NowPlayingPanel: String {
     case upNext, lyrics, none
+
+    /// The panel after pressing `which` in Now Playing's corner: its own, or none when it was the one showing.
+    func toggling(_ which: NowPlayingPanel) -> NowPlayingPanel { self == which ? .none : which }
 }
 
-/// Now Playing's volume, like Apple Music: quiet speaker, slider, loud speaker. A view of its own because it reads the
-/// volume: in Now Playing's body, every step of a drag ran that whole body again (#12), as VolumeControl does for the bar.
+/// Now Playing's volume, as Apple Music has it: the quiet speaker mutes, the slider, the loud speaker turns it all the
+/// way up (15 Oct, as in the Windows app). A view of its own because it reads the volume: in Now Playing's body, every
+/// step of a drag ran that whole body again (#12), as VolumeControl does for the bar.
 private struct NowPlayingVolume: View {
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
     @AppStorage("haptics") private var haptics = true
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+            Button { player.toggleMute() } label: {
+                Image(systemName: player.isMuted || player.volume == 0 ? "speaker.slash.fill" : "speaker.fill")
+                    .contentTransition(.symbolEffect(.replace))
+                    .foregroundStyle(.secondary)
+            }
+            .help(player.isMuted ? "Unmute" : "Mute")
+            .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
             Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }), in: 0...1)
                 .tint(theme.color(.volume))
                 .accessibilityLabel("Volume")
                 // a light tick at every tenth while you drag (Settings › Trackpad › Haptic ticks), as the line does per minute
                 .sensoryFeedback(.alignment, trigger: Int((player.volume * 10).rounded())) { _, _ in haptics }
-            Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+            Button { player.setVolume(1) } label: { Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary) }
+                .help("Full Volume")
+                .accessibilityLabel("Full volume")
         }
+        .buttonStyle(.quiet)
         .font(.callout)
     }
 }
 
+/// Now Playing's cover, as Apple Music has it (15 Oct, as in the Windows app): full size while the song plays (or
+/// loads), 86% while it is paused, springing between the two with its shadow (Core Animation, in LiveArtwork). A view
+/// of its own because it reads whether the song plays: in Now Playing's body, every play and pause ran all of it again.
+private struct NowPlayingCover: View {
+    let track: Track
+    let side: CGFloat
+    @Environment(Player.self) private var player
+
+    var body: some View {
+        LiveArtwork(url: track.image, size: side, radius: side * 0.055, song: track.id, pop: true,
+                    playing: player.isPlaying || player.isBuffering)
+            .frame(width: side, height: side)
+    }
+}
+
 /// Full-window Now Playing: huge artwork (as Jon Hicks asked Apple for), blended background, and a side panel
-/// for Up Next or Lyrics. Click the active panel's button again and the panel goes: the artwork grows into the
-/// centre. The panel you chose is remembered. Esc or a pinch in closes it; the corner button goes full screen.
+/// for Up Next or Lyrics. Press the showing panel's pill again and the panel goes: the song moves into the centre.
+/// The panel you chose is remembered. Esc or a pinch in closes it; the corner button goes full screen.
 struct NowPlayingView: View {
     @Environment(Player.self) private var player
     @AppStorage("nowPlayingPanel") private var panelRaw = NowPlayingPanel.upNext.rawValue
     @AppStorage("nowPlayingBlur") private var surfaceBlur = Look.nowPlayingBlur        // Settings › Appearance › Surfaces › Now Playing
     @AppStorage("nowPlayingSolid") private var surfaceSolid = Look.nowPlayingSolid
     @AppStorage("nowPlayingColour") private var colourStrength = Look.nowPlayingColour
-    @Environment(ThemeStore.self) private var theme
     @State private var isFullScreen = NSApp.keyWindow?.styleMask.contains(.fullScreen) ?? false
-    private var glow: Color? { theme.color(.playing) }    // the light under the artwork: Settings › Colours › Playing song
     private var panel: NowPlayingPanel { NowPlayingPanel(rawValue: panelRaw) ?? .upNext }
+
+    /// The side panel and its gap from the song (15 Oct, as in the Windows app).
+    private static let panelWidth: CGFloat = 380
+    private static let panelGap: CGFloat = 56
 
     var body: some View {
         GeometryReader { geo in
-            ZStack(alignment: .topLeading) {
+            ZStack(alignment: .top) {
                 // a blur and the window's colour hide the screen below; the artwork's wash goes on top of them
                 ZStack {
                     SurfaceLayer(blur: surfaceBlur, solid: Look.readable(solid: surfaceSolid, blur: surfaceBlur), blending: .withinWindow)
@@ -270,89 +334,90 @@ struct NowPlayingView: View {
                 .ignoresSafeArea()
 
                 if let track = player.current {
-                    // the cover gets the height left after the top bar (~84 pt) and the controls under it (~250 pt);
-                    // a share of the height alone let it reach the close button in a 760 pt window (6 Oct).
-                    // Alone, the song takes the centre: a bigger cover
-                    let room = max(160, geo.size.height - 340)
-                    let side = panel == .none ? min(room, geo.size.width * 0.5, 640)
-                                              : min(room, geo.size.width * 0.42, 560)
-                    HStack(alignment: .center, spacing: 48) {
+                    // the cover gives way to the controls: the height less the top bar and everything under the cover
+                    // (15 Oct, as in the Windows app), and never so wide that the song and the panel leave the window
+                    let beside = panel == .none ? 0 : Self.panelGap + Self.panelWidth
+                    let side = min(min(max(geo.size.height - 440, 170), 470), geo.size.width - 48 - beside)
+                    HStack(spacing: 0) {
                         songColumn(track, side: side)
+                            .selfTestFrame("nowPlaying.column")
+                        // the room the panel takes beside the song: as it opens the song moves over, and the two stay
+                        // centred together
+                        Color.clear.frame(width: beside, height: 0)
+                    }
+                    // exactly as tall as the song, from the top of the cover to the volume
+                    .overlay(alignment: .topLeading) {
                         if panel != .none {
                             sidePanel
-                                .frame(width: 340)
-                                .frame(maxHeight: side + 180)
-                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                                .frame(width: Self.panelWidth)
+                                .selfTestFrame("nowPlaying.panel")
+                                .padding(.leading, side + Self.panelGap)
+                                .transition(.opacity.combined(with: .offset(x: 30)))
                         }
                     }
+                    .padding(.vertical, 64).padding(.horizontal, 24)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .selfTestFrame("nowPlaying.area")
                     // no SwiftUI animation keyed on the song: it redrew the column on every frame of the change. The
-                    // cover's crossfade and spring are Core Animation (LiveArtwork); the titles change at once
-                }
+                    // cover's crossfade and springs are Core Animation (LiveArtwork); the titles change at once
 
-                topBar
+                    topBar(track)
+                }
             }
         }
-        .animation(.spring(response: 0.5, dampingFraction: 0.86), value: panelRaw)
+        // the panel opening or closing: once, eased out (the Windows app's 0.42 s)
+        .animation(.timingCurve(0.215, 0.61, 0.355, 1, duration: 0.42), value: panelRaw)
         .simultaneousGesture(MagnifyGesture().onEnded { if $0.magnification < 0.85 { player.showNowPlaying = false } })
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in isFullScreen = true }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in isFullScreen = false }
     }
 
     private func songColumn(_ track: Track, side: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            LiveArtwork(url: track.image, size: side, radius: 18, song: track.id, pop: true)
-                .frame(width: side, height: side)
-                // the cover lights the space under it in its own colour: cast by a still shape behind it, so the
-                // cover's own changes never make the shadow draw again
-                .background {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor))      // what shows under a cover still loading
-                        .shadow(color: (glow ?? .black).opacity(glow == nil ? 0.28 : 0.55), radius: 50, y: 24)
-                }
-            VStack(alignment: .leading, spacing: 6) {
-                if let from = player.playingFrom {
-                    Label("From “\(from)”", systemImage: "music.note.list")
-                        .textStyle(.caption, weight: .semibold)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                HStack(alignment: .firstTextBaseline) {
-                    Text(track.title).textStyle(.title, weight: .bold).lineLimit(2)
-                    if track.isExplicit { ExplicitBadge().font(.body) }
-                    Spacer()
-                    LikeButton(track: track, font: .title2)
-                    SongActionsButton(track: track, font: .title2)
-                }
-                // the artist and the album open their pages (Now Playing closes first)
-                ArtistLinks(artists: track.artists) { player.showNowPlaying = false }
-                    .textStyle(.title3)
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 8) {
-                    if let album = track.albumTitle {
-                        Button(album) {
-                            player.showNowPlaying = false
-                            Navigator.shared.open(.albumNamed(title: album, artist: track.artists.first ?? ""))
-                        }
-                        .buttonStyle(.quiet)
-                        .lineLimit(1)
-                        .help("Go to \(album)")
-                        Text("·")
-                    }
-                    CopyMenu(track: track)
-                }
-                .textStyle(.callout)
-                .foregroundStyle(.tertiary)
-            }
-            .frame(width: side)
+        VStack(alignment: .leading, spacing: 0) {
+            NowPlayingCover(track: track, side: side)
+            titles(track)
+                .padding(.top, 30)
             // Core Animation draws the line and the times (PlaybackTimeline): this view no longer reads the position
             PlaybackTimeline(thickness: 5, textStyle: .caption, timesBelow: true)
-                .frame(width: side)
-            TransportControls(size: .title, playSize: .system(size: 44), spinnerSize: .regular, modeSize: .title3)
-                .frame(width: side)
+                .padding(.top, 18)
+            TransportControls()
+                .frame(width: side)                 // under a small cover (a short window) it overflows both sides alike
+                .padding(.top, 12)
             NowPlayingVolume()
-                .frame(width: side * 0.7)
-                .frame(width: side)
+                .padding(.top, 14)
+        }
+        .frame(width: side)
+    }
+
+    /// The playlist it plays from, the title (the heart and the song's menu beside it), the artists (each opens its
+    /// page; Now Playing closes first) and the copy playing.
+    private func titles(_ track: Track) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let from = player.playingFrom {
+                Label("From “\(from)”", systemImage: "music.note.list")
+                    .textStyle(.caption, weight: .semibold)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(track.title).tracking(-0.5).textStyle(size: 26, weight: .bold).lineLimit(1)
+                        if track.isExplicit { ExplicitBadge() }
+                    }
+                    ArtistLinks(artists: track.artists) { player.showNowPlaying = false }
+                        .textStyle(size: 17, weight: .medium)
+                        .foregroundStyle(.tint)
+                        .padding(.top, 3)
+                    CopyMenu(track: track)
+                        .textStyle(size: 13)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
+                Spacer(minLength: 0)
+                LikeButton(track: track, font: .title2)
+                SongActionsButton(track: track, font: .title2)
+            }
         }
     }
 
@@ -378,51 +443,72 @@ struct NowPlayingView: View {
         .compatGlass(in: .rect(cornerRadius: 22))
     }
 
-    /// Close on the left; on the right, the panel buttons and full screen. All glass, all with tooltips.
-    private var topBar: some View {
-        HStack(spacing: 10) {
+    /// Close on the left; what is playing in the middle of the window; on the right, Lyrics and Up Next as pills, and
+    /// full screen (15 Oct, as in the Windows app). The two sides take the same width whatever they hold, so the
+    /// middle is the window's: between the close button and the wider pills it sat off the song's centre.
+    private func topBar(_ track: Track) -> some View {
+        HStack(spacing: 0) {
             Button { player.showNowPlaying = false } label: {
-                Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 36, height: 36)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 38, height: 38)
+                    .background(Color.primary.opacity(0.08), in: .circle)
             }
-            .buttonStyle(.quiet)
-            .compatGlass(in: .circle, interactive: true)
+            .buttonStyle(.quiet(highlight: false))
             .keyboardShortcut(.cancelAction)                      // Esc closes, and so does a pinch in
             .help("Close (Esc)")
-            Spacer()
-            CompatGlassGroup(spacing: 10) {
-                HStack(spacing: 10) {
-                    panelButton(.lyrics, symbol: "quote.bubble", title: "Lyrics")
-                    panelButton(.upNext, symbol: "list.bullet", title: "Up Next")
-                    Button { NSApp.keyWindow?.toggleFullScreen(nil) } label: {
-                        Image(systemName: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                            .font(.body.weight(.semibold))
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(width: 36, height: 36)
-                    }
-                    .buttonStyle(.quiet)
-                    .compatGlass(in: .circle, interactive: true)
-                    .help(isFullScreen ? "Exit Full Screen (⌃⌘F)" : "Full Screen (⌃⌘F)")
+            .accessibilityLabel("Close")
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 1) {
+                Text("NOW PLAYING")
+                    .tracking(1.6)
+                    .textStyle(size: 10.5, weight: .bold)
+                    .foregroundStyle(.secondary)
+                    .selfTestFrame("nowPlaying.title")
+                if let album = track.albumTitle {
+                    Text(album).textStyle(size: 13, weight: .semibold).foregroundStyle(.primary.opacity(0.85)).lineLimit(1)
                 }
             }
+            .padding(.horizontal, 12)
+
+            HStack(spacing: 8) {
+                pill(.lyrics, symbol: "quote.bubble", title: "Lyrics")
+                pill(.upNext, symbol: "list.bullet", title: "Up Next")
+                Button { NSApp.keyWindow?.toggleFullScreen(nil) } label: {
+                    Image(systemName: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 38, height: 38)
+                        .background(Color.primary.opacity(0.08), in: .circle)
+                }
+                .buttonStyle(.quiet(highlight: false))
+                .help(isFullScreen ? "Exit Full Screen (⌃⌘F)" : "Full Screen (⌃⌘F)")
+            }
+            .fixedSize()
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(24)
     }
 
-    /// Shows its panel; pressed again while showing, hides it (the song alone, centred).
-    private func panelButton(_ which: NowPlayingPanel, symbol: String, title: String) -> some View {
+    /// Lyrics or Up Next: filled in the text's colour while its panel shows; pressed again, the panel goes (the song
+    /// alone, centred).
+    private func pill(_ which: NowPlayingPanel, symbol: String, title: String) -> some View {
         let on = panel == which
-        let accent = theme.color(.buttons) ?? .accentColor
-        return Button { panelRaw = (on ? NowPlayingPanel.none : which).rawValue } label: {
-            Image(systemName: symbol)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(on ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
-                .frame(width: 36, height: 36)
+        return Button { panelRaw = panel.toggling(which).rawValue } label: {
+            HStack(spacing: 6) {
+                Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
+                Text(title).textStyle(size: 13, weight: .semibold)
+            }
+            .foregroundStyle(on ? Color(nsColor: .windowBackgroundColor) : Color.primary.opacity(0.85))
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(on ? Color.primary : Color.primary.opacity(0.08), in: .capsule)
         }
-        .buttonStyle(.quiet)
-        .compatGlass(in: .circle, interactive: true, tint: on ? accent.opacity(0.25) : nil)
+        .buttonStyle(.quiet(highlight: false))
         .help(on ? "Hide \(title)" : "Show \(title)")
         .accessibilityLabel(title)
         .accessibilityValue(on ? "Showing" : "Hidden")
+        .selfTestFrame("nowPlaying.pill.\(which.rawValue)")
     }
 }
 
@@ -583,9 +669,10 @@ private struct TimedLyricsView: View {
     @Environment(\.textScale) private var textScale
     @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion       // seconds per line change (Settings › Lyrics)
     @AppStorage("buttonFeedback") private var feedback = Look.buttonFeedback  // the highlight under the pointer
+    @Environment(ThemeStore.self) private var theme
     @State private var current: Int?
     let active: Bool                                   // false while hidden behind Up Next: the lines ignore the mouse
-    let notes: [Int: GeniusNote]                       // Genius notes by line: those lines are underlined; a click opens one
+    let notes: [Int: GeniusNote]                       // Genius notes by line: those lines are in the accent; a click opens one
     let notesURL: String?
     @State private var openNote: NoteAnchor?
 
@@ -598,8 +685,10 @@ private struct TimedLyricsView: View {
     }
 
     var body: some View {
-        LyricLines(lines: lyrics.lines, current: current, motion: motion, fontSize: 21 * textScale, feedback: feedback,
-                   active: active, noted: Set(notes.keys), openNote: { openNote = NoteAnchor(line: $0, rect: $1) }) {
+        // the noted lines take the accent (Settings › Colours › Buttons; System is your Mac's)
+        LyricLines(lines: lyrics.lines, current: current, motion: motion, fontSize: LyricsFont.size * textScale, feedback: feedback,
+                   active: active, noted: Set(notes.keys), accent: theme.color(.buttons) ?? .accentColor,
+                   openNote: { openNote = NoteAnchor(line: $0, rect: $1) }) {
             jump(to: $0)
         }
         // a noted line's click opens its note beside it instead of playing from it: Play from Here is in the note
@@ -662,7 +751,8 @@ private struct LyricLines: NSViewRepresentable {
     let fontSize: CGFloat
     let feedback: Bool
     let active: Bool
-    var noted: Set<Int> = []                                       // lines with a Genius note: underlined
+    var noted: Set<Int> = []                                       // lines with a Genius note: in the accent
+    let accent: Color
     var openNote: (Int, CGRect) -> Void = { _, _ in }
     let jump: (Int) -> Void
 
@@ -671,7 +761,8 @@ private struct LyricLines: NSViewRepresentable {
     func updateNSView(_ view: LyricLinesView, context: Context) {
         view.active = active
         view.openNote = openNote
-        view.update(lines: lines, current: current, motion: motion, fontSize: fontSize, feedback: feedback, noted: noted, jump: jump)
+        view.update(lines: lines, current: current, motion: motion, fontSize: fontSize, feedback: feedback, noted: noted,
+                    accent: accent, jump: jump)
     }
 }
 
@@ -687,11 +778,12 @@ final class LyricLinesView: NSView {
     private var tops: [CGFloat] = []               // each line's top, measured down from the strip's top
     private var heights: [CGFloat] = []
     private var lines: [LyricLine] = []
-    private(set) var noted: Set<Int> = []          // lines with a Genius note: a faint accent underline, a click opens it
+    private(set) var noted: Set<Int> = []          // lines with a Genius note: in the accent colour, a click opens it
+    private var accent = Color.accentColor         // the noted lines' colour
     var openNote: (Int, CGRect) -> Void = { _, _ in }
     private var current: Int?
     private var motion = Look.lyricsMotion
-    private var fontSize: CGFloat = 21
+    private var fontSize = LyricsFont.size
     private var feedback = true
     private var jump: (Int) -> Void = { _ in }
     private var offset: CGFloat = 0                // how far the strip's top sits above the view's top (a scroll offset)
@@ -705,6 +797,7 @@ final class LyricLinesView: NSView {
     private static let spacing: CGFloat = 14
     private static let inset: CGFloat = 20
     private static let unlit: Float = 0.38         // one colour, faded: switching primary/secondary snapped (7 Oct)
+    private static let unlitNoted: Float = 0.6     // a noted line, unlit: its accent fades less (as in the Windows app)
     private static let introGap: CGFloat = 140     // before the first line: it sits this far below the top
 
     override init(frame: NSRect) {
@@ -720,13 +813,15 @@ final class LyricLinesView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     func update(lines: [LyricLine], current: Int?, motion: Double, fontSize: CGFloat, feedback: Bool, noted: Set<Int> = [],
-                jump: @escaping (Int) -> Void) {
+                accent: Color, jump: @escaping (Int) -> Void) {
         self.motion = motion
         self.feedback = feedback
         self.jump = jump
-        if lines != self.lines || fontSize != self.fontSize || noted != self.noted {   // notes arrive after the lyrics
+        // notes arrive after the lyrics, and the song's colour (the accent) after the song
+        if lines != self.lines || fontSize != self.fontSize || noted != self.noted || accent != self.accent {
             self.lines = lines
             self.noted = noted
+            self.accent = accent
             self.fontSize = fontSize
             self.current = current
             build()                                                 // other text: the layers again, placed at once
@@ -752,16 +847,14 @@ final class LyricLinesView: NSView {
         still { texts.forEach { $0.removeFromSuperlayer() } }       // no fade-out: Core Animation fades removals by itself
         texts = []; strings = []; tops = []; heights = []
         let textWidth = max(1, width - 2 * Self.inset)
-        let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
+        let font = LyricsFont.nsFont(size: fontSize)
         let colour = resolved(.labelColor)
+        let noteColour = resolved(NSColor(accent))     // a line with a Genius note (15 Oct: it was underlined)
         let scale = window?.backingScaleFactor ?? 2
         var y: CGFloat = 0
-        // a line with a Genius note: a faint accent underline, drawn with the text (no layer more)
-        let noteLine: [NSAttributedString.Key: Any] = [.underlineStyle: NSUnderlineStyle.single.rawValue,
-                                                       .underlineColor: resolved(.controlAccentColor).withAlphaComponent(0.6)]
         for (i, line) in lines.enumerated() {
-            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: colour]
-            if noted.contains(i) { attributes.merge(noteLine) { $1 } }
+            let attributes: [NSAttributedString.Key: Any] = [.font: font, .kern: LyricsFont.tracking,
+                                                             .foregroundColor: noted.contains(i) ? noteColour : colour]
             let text = NSAttributedString(string: line.text.isEmpty ? "♪" : line.text, attributes: attributes)
             // measured by CoreText, which CATextLayer draws with. TextKit measured Devanagari lines shorter (24 pt a row
             // against 33), and a CATextLayer whose wrapped text does not fit its height draws one unwrapped, clipped row
@@ -772,7 +865,7 @@ final class LyricLinesView: NSView {
             layer.isWrapped = true
             layer.alignmentMode = .left
             layer.contentsScale = scale
-            layer.opacity = i == current ? 1 : Self.unlit
+            layer.opacity = i == current ? 1 : dimmed(i)
             texts.append(layer); strings.append(text); tops.append(y); heights.append(height)
             y += height + Self.spacing
         }
@@ -842,9 +935,10 @@ final class LyricLinesView: NSView {
     /// The new line lights, the old one fades, and (unless you scrolled in the last 4 s) the strip brings it to the
     /// middle: one animation each, set up here once and played by the render server.
     private func light(from old: Int?) {
-        let changes: [(Int?, Float)] = [(old, Self.unlit), (current, 1)]
-        for (index, opacity) in changes {
+        let changes: [(Int?, Bool)] = [(old, false), (current, true)]
+        for (index, lit) in changes {
             guard let i = index, texts.indices.contains(i) else { continue }
+            let opacity = lit ? 1 : dimmed(i)
             let from = texts[i].presentation()?.opacity ?? texts[i].opacity
             still { texts[i].opacity = opacity }
             if motion > 0 { texts[i].add(Self.animation("opacity", from: from, to: opacity, duration: motion), forKey: "light") }
@@ -853,6 +947,9 @@ final class LyricLinesView: NSView {
         offset = target()
         place(animated: true)
     }
+
+    /// How line `i` looks while not sung: faded, a noted line's accent less so.
+    private func dimmed(_ i: Int) -> Float { noted.contains(i) ? Self.unlitNoted : Self.unlit }
 
     /// Puts the strip at `offset`, sliding there from wherever it is now when `animated`.
     private func place(animated: Bool) {
@@ -998,7 +1095,7 @@ private struct PlainLyricsView: View {
                         NotedLine(text: line.text, note: note, url: notesURL)
                     } else {
                         Text(line.text.isEmpty ? " " : line.text)
-                            .textStyle(size: 17, weight: .semibold)
+                            .lyricsStyle()
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -1018,6 +1115,48 @@ private extension View {
         #else
         self
         #endif
+    }
+}
+
+/// The lyrics' face (15 Oct, as in the Windows app): Figtree ExtraBold, an open geometric font in the manner of
+/// Spotify's, set as Spotify sets its lyrics: extra bold, large, tightly spaced. Its own line height is 1.2 times its
+/// size (ascender 950 + descender 250 per 1000), the one wanted, so nothing sets a line height. Bundled
+/// (Fonts/Figtree-ExtraBold.ttf, SIL Open Font License beside it) and registered for this app alone the first time
+/// lyrics are drawn; the system's heavy font if it cannot be.
+enum LyricsFont {
+    static let size: CGFloat = 24                   // × Settings › Appearance › Text size
+    static let tracking: CGFloat = -0.6
+    static let name = "Figtree-ExtraBold"
+
+    /// Registers the face, once, the first time it is asked for; false: it is missing (then the system's is used).
+    private static let available: Bool = {
+        if let url = Bundle.main.url(forResource: LyricsFont.name, withExtension: "ttf") {
+            _ = CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+        return NSFont(name: LyricsFont.name, size: LyricsFont.size) != nil
+    }()
+
+    /// For the timed lines' layers.
+    static func nsFont(size: CGFloat) -> NSFont {
+        (available ? NSFont(name: name, size: size) : nil) ?? .systemFont(ofSize: size, weight: .heavy)
+    }
+
+    /// For plain and translated lyrics.
+    static func font(size: CGFloat) -> Font {
+        available ? .custom(name, fixedSize: size) : .system(size: size, weight: .heavy)
+    }
+}
+
+extension View {
+    /// A lyric line's text (LyricsFont) at the size Settings › Appearance › Text size chose.
+    func lyricsStyle() -> some View { modifier(LyricsText()) }
+}
+
+private struct LyricsText: ViewModifier {
+    @Environment(\.textScale) private var scale
+
+    func body(content: Content) -> some View {
+        content.font(LyricsFont.font(size: LyricsFont.size * scale)).tracking(LyricsFont.tracking)
     }
 }
 
@@ -1209,7 +1348,7 @@ private struct UpNextRow: View {
 
 // MARK: - Genius notes (experimental, 8 Oct)
 
-/// A plain lyric line with a Genius note: underlined faintly in the accent colour; a click opens the note.
+/// A plain lyric line with a Genius note: in the accent colour (15 Oct: it was underlined); a click opens the note.
 private struct NotedLine: View {
     let text: String
     let note: GeniusNote
@@ -1218,8 +1357,8 @@ private struct NotedLine: View {
 
     var body: some View {
         Text(text)
-            .textStyle(size: 17, weight: .semibold)
-            .underline(color: Color(nsColor: .controlAccentColor).opacity(0.6))
+            .lyricsStyle()
+            .foregroundStyle(.tint)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.rect)
             .onTapGesture { open = true }

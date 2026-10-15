@@ -286,6 +286,9 @@ struct LiveArtwork: NSViewRepresentable {
     var song = ""
     /// Now Playing: a new song's cover grows from 94% with a soft spring (SwiftUI's transition did this before).
     var pop = false
+    /// Now Playing: whether the song plays (or loads): full size with a deep shadow, else 86% with a closer one,
+    /// springing between the two (`rest`). nil: always full size, no shadow (the bar's).
+    var playing: Bool? = nil
     /// Asked when a new cover is ready: false swaps it at once (the bar's, while Now Playing covers it: an unseen fade
     /// still made Now Playing's blur re-blur the whole window on every frame of it).
     var fades: () -> Bool = { true }
@@ -295,10 +298,12 @@ struct LiveArtwork: NSViewRepresentable {
     func updateNSView(_ view: LiveArtworkView, context: Context) {
         view.radius = radius
         view.show(url, size: size, song: song, pop: pop, fades: fades)
+        if let playing { view.rest(playing: playing) }
     }
 }
 
 final class LiveArtworkView: NSView {
+    private let stage = CALayer()                      // Now Playing: 86% while paused, and the shadow (`rest`)
     private let base = CALayer()                       // scaled by the pop
     private let cover = CALayer()                      // the picture: rounded, clipped, a hairline edge
     private let note = CALayer()                       // the music note, before a cover loads or for a song without one
@@ -307,6 +312,7 @@ final class LiveArtworkView: NSView {
     private var shown: CGImage?
     private var loading: Task<Void, Never>?
     private var noteSide: CGFloat = 0
+    private var playing: Bool?                         // nil: no rest set (the bar's cover)
     var radius: CGFloat = 8 { didSet { if radius != oldValue { needsLayout = true } } }
 
     override init(frame: NSRect) {
@@ -317,9 +323,11 @@ final class LiveArtworkView: NSView {
         cover.contentsGravity = .resizeAspectFill
         cover.borderWidth = 0.5
         note.contentsGravity = .center
+        stage.shadowColor = NSColor.black.cgColor
         base.addSublayer(cover)
         cover.addSublayer(note)
-        layer?.addSublayer(base)
+        stage.addSublayer(base)
+        layer?.addSublayer(stage)
         colours()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -330,14 +338,74 @@ final class LiveArtworkView: NSView {
     override func layout() {
         super.layout()
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        stage.bounds = bounds
+        stage.position = CGPoint(x: bounds.midX, y: bounds.midY)
         base.bounds = bounds
         base.position = CGPoint(x: bounds.midX, y: bounds.midY)
         cover.frame = base.bounds
         cover.cornerRadius = radius
         note.frame = base.bounds
+        if let playing { stage.shadowPath = shadowPath(playing) }
         CATransaction.commit()
         if !note.isHidden, abs(bounds.width - noteSide) > 1 { drawNote() }   // the note's size follows the cover's
     }
+
+    /// Now Playing: the cover's size and shadow for a playing song (full size; a deep, wide shadow) or a paused one
+    /// (86%; a closer, fainter one), sprung to from wherever they are: one Core Animation spring for the size and one
+    /// eased change for the shadow, played by the render server (15 Oct, as in the Windows app). The first one is set
+    /// at once: Now Playing opens with the cover already at rest.
+    func rest(playing: Bool) {
+        guard playing != self.playing else { return }
+        let first = self.playing == nil
+        self.playing = playing
+        let scale: CGFloat = playing ? 1 : 0.86
+        let shadow = (opacity: Float(playing ? 0.45 : 0.3), radius: CGFloat(playing ? 16 : 9),
+                      offset: CGSize(width: 0, height: playing ? -18 : -8))       // y up: a shadow below the cover
+        let path = shadowPath(playing)
+        let now = stage.presentation() ?? stage
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if !first {
+            let spring = CASpringAnimation(perceptualDuration: 0.52, bounce: 0.3)
+            spring.keyPath = "transform.scale"
+            spring.fromValue = now.value(forKeyPath: "transform.scale")
+            spring.toValue = scale
+            spring.duration = spring.settlingDuration
+            stage.add(spring, forKey: "rest")
+            let changes: [(String, Any?, Any?)] = [("shadowOpacity", now.shadowOpacity, shadow.opacity),
+                                                  ("shadowRadius", now.shadowRadius, shadow.radius),
+                                                  ("shadowOffset", NSValue(size: now.shadowOffset), NSValue(size: shadow.offset)),
+                                                  ("shadowPath", now.shadowPath, path)]
+            for (keyPath, from, to) in changes {
+                let change = CABasicAnimation(keyPath: keyPath)
+                change.fromValue = from
+                change.toValue = to
+                change.duration = 0.52
+                change.timingFunction = CAMediaTimingFunction(controlPoints: 0.215, 0.61, 0.355, 1)   // ease out (cubic)
+                stage.add(change, forKey: keyPath)
+            }
+        }
+        stage.transform = CATransform3DMakeScale(scale, scale, 1)
+        stage.shadowOpacity = shadow.opacity
+        stage.shadowRadius = shadow.radius
+        stage.shadowOffset = shadow.offset
+        stage.shadowPath = path
+        CATransaction.commit()
+    }
+
+    /// The shadow's shape: the cover's, drawn in by 2 pt playing and 6 pt paused, so its edge shows below the cover only.
+    private func shadowPath(_ playing: Bool) -> CGPath {
+        let inset: CGFloat = playing ? 2 : 6
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        let corner = min(max(0, radius - inset), rect.width / 2, rect.height / 2)
+        return CGPath(roundedRect: rect.width > 0 ? rect : .zero, cornerWidth: corner, cornerHeight: corner, transform: nil)
+    }
+
+    #if DEBUG
+    /// The cover's resting size and shadow (the values it ends at), and whether it is still springing: for self-tests.
+    var restState: (scale: CGFloat, shadowRadius: CGFloat, springing: Bool) {
+        (stage.transform.m11, stage.shadowRadius, stage.animation(forKey: "rest") != nil)
+    }
+    #endif
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -845,10 +913,9 @@ struct ClearWindow: NSViewRepresentable {
     }
 }
 
-/// Mute button and slider. The speaker's waves follow the level (an SF Symbols "variable value").
+/// The player bar's mute button and slider. The speaker's waves follow the level (an SF Symbols "variable value").
+/// A narrow bar gives up the whole control, not only the slider (PlayerBar).
 struct VolumeControl: View {
-    var width: CGFloat = 84
-    var slider = true                          // false: the speaker alone (a narrow player bar)
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
     @AppStorage("haptics") private var haptics = true
@@ -866,15 +933,13 @@ struct VolumeControl: View {
             .help(player.isMuted ? "Unmute" : "Mute")
             .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
 
-            if slider {
             Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }), in: 0...1)
                 .controlSize(.small)
                 .tint(theme.color(.volume))                    // Settings › Colours › Volume
-                .frame(width: width)
+                .frame(width: 84)
                 .sensoryFeedback(.levelChange, trigger: Int((player.volume * 10).rounded())) { _, _ in haptics }   // a tick every 10%
                 .help("Volume (⌘↑ / ⌘↓)")
                 .accessibilityLabel("Volume")
-            }
         }
     }
 }

@@ -64,7 +64,7 @@ struct TranslatedLyricsView: View {
                             if !lyrics[i].text.isEmpty {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(lyrics[i].text).textStyle(.callout).foregroundStyle(.secondary)
-                                    Text(line).textStyle(.title3, weight: .semibold)
+                                    Text(line).lyricsStyle()
                                 }
                                 .textSelection(.enabled)
                             }
