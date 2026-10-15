@@ -804,44 +804,58 @@ enum SelfTest {
     /// Where views are, in window points, by name (`selfTestFrame`): "sidebar.title:Home", "bar.progress", …
     static var frames: [String: CGRect] = [:]
 
-    /// With `NN_SELFTEST_SIDEBAR=1`: the "New Playlist" row (it used to be a + in the section header, out at the
-    /// sidebar's edge). Pictures cannot draw lists, and SwiftUI shows an in-app accessibility walk nothing, so each row
-    /// reports where its icon and title are: New Playlist must line up with the others. Then a real click on it must
-    /// ask for the New Playlist sheet.
+    /// With `NN_SELFTEST_SIDEBAR=1`: the rows line up. Pictures cannot draw lists, and SwiftUI shows an in-app
+    /// accessibility walk nothing, so each row reports where its icon (or picture) and title are: the places' titles
+    /// start in one column, the collections' and playlists' 40 pt pictures and names in another. New Playlist is the +
+    /// in the Playlists header (15 Oct, as in the Windows app; a row before): it must sit over the rows' right edge,
+    /// clear of the sidebar's, and a real click on it must ask for the New Playlist sheet.
     static func runSidebarCheckIfAsked(library: LibraryStore) {
         guard ProcessInfo.processInfo.environment["NN_SELFTEST_SIDEBAR"] != nil else { return }
         Task {
             for _ in 0..<40 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
             await library.refresh()
+            // a playlist row to line up with the collections (a new test account has none)
+            var made = false
+            if library.ownPlaylists.isEmpty { made = await library.createPlaylist(named: "Sidebar test") == nil }
             try? await Task.sleep(for: .seconds(1.5))
             var failures = 0
             @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
                 if !ok { failures += 1 }
                 report("sidebar \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
             }
-            let names = SidebarItem.allCases.map(\.title) + library.playlists.map(\.name)
+            func spread(_ xs: [CGFloat]) -> CGFloat { (xs.max() ?? 0) - (xs.min() ?? 0) }
+            let places = ["Home", "Library", "Friends"]
+            let pictures: [String] = ["Liked Songs", "Recently Played"] + (frames["sidebar.title:Downloads"] != nil ? ["Downloads"] : [])
+                + library.playlists.map(\.name)
             guard let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
-                  let newTitle = frames["sidebar.title:New Playlist"], let newIcon = frames["sidebar.icon:New Playlist"],
-                  names.allSatisfy({ frames["sidebar.title:\($0)"] != nil }) else {
+                  let plus = frames["sidebar.newPlaylist"], let list = frames["sidebar.list"], let row = frames["sidebar.row:Liked Songs"],
+                  (places + pictures).allSatisfy({ frames["sidebar.title:\($0)"] != nil && frames["sidebar.icon:\($0)"] != nil }) else {
                 report("sidebar: frames missing: \(frames.keys.sorted())"); NSApp.terminate(nil); return
             }
-            for name in names + ["New Playlist"] {
+            for name in places + pictures {
                 let t = frames["sidebar.title:\(name)"]!, i = frames["sidebar.icon:\(name)"]!
-                report("sidebar: \(name == "New Playlist" ? "NEW " : "    ")icon centre x \(String(format: "%.1f", i.midX)), title starts x \(String(format: "%.1f", t.minX)), y \(Int(t.midY))")
+                report("sidebar: icon centre x \(String(format: "%.1f", i.midX)) (\(Int(i.width)) pt), title starts x \(String(format: "%.1f", t.minX)), y \(Int(t.midY)): \(name)")
             }
-            let titleOffsets = names.map { frames["sidebar.title:\($0)"]!.minX - newTitle.minX }
-            let iconOffsets = names.map { frames["sidebar.icon:\($0)"]!.midX - newIcon.midX }
-            check("New Playlist's title starts where every other title starts (within 1 pt)", titleOffsets.allSatisfy { abs($0) <= 1 }, "\(titleOffsets)")
-            check("its + is centred in the same icon column (within 1 pt)", iconOffsets.allSatisfy { abs($0) <= 1 }, "\(iconOffsets)")
-            let lastPlaylistY = library.playlists.compactMap { frames["sidebar.title:\($0.name)"]?.midY }.max() ?? 0
-            check("it is the last row of Playlists", newTitle.midY > lastPlaylistY)
+            report("sidebar: + from x \(String(format: "%.1f", plus.minX)) to \(String(format: "%.1f", plus.maxX)), y \(Int(plus.midY)); rows end at x \(String(format: "%.1f", row.maxX)), the list at \(String(format: "%.1f", list.maxX))")
+            let placeTitles = places.map { frames["sidebar.title:\($0)"]!.minX }
+            check("the places' titles start in one column (within 1 pt)", spread(placeTitles) <= 1, "\(placeTitles)")
+            let names = pictures.map { frames["sidebar.title:\($0)"]!.minX }
+            check("the collections' and playlists' names start in one column (within 1 pt)", spread(names) <= 1, "\(names)")
+            let centres = pictures.map { frames["sidebar.icon:\($0)"]!.midX }
+            check("…their pictures are centred in one column", spread(centres) <= 1, "\(centres)")
+            check("…and 40 pt square", pictures.allSatisfy { let i = frames["sidebar.icon:\($0)"]!; return abs(i.width - 40) < 0.5 && abs(i.height - 40) < 0.5 })
+            let friends = frames["sidebar.title:Friends"]!, liked = frames["sidebar.icon:Liked Songs"]!
+            check("the + is in the Playlists header: under Friends, over Liked Songs", plus.midY > friends.maxY && plus.midY < liked.minY)
+            check("…inside the sidebar, clear of its edge", plus.minX > list.minX && plus.maxX <= list.maxX - 6, "ends \(plus.maxX), list \(list.maxX)")
+            check("…over the rows' right edge (at most 14 pt in, as the Windows +)", plus.maxX <= row.maxX + 2 && plus.maxX >= row.maxX - 14,
+                  "ends \(plus.maxX), rows \(row.maxX)")
 
-            // a real click on its title, through the normal event queue (window points have y going up)
+            // a real click on the +, through the normal event queue (window points have y going up)
             library.newPlaylistRequest = nil
             NSApp.activate(); window.makeKeyAndOrderFront(nil)
             try? await Task.sleep(for: .seconds(0.5))
             let height = window.contentView!.frame.height
-            let p = NSPoint(x: newTitle.midX, y: height - newTitle.midY)
+            let p = NSPoint(x: plus.midX, y: height - plus.midY)
             for type in Array(repeating: [NSEvent.EventType.leftMouseDown, .leftMouseUp], count: window.isKeyWindow ? 1 : 2).flatMap({ $0 }) {
                 if let event = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
@@ -855,6 +869,7 @@ enum SelfTest {
                 report("sidebar SKIP the click: the window cannot become key while another app is in use (a click only selects it)")
             }
             library.newPlaylistRequest = nil
+            if made, let mine = library.ownPlaylists.first(where: { $0.name == "Sidebar test" }) { await library.deletePlaylist(mine) }
             report("sidebar: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
             try? await Task.sleep(for: .seconds(0.5))
             NSApp.terminate(nil)

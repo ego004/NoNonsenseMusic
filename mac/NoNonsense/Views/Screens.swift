@@ -17,13 +17,20 @@ enum Destination: Hashable {
     case playlist(UUID)
 }
 
+/// The sidebar (15 Oct, as in the Windows app): the logo, the places, then Playlists: Liked Songs, Recently Played and
+/// Downloads, your playlists and those shared with you, each a picture with its name and how many songs. Who is signed
+/// in, and Settings, at the bottom. Search is not here: it is the command bar's, at the top of the page.
 struct SidebarView: View {
     @Binding var selection: Destination?
     @Environment(LibraryStore.self) private var library
     @Environment(DownloadStore.self) private var downloads
     @Environment(Player.self) private var player
+    @Environment(Account.self) private var account
     @AppStorage("sidebarBlur") private var sidebarBlur = Look.sidebarBlur      // Settings › Appearance › Surfaces › Sidebar
     @AppStorage("sidebarSolid") private var sidebarSolid = Look.sidebarSolid
+
+    /// The places at the top. Liked Songs, Recently Played and Downloads are pictures under Playlists now.
+    private static let places: [SidebarItem] = [.home, .library, .friends]
 
     var body: some View {
         // While an artist or album page is open, no row is selected: you are on that page. A click on any row,
@@ -31,28 +38,40 @@ struct SidebarView: View {
         // rows did this before, but it competed with the list's own click and ate clicks on a row's text (11 Oct)
         List(selection: Binding(get: { Navigator.shared.path.isEmpty ? selection : nil },
                                 set: { if let picked = $0 { selection = picked; Navigator.shared.path = [] } })) {
-            ForEach(SidebarItem.allCases) { item in
-                Label { Text(item.title).selfTestFrame("sidebar.title:\(item.title)") } icon: { Image(systemName: item.symbol).selfTestFrame("sidebar.icon:\(item.title)") }
-                    .badge(item == .liked ? library.liked.count : item == .downloads ? downloads.items.count
-                           : item == .friends ? Social.shared.incoming.count : 0)
-                    // .tag must come last: placed before .badge, the list could not see it and no row was selectable (5 Oct)
-                    .tag(Destination.section(item))
+            brand                                                   // no tag: not a place, never selected
+            ForEach(Self.places) { item in
+                Label {
+                    Text(item.title).selfTestFrame("sidebar.title:\(item.title)").selfTestFrame("sidebar.place:\(item.title)")
+                } icon: {
+                    Image(systemName: item.symbol).selfTestFrame("sidebar.icon:\(item.title)")
+                }
+                .badge(item == .friends ? Social.shared.incoming.count : 0)
+                // .tag must come last: placed before .badge, the list could not see it and no row was selectable (5 Oct)
+                .tag(Destination.section(item))
             }
             Section {
+                ForEach(SidebarItem.collections(downloads)) { item in
+                    PictureRow(name: item.title, count: item.songCount(library: library, downloads: downloads)) {
+                        CollectionTile(item: item, size: 40)
+                    }
+                    .tag(Destination.section(item))                 // last, as above
+                }
                 ForEach(library.ownPlaylists) { playlistRow($0) }
                     // only your own: shared ones keep their owner's order (LibraryStore.movePlaylists)
                     .onMove { from, to in Task { await library.movePlaylists(from: from, to: to) } }
                     .animation(.snappy(duration: 0.3), value: library.ownPlaylists.map(\.id))   // new and deleted playlists slide
-                // a row, not a + in the header: the header is wider than the rows, so a + there sat outside the
-                // rows' column, against the sidebar's edge (6 Oct). As a row it lines up by construction
-                Button { library.newPlaylistRequest = .init(track: nil) } label: {
-                    Label { Text("New Playlist").selfTestFrame("sidebar.title:New Playlist") } icon: { Image(systemName: "plus").selfTestFrame("sidebar.icon:New Playlist") }
-                }
-                .buttonStyle(.quiet)
-                .foregroundStyle(.secondary)
-                .help("New Playlist (⌘N)")
             } header: {
-                Text("Playlists")
+                HStack {
+                    Text("Playlists")
+                    Spacer()
+                    Button { library.newPlaylistRequest = .init(track: nil) } label: { Image(systemName: "plus").font(.body) }
+                        .buttonStyle(.quiet)
+                        .help("New Playlist (⌘N)")
+                        .accessibilityLabel("New Playlist")
+                        .selfTestFrame("sidebar.newPlaylist")
+                        // the header runs wider than the rows (6 Oct): this brings the + back over the rows' right edge
+                        .padding(.trailing, 8)
+                }
             }
             // under your own, as Shared with You in Apple's apps (AUTH-3)
             if !library.sharedPlaylists.isEmpty {
@@ -65,24 +84,54 @@ struct SidebarView: View {
             }
         }
         .selfTestFrame("sidebar.list")
-        .safeAreaInset(edge: .bottom) {
-            SettingsLink { Label("Settings", systemImage: "gearshape") }
-                .buttonStyle(.quiet)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16).padding(.bottom, 14)
-        }
+        .safeAreaInset(edge: .bottom) { accountRow }
         // macOS draws the sidebar as a floating glass panel, and SwiftUI cannot change that glass (probed 6 Oct:
         // NSContainerConcentricGlassEffectView). This frosts and fills over it, inside the panel; 0 / 0 draws nothing.
         .background { SurfaceLayer(blur: sidebarBlur, solid: sidebarSolid, blending: .behindWindow).ignoresSafeArea() }
     }
 
-    private func playlistRow(_ playlist: PlaylistSummary) -> some View {
-        Label { Text(playlist.name).selfTestFrame("sidebar.title:\(playlist.name)") } icon: {
-            Image(systemName: playlist.isAlbum ? "square.stack" : playlist.isOwner ? "music.note.list" : "person.2")
-                .selfTestFrame("sidebar.icon:\(playlist.name)")
+    /// The logo's mark in the colour of the text, and the app's name.
+    private var brand: some View {
+        HStack(spacing: 10) {
+            Image("Mark")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(height: 20)
+                .accessibilityHidden(true)
+            Text("NoNonsenseMusic").tracking(-0.2).textStyle(size: 14.5, weight: .bold).lineLimit(1)
         }
-            .symbolEffect(.bounce, value: playlist.songCount)     // a song just went in here: the icon hops
+        .foregroundStyle(.primary)
+        .padding(.bottom, 10)
+        .selfTestFrame("sidebar.brand")
+    }
+
+    /// Who is signed in, and the gear that opens Settings (it replaced the Settings row).
+    @ViewBuilder private var accountRow: some View {
+        let name = account.user?.username ?? ""
+        VStack(spacing: 10) {
+            Divider()
+            HStack(spacing: 10) {
+                Avatar(name: name, size: 34)
+                Text(name).textStyle(size: 14, weight: .semibold).lineLimit(1)
+                Spacer(minLength: 4)
+                SettingsLink { Image(systemName: "gearshape").font(.title3) }
+                    .buttonStyle(.quiet)
+                    .foregroundStyle(.secondary)
+                    .help("Settings (⌘,)")
+                    .accessibilityLabel("Settings")
+                    .selfTestFrame("sidebar.settings")
+            }
+            .selfTestFrame("sidebar.account")
+        }
+        .padding(.horizontal, 16).padding(.bottom, 14)
+        #if DEBUG
+        .onChange(of: name, initial: true) { _, now in SelfTest.shownText["sidebar.account"] = now }
+        #endif
+    }
+
+    private func playlistRow(_ playlist: PlaylistSummary) -> some View {
+        PictureRow(name: playlist.name, count: playlist.songCount) { SidebarPlaylistCover(playlist: playlist) }
             .contextMenu {
                 Button("Play") { Task { await play(playlist, shuffled: false) } }
                 Button("Shuffle") { Task { await play(playlist, shuffled: true) } }
@@ -97,6 +146,46 @@ struct SidebarView: View {
         guard await library.loadPlaylist(playlist.id), let detail = library.details[playlist.id], !detail.items.isEmpty else { return }
         if shuffled { player.shufflePlay(detail.tracks, keys: detail.keys, source: detail.queueSource) }
         else { player.playInOrder(detail.tracks, keys: detail.keys, source: detail.queueSource) }
+    }
+}
+
+/// A collection or a playlist under Playlists: a 40 pt picture, the name, and "12 songs" under it.
+private struct PictureRow<Picture: View>: View {
+    let name: String
+    let count: Int
+    @ViewBuilder let picture: () -> Picture
+
+    var body: some View {
+        let detail = SongListView.count(count)
+        HStack(spacing: 12) {
+            picture()
+                .frame(width: 40, height: 40)
+                .clipShape(.rect(cornerRadius: 8, style: .continuous))
+                .selfTestFrame("sidebar.icon:\(name)")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name).textStyle(size: 13.5, weight: .semibold).lineLimit(1).selfTestFrame("sidebar.title:\(name)")
+                Text(detail).textStyle(size: 12).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .selfTestFrame("sidebar.row:\(name)")
+        #if DEBUG
+        .onChange(of: detail, initial: true) { _, now in SelfTest.shownText["sidebar.detail:\(name)"] = now }
+        #endif
+    }
+}
+
+/// A playlist's 2×2 cover in the sidebar, from the songs already loaded (Home's cards and the playlist itself load
+/// them; the sidebar does not): the name's gradient until then. Its own view, so a playlist loading redraws only this.
+private struct SidebarPlaylistCover: View {
+    let playlist: PlaylistSummary
+    @Environment(LibraryStore.self) private var library
+
+    var body: some View {
+        PlaylistCover(images: PlaylistCover.images(of: (library.details[playlist.id]?.items ?? []).lazy.map {
+            Track.coverURL(image: $0.song.image, listings: [$0.song.best] + $0.song.listings)
+        }), size: 40, seed: playlist.name)
     }
 }
 
