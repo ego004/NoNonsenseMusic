@@ -194,7 +194,9 @@ struct TransportControls: View {
             gap
             Button { player.togglePlayPause() } label: {
                 ZStack {
-                    Circle().fill(Color.primary)
+                    // a plain colour: in the bar's Liquid Glass `.primary` is drawn vibrant, and the disc came out light
+                    // grey (CI picture, 15 Oct)
+                    Circle().fill(scheme == .dark ? Color.white : Color.black)
                     // while a song loads (up to ~3 s for YouTube) the disc holds a spinner, so you know it is coming
                     if player.isBuffering {
                         ProgressView()
@@ -412,6 +414,7 @@ struct NowPlayingView: View {
                     CopyMenu(track: track)
                         .textStyle(size: 13)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)                       // under a small cover it wrapped ("JioSaavn · AAC / 320 kbps")
                         .padding(.top, 4)
                 }
                 Spacer(minLength: 0)

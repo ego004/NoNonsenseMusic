@@ -323,6 +323,7 @@ final class LiveArtworkView: NSView {
         cover.contentsGravity = .resizeAspectFill
         cover.borderWidth = 0.5
         note.contentsGravity = .center
+        stage.cornerCurve = .continuous
         stage.shadowColor = NSColor.black.cgColor
         base.addSublayer(cover)
         cover.addSublayer(note)
@@ -340,6 +341,7 @@ final class LiveArtworkView: NSView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         stage.bounds = bounds
         stage.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        stage.cornerRadius = radius
         base.bounds = bounds
         base.position = CGPoint(x: bounds.midX, y: bounds.midY)
         cover.frame = base.bounds
@@ -358,6 +360,7 @@ final class LiveArtworkView: NSView {
         guard playing != self.playing else { return }
         let first = self.playing == nil
         self.playing = playing
+        if first { colours() }                                          // the window's colour under the cover
         let scale: CGFloat = playing ? 1 : 0.86
         let shadow = (opacity: Float(playing ? 0.45 : 0.3), radius: CGFloat(playing ? 16 : 9),
                       offset: CGSize(width: 0, height: playing ? -18 : -8))       // y up: a shadow below the cover
@@ -401,9 +404,9 @@ final class LiveArtworkView: NSView {
     }
 
     #if DEBUG
-    /// The cover's resting size and shadow (the values it ends at), and whether it is still springing: for self-tests.
-    var restState: (scale: CGFloat, shadowRadius: CGFloat, springing: Bool) {
-        (stage.transform.m11, stage.shadowRadius, stage.animation(forKey: "rest") != nil)
+    /// The cover's resting size and shadow (the values it ends at), and whether any of it is still moving: for self-tests.
+    var restState: (scale: CGFloat, shadowRadius: CGFloat, moving: Bool) {
+        (stage.transform.m11, stage.shadowRadius, [stage, base, cover].contains { !($0.animationKeys() ?? []).isEmpty })
     }
     #endif
 
@@ -466,6 +469,9 @@ final class LiveArtworkView: NSView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         cover.backgroundColor = resolved(NSColor.labelColor.withAlphaComponent(0.07)).cgColor   // before a cover loads
         cover.borderColor = resolved(NSColor.labelColor.withAlphaComponent(0.08)).cgColor
+        // Now Playing: the window's colour under the cover, so its shadow never shows through the see-through
+        // placeholder (it did: a dark blur inside the square, CI picture, 15 Oct)
+        stage.backgroundColor = playing == nil ? nil : resolved(.windowBackgroundColor).cgColor
         CATransaction.commit()
     }
 

@@ -232,7 +232,9 @@ extension SelfTest {
             measure(.none)
 
             // ── the cover: 86% while paused, full size while the song plays or loads, sprung between ──
-            if let cover = descendants(of: root).compactMap({ $0 as? LiveArtworkView }).first(where: { $0.bounds.width > 100 }) {
+            // Now Playing's own: Home's card has a big LiveArtwork of its own, earlier in the window (it was read instead)
+            if let host = descendants(of: root).first(where: { $0 is NowPlayingContainer }),
+               let cover = descendants(of: host).compactMap({ $0 as? LiveArtworkView }).first {
                 let paused = cover.restState
                 check("paused: the cover rests at 86%, with the closer shadow", abs(paused.scale - 0.86) < 0.001 && paused.shadowRadius == 9,
                       String(format: "%.3f, shadow %.0f", paused.scale, paused.shadowRadius))
@@ -243,7 +245,7 @@ extension SelfTest {
                     guard player.isPlaying || player.isBuffering else { continue }
                     seen = true
                     let state = cover.restState
-                    full = abs(state.scale - 1) < 0.001 && state.shadowRadius == 16 && state.springing
+                    full = abs(state.scale - 1) < 0.001 && state.shadowRadius == 16 && state.moving
                 }
                 if seen {
                     check("playing (or loading): the cover springs to full size, with the deeper shadow", full)
@@ -254,7 +256,8 @@ extension SelfTest {
                 try? await Task.sleep(for: .seconds(1.5))
                 let settled = cover.restState
                 check("paused again: back at 86%, and the spring is over (nothing keeps moving)",
-                      abs(settled.scale - 0.86) < 0.001 && !settled.springing, String(format: "%.3f", settled.scale))
+                      abs(settled.scale - 0.86) < 0.001 && settled.shadowRadius == 9 && !settled.moving,
+                      String(format: "%.3f, shadow %.0f, %@", settled.scale, settled.shadowRadius, settled.moving ? "moving" : "still"))
             } else {
                 check("Now Playing's cover is there", false)
             }
