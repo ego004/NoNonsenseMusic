@@ -175,6 +175,22 @@ jobs:
             -discordEnabled NO -ApplePersistenceIgnoreState YES > commandbar.log 2>&1 || true
           grep SELFTEST commandbar.log
           grep -q "commandbar: all checks pass" commandbar.log
+      - name: CPU at rest on Home (NN_SELFTEST_IDLE; the Debug build, so above what you would see; a number, not a check)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true
+          env NN_SELFTEST_IDLE=40 NN_SELFTEST_VISIBLE=1 DATABASE_URL=postgresql:///music_test \
+            mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > idle.log 2>&1 &
+          app=$!
+          for i in $(seq 1 60); do grep -q "idle: on Home now" idle.log && break; sleep 1; done
+          sleep 8                                                  # Home settles: covers, the entrance
+          # top's first sample has no interval behind it: the 20 after it are the measurement
+          top -l 21 -s 1 -pid $app -stats cpu | awk '/^[0-9.]+$/ { n++; if (n > 1) { s += $1; c++ } }
+            END { if (c) printf "CPU at rest on Home: %.1f%% of one core, %d one-second samples\n", s / c, c }'
+          wait $app || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
