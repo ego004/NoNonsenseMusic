@@ -44,7 +44,7 @@ extension SelfTest {
             if !player.isMuted { player.toggleMute() }
 
             // made-up songs, and lyrics for the first: timed, one line long enough to wrap, one with a Genius note
-            func song(_ n: Int, _ title: String) -> Track {
+            @MainActor func song(_ n: Int, _ title: String) -> Track {
                 let listing = Listing(source: "jiosaavn", id: "selftest-bar2-\(n)-\(UInt32.random(in: 0 ... .max))", title: title,
                                       artists: ["Kai", "The Made-Up Band"], album: "A Made-Up Album", duration: 200, popularity: nil, image: nil)
                 return Track(best: listing, listings: [listing])
