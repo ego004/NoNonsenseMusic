@@ -69,10 +69,22 @@ struct RootView: View {
                     if now != .section(.search), !searchQuery.isEmpty { searchQuery = "" }   // Search from the sidebar starts empty
                 }
                 .toolbar {
-                    ToolbarItem(placement: .primaryAction) { JamButton() }
-                    ToolbarItem(placement: .primaryAction) { NotificationsButton() }
+                    ToolbarItem(placement: .primaryAction) {
+                        JamButton()
+                            #if DEBUG
+                            .selfTestToolbarItem("toolbar.jam")
+                            #endif
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        NotificationsButton()
+                            #if DEBUG
+                            .selfTestToolbarItem("toolbar.bell")
+                            #endif
+                    }
                 }
                 .modifier(LeadingToolbarItems(commandBar: !onSearchPage))
+                // the command bar's field is as wide as the toolbar can spare beside Back, Jam and the bell
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { CommandBarState.shared.columnResized($0) }
                 .onChange(of: Navigator.shared.playlistRequest) { _, id in
                     guard let id else { return }
                     Navigator.shared.playlistRequest = nil

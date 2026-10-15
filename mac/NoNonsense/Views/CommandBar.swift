@@ -84,6 +84,8 @@ final class CommandBarState {
     /// Asks to the field, which owns the keyboard focus: take it (with what is typed selected), or let it go.
     private(set) var focusRequests = 0
     private(set) var leaveRequests = 0
+    /// The detail column's width (RootView measures it): the field takes what the toolbar can spare of it.
+    private(set) var columnWidth: CGFloat = 0
 
     /// What the commands reach: RootView gives it.
     @ObservationIgnored var context: CommandContext?
@@ -102,8 +104,12 @@ final class CommandBarState {
     /// ⌘K, ⌘F and /: the field takes the keyboard, what is typed selected.
     func summon() { focusRequests += 1 }
 
-    /// The field lets go of the keyboard (a click outside); what is typed stays.
-    func leave() { leaveRequests += 1 }
+    /// The field lets go of the keyboard (a click outside); what is typed stays. The list closes at once, not only once
+    /// the field's focus has followed.
+    func leave() {
+        leaveRequests += 1
+        focusChanged(false)
+    }
 
     /// Esc, and every run: what is typed goes, and the field lets go of the keyboard.
     func close() {
@@ -119,13 +125,61 @@ final class CommandBarState {
         watchClicks(focused)
     }
 
-    /// Selects what is typed, so the next key replaces it. Only in this field: the text field being edited must sit in
-    /// the field's capsule (anything else with the keyboard keeps its selection).
-    func selectAll() {
-        guard let anchor = fieldView, let editor = anchor.window?.firstResponder as? NSTextView, editor.isFieldEditor,
-              let field = editor.delegate as? NSView,
-              anchor.convert(anchor.bounds, to: nil).intersects(field.convert(field.bounds, to: nil)) else { return }
+    /// After a summon, once SwiftUI has had its turn: the field has the keyboard, what is typed selected, and the list
+    /// is open. SwiftUI's focus did not reach the toolbar's field in a window that was not key (CI, 15 Oct); AppKit's
+    /// first responder does, and SwiftUI's focus follows it as it follows a click.
+    func takeKeyboard() {
+        guard let field = textField, let window = field.window else { return }
+        if field.currentEditor() == nil { _ = window.makeFirstResponder(field) }
+        guard let editor = field.currentEditor() else { return }
         editor.selectAll(nil)
+        focusChanged(true)
+    }
+
+    /// After a leave: the field no longer has the keyboard, whether or not SwiftUI's focus got there first.
+    func letGo() {
+        guard let field = textField, field.currentEditor() != nil else { return }
+        _ = field.window?.makeFirstResponder(nil)
+    }
+
+    /// The field's own AppKit text field: the one in the capsule FieldAnchor marks, among the toolbar item's views.
+    private var textField: NSTextField? {
+        guard let anchor = fieldView else { return nil }
+        let capsule = anchor.convert(anchor.bounds, to: nil)
+        var host = anchor.superview
+        while let view = host {
+            if let field = Self.editableField(in: view, within: capsule) { return field }
+            host = view.superview
+        }
+        return nil
+    }
+
+    private static func editableField(in view: NSView, within capsule: CGRect) -> NSTextField? {
+        for sub in view.subviews {
+            if let field = sub as? NSTextField, field.isEditable, capsule.intersects(field.convert(field.bounds, to: nil)) { return field }
+            if let found = editableField(in: sub, within: capsule) { return found }
+        }
+        return nil
+    }
+
+    // MARK: - how wide the field is
+
+    /// The detail column was laid out at this width.
+    func columnResized(_ width: CGFloat) {
+        let rounded = width.rounded()
+        if rounded != columnWidth { columnWidth = rounded }
+    }
+
+    /// The field's width: what the toolbar can spare, 180…560. The toolbar never shrinks a field below the width it
+    /// asks for: at 560 it moved Jam and the bell into its » menu at 1024 pt, and the field too at 900 (CI, 15 Oct). So
+    /// the field asks for the column less what the rest needs: Jam, the bell and the toolbar's margins, Back while a page
+    /// is open, LIVE in a jam, and the window's buttons and the sidebar's when the sidebar is hidden.
+    var fieldWidth: CGFloat {
+        var spare = columnWidth - 340
+        if !Navigator.shared.path.isEmpty { spare -= 44 }
+        if JamSession.shared.inJam { spare -= 56 }
+        if let window = fieldView?.window, columnWidth >= window.frame.width - 1 { spare -= 140 }
+        return min(560, max(180, spare))
     }
 
     // MARK: - what the list holds
@@ -229,19 +283,24 @@ final class CommandBarState {
 
     // MARK: - running
 
-    /// The field's keys: ↑ ↓ choose, round at either end; Return runs the chosen row (⇧Return: a song goes to Up Next
-    /// instead); Esc empties the field and leaves it. Heard before the field, which would move its cursor on ↑ ↓.
+    /// The field's keys, heard before the field (which would move its cursor on ↑ ↓).
     func pressed(_ press: KeyPress) -> KeyPress.Result {
+        handle(press.key, shift: press.modifiers.contains(.shift), repeated: press.phase == .repeat)
+        return .handled
+    }
+
+    /// ↑ ↓ choose, round at either end; Return (or the keypad's Enter) runs the chosen row, once per press (⇧Return: a
+    /// song goes to Up Next instead); Esc empties the field and leaves it.
+    func handle(_ key: KeyEquivalent, shift: Bool = false, repeated: Bool = false) {
         let rows = entries()
         let count = rows.count, row = chosenRow(of: count)
-        if press.key == .downArrow || press.key == .upArrow {
-            if count > 0 { chosen = (row + (press.key == .downArrow ? 1 : count - 1)) % count }
-        } else if press.key == .escape {
+        if key == .downArrow || key == .upArrow {
+            if count > 0 { chosen = (row + (key == .downArrow ? 1 : count - 1)) % count }
+        } else if key == .escape {
             close()
-        } else if press.phase == .down, count > 0 {                // Return, or the keypad's Enter: as the key goes down
-            run(rows[row], toUpNext: press.modifiers.contains(.shift))
+        } else if !repeated, count > 0 {
+            run(rows[row], toUpNext: shift)
         }
-        return .handled
     }
 
     /// Runs a row. The field empties and lets go first; then the command runs, or the song plays with the other songs
@@ -334,21 +393,22 @@ struct CommandField: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, focused ? 12 : 8)
-        .frame(height: 32)
-        .frame(minWidth: 180, idealWidth: 560, maxWidth: 560)          // as wide as the toolbar lets it, up to 560
+        .frame(width: bar.fieldWidth, height: 32)                       // what the toolbar can spare (fieldWidth)
         .compatGlass(in: .capsule, interactive: true)
         .overlay {
             if focused { Capsule().strokeBorder(.tint, lineWidth: 1.5).allowsHitTesting(false) }
         }
         .background(FieldAnchor())
         .onChange(of: focused) { _, now in bar.focusChanged(now) }
-        // ⌘K, ⌘F and /: the keyboard, and what is typed selected so the next key replaces it (once the field has the
-        // keyboard; at once when it had it already)
+        // ⌘K, ⌘F and /: the keyboard, and what is typed selected so the next key replaces it
         .onChange(of: bar.focusRequests) {
             focused = true
-            Task { CommandBarState.shared.selectAll() }
+            Task { CommandBarState.shared.takeKeyboard() }
         }
-        .onChange(of: bar.leaveRequests) { focused = false }
+        .onChange(of: bar.leaveRequests) {
+            focused = false
+            Task { CommandBarState.shared.letGo() }
+        }
         .onAppear { bar.onScreen = true }
         .onDisappear {
             bar.onScreen = false

@@ -365,8 +365,9 @@ final class Player {
         }
     }
 
-    /// Whether a key down is the window's own (true: nothing else gets it).
-    private func heard(_ event: NSEvent) -> Bool {
+    /// Whether a key down is the window's own (true: nothing else gets it). The key monitor's decision; self-tests ask it
+    /// directly, as the events they make do not pass the app's monitors.
+    func heard(_ event: NSEvent) -> Bool {
         // arrow keys also carry the numeric-pad and function flags: only ⌘ itself counts
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
         let focused = (event.window ?? NSApp.keyWindow)?.firstResponder       // a text field's editor while typing
