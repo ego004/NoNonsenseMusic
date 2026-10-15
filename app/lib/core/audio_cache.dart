@@ -21,13 +21,14 @@ class AudioCache {
   int get limit => limitMB * 1000000;
   bool get enabled => folder != null && limitMB > 0;
 
-  /// Finds the directory and removes fetches a crash left half done.
+  /// Finds the directory and removes fetches a crash left half done, and rewrites (Mp4Defrag's `.plain`) that never
+  /// replaced their song.
   Future<void> open() async {
     final dir = Directory('${(await getApplicationCacheDirectory()).path}/Audio');
     await dir.create(recursive: true);
     folder = dir;
     for (final f in dir.listSync().whereType<File>()) {
-      if (f.path.endsWith('.part')) f.deleteSync();
+      if (f.path.endsWith('.part') || f.path.endsWith('.plain')) f.deleteSync();
     }
   }
 
@@ -67,19 +68,27 @@ class AudioCache {
   /// Removes the least recently played files until the rest fit the limit. A file the player still has open may
   /// refuse to be deleted on Windows; it is left and goes at the next pass.
   ///
+  /// [keep], the song just fetched, stays whatever the limit: with the cache off, Windows still fetches a YouTube copy
+  /// whole to play it (see Player._plan), and its file goes at the next song's fetch.
+  ///
   /// It runs after every fetch, on the UI isolate: each file is looked at once (one stat), and a cache under its limit
   /// stops there. Sorting with lastModifiedSync in the comparison asked the disk 2·n·log n times.
-  void evict() {
+  void evict({String? keep}) {
+    final kept = keep == null || folder == null ? null : _name(path(keep));
     final all = [for (final f in _files()) (file: f, stat: f.statSync())];
     var total = all.fold(0, (sum, e) => sum + e.stat.size);
     if (total <= limit) return;
     all.sort((a, b) => a.stat.modified.compareTo(b.stat.modified));
     for (final e in all) {
       if (total <= limit) break;
+      if (_name(e.file) == kept) continue;
       total -= e.stat.size;
       _delete(e.file);
     }
   }
+
+  /// The file's name: a listed file's path and [path]'s may not use the same separator on Windows.
+  static String _name(File f) => f.path.split(RegExp(r'[/\\]')).last;
 
   void _delete(File f) {
     try {

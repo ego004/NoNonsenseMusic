@@ -199,11 +199,17 @@ class AudioDownloads {
   int _generation = 0;
   Future<void> _gate = Future.value();
 
-  /// The fetch of this song, started if there is none; a failed or cancelled one is replaced.
+  /// The fetch of this song, started if there is none; a failed or cancelled one is replaced, and so is a finished one
+  /// whose file is gone. The player deletes a file that would not play and fetches the song again: handed back the
+  /// finished fetch, it was given the deleted file, which Windows' player never finishes opening, and the song sat at
+  /// 0:00 with no word (15 Oct, #30).
   AudioDownload fetch(String key, Uri link) {
     final known = _running[key];
-    if (known != null && !known.hasFailed && !known.isCancelled) return known;
-    final download = AudioDownload(key: key, link: link, target: cache.path(key), fetcher: fetcher, onDone: cache.evict);
+    if (known != null && !known.hasFailed && !known.isCancelled && !(known.isComplete && !known.target.existsSync())) {
+      return known;
+    }
+    final download = AudioDownload(
+        key: key, link: link, target: cache.path(key), fetcher: fetcher, onDone: () => cache.evict(keep: key));
     _running[key] = download;
     return download;
   }
