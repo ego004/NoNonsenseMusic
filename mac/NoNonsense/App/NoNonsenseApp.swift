@@ -144,6 +144,7 @@ extension NoNonsenseApp {
         SelfTest.runShellCheckIfAsked(account: account, library: library, player: player, downloads: downloads)
         SelfTest.runDownloadFilesCheckIfAsked(downloads: downloads)
         SelfTest.runPagesCheckIfAsked(library: library, player: player, theme: theme, downloads: downloads)
+        SelfTest.runBar2CheckIfAsked(player: player, lyrics: lyrics)
     }
 }
 #endif

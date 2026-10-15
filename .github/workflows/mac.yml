@@ -142,6 +142,15 @@ jobs:
             -discordEnabled NO -ApplePersistenceIgnoreState YES > pages.log 2>&1 || true
           grep SELFTEST pages.log
           grep -q "pages: all checks pass" pages.log
+      - name: Self-test, player bar and Now Playing (NN_SELFTEST_BAR2)
+        if: ${{ !cancelled() }}
+        run: |
+          env NN_SELFTEST_BAR2=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 180 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > bar2.log 2>&1 || true
+          grep SELFTEST bar2.log
+          grep -q "bar2: all checks pass" bar2.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
