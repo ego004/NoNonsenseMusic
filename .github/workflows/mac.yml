@@ -160,6 +160,15 @@ jobs:
             -discordEnabled NO -ApplePersistenceIgnoreState YES > homehero.log 2>&1 || true
           grep SELFTEST homehero.log
           grep -q "homehero: all checks pass" homehero.log
+      - name: Self-test, the command bar and its keys (NN_SELFTEST_COMMANDBAR)
+        if: ${{ !cancelled() }}
+        run: |
+          env NN_SELFTEST_COMMANDBAR=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > commandbar.log 2>&1 || true
+          grep SELFTEST commandbar.log
+          grep -q "commandbar: all checks pass" commandbar.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
