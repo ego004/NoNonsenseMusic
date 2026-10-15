@@ -237,7 +237,7 @@ extension SelfTest {
     }
 
     /// `seconds` of silence as an AAC file: the made-up songs' audio.
-    private static func writeSilence(to url: URL, seconds: Int) throws {
+    static func writeSilence(to url: URL, seconds: Int) throws {
         let file = try AVAudioFile(forWriting: url, settings: [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100.0,
                                                                AVNumberOfChannelsKey: 1])
         guard let second = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 44_100),
