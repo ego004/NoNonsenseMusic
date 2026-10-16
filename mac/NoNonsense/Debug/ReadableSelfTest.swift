@@ -83,8 +83,8 @@ extension SelfTest {
             }
 
             // ── every cover, light and dark, every strength: still and moving, every pixel, every kind of text ──
-            let strengths = [0, 0.3, 0.7, Look.nowPlayingColour, 1]
-            let moments = [0.0, 4, 9, 15, 22, 31]                    // seconds into the drift (0: the still backdrop)
+            let strengths: [Double] = [0, 0.3, 0.7, Look.nowPlayingColour, 1]
+            let moments: [Double] = [0, 4, 9, 15, 22, 31]                    // seconds into the drift (0: the still backdrop)
             let size = CGSize(width: 40, height: 25)                 // the mesh is smooth: 13 × 8 samples per patch
             let accents: [(name: String, colour: Color?)] = [("blue", Color(hex: "#0A84FF")), ("yellow", Color(hex: "#FFD60A")),
                                                              ("near black", Color(hex: "#1C1C1E"))]
@@ -120,15 +120,16 @@ extension SelfTest {
                               low.map { "\($0.0.name) \(ratio($0.1)), needs \(ratio($0.0.target))" }.joined(separator: "; "))
                         // the accent's text, made readable on the nine colours as they show
                         let behind = colours.map { $0.over(window, alpha: strength) }
-                        for accent in [("the song's", song)] + accents {
-                            let made = ground.readable(RGB((accent.1 ?? .accentColor).resolve(in: environment)), on: behind)
+                        let all: [(name: String, colour: Color?)] = [("the song's", song)] + accents
+                        for accent in all {
+                            let made = ground.readable(RGB((accent.colour ?? .accentColor).resolve(in: environment)), on: behind)
                             let asText = shown.map { made.contrast(with: $0) }.min() ?? 0
                             let unlit = shown.map { made.over($0, alpha: Double(LyricLinesView.unlit)).contrast(with: $0) }.min() ?? 0
-                            check("\(at): the \(accent.0) accent reads, as text and as an unlit noted lyric",
+                            check("\(at): the \(accent.name) accent reads, as text and as an unlit noted lyric",
                                   asText >= NowPlayingInk.text && unlit >= NowPlayingInk.large, "\(ratio(asText)), unlit \(ratio(unlit))")
                         }
                         // before #20, for the record (the default strength and the ends): not checked
-                        if [0, Look.nowPlayingColour, 1].contains(strength) {
+                        if strength == 0 || strength == Look.nowPlayingColour || strength == 1 {
                             let old = pixels(Backdrop.picture(of: Backdrop.colours(of: grid, dark: dark, strength: strength, readable: false),
                                                               strength: strength, size: size), over: window)
                             report("readable: before #20, \(at): " + before.map { role in
@@ -165,14 +166,14 @@ extension SelfTest {
             for name in ["white", "black", "half white, half black", "vivid"] {
                 guard let url = urls[name], let grid = grids[name] else { continue }
                 let listing = Listing(source: "jiosaavn", id: "selftest-readable-\(UInt32.random(in: 0 ... .max))", title: "Made-Up Song",
-                                      artists: ["Kai", "The Made-Up Band"], album: "A Made-Up Album", duration: 200, popularity: nil, image: url)
+                                      artists: ["Kai", "The Made-Up Band"], album: "A Made-Up Album", duration: 200, popularity: nil, image: url.absoluteString)
                 let song = Track(best: listing, listings: [listing])
                 lyrics.give(timed, notes: notes, for: song)
                 player.play([song])                                  // it tries, cannot (made up), and stays, paused
                 for _ in 0..<150 where player.isPlaying || player.isBuffering { try? await Task.sleep(for: .milliseconds(100)) }
                 for dark in [false, true] {
                     UserDefaults.standard.set(dark ? Appearance.dark.rawValue : Appearance.light.rawValue, forKey: "appearance")
-                    for strength in [0, 1.0] {
+                    for strength: Double in [0, 1] {
                         let at = "Now Playing, \(name), \(dark ? "dark" : "light"), strength \(strength)"
                         UserDefaults.standard.set(strength, forKey: "nowPlayingColour")
                         player.showNowPlaying = true

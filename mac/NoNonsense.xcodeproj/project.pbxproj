@@ -22,6 +22,7 @@
 		28B98636A1E0595CBA384EC3 /* YouTubeLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172BF860B15E1251D0DF0E1C /* YouTubeLookup.swift */; };
 		28D11C57911C744EE7C12C63 /* CommandBarSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D091D0F6992A79C578B5F523 /* CommandBarSelfTest.swift */; };
 		2A900B581D7541CC22D8F5CE /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61B7B9C798BEEEDC810D3C7C /* SettingsView.swift */; };
+		2CD3DEA60923FB4359A61B15 /* ReadableSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A78F527B06EAC6E0A29F96 /* ReadableSelfTest.swift */; };
 		34FCA5B4702277A85194BE3A /* Jam.swift in Sources */ = {isa = PBXBuildFile; fileRef = 042D0FF9C7398E462F7EEAD9 /* Jam.swift */; };
 		37A16A5E78571781A8C14A3C /* PagesSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9418F4BBF34BB80AC22AA20 /* PagesSelfTest.swift */; };
 		3DDD48B03F42672DEF183122 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73544AE9F06A2B4B55D2598C /* Components.swift */; };
@@ -111,6 +112,7 @@
 		6C1793902EFA792B2E0C4600 /* PlaybackTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTimeline.swift; sourceTree = "<group>"; };
 		6D233642141D053435470851 /* HomeHero.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeHero.swift; sourceTree = "<group>"; };
 		6F03798D2E0871DFCE15FF63 /* HomeHeroSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeHeroSelfTest.swift; sourceTree = "<group>"; };
+		71A78F527B06EAC6E0A29F96 /* ReadableSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadableSelfTest.swift; sourceTree = "<group>"; };
 		73544AE9F06A2B4B55D2598C /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		73A703D577EE9786A17B32B2 /* AuthSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSelfTest.swift; sourceTree = "<group>"; };
 		73F3F3979510A3CCDB133168 /* API.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = API.swift; sourceTree = "<group>"; };
@@ -206,6 +208,7 @@
 				4959C1E1E9DCDBE27CFF964F /* JamSelfTest.swift */,
 				BE5B2CD813864FF6256BAA4A /* LatencySelfTest.swift */,
 				F9418F4BBF34BB80AC22AA20 /* PagesSelfTest.swift */,
+				71A78F527B06EAC6E0A29F96 /* ReadableSelfTest.swift */,
 				7DC645F51EFF23CA4CA04A2A /* SearchScrollSelfTest.swift */,
 				9C3D0063CBD5878029E2E727 /* SelfTest.swift */,
 				98DB0EEED76BDE29D7783DAB /* ShellSelfTest.swift */,
@@ -405,6 +408,7 @@
 				EAD89C6A64DF6656871BE823 /* Playlists.swift in Sources */,
 				BD5B300141EDC58A26525276 /* Prefetcher.swift in Sources */,
 				2378FEC447BD5BF1FCB49A4C /* Presence.swift in Sources */,
+				2CD3DEA60923FB4359A61B15 /* ReadableSelfTest.swift in Sources */,
 				7C3F83393CA321A64FA0909C /* RootView.swift in Sources */,
 				0E59F343C250DEB67EB7B342 /* Screens.swift in Sources */,
 				74FA1C59B9A0C86EA6EA1917 /* SearchScrollSelfTest.swift in Sources */,
