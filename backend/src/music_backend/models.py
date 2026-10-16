@@ -511,12 +511,31 @@ class JamState(BaseModel):
     only_host_controls: bool = False
 
 
+class JamSong(BaseModel):
+    """The song on screen when someone starts or joins a jam: a room with no song takes it, from that second, playing or
+    paused as it was (docs/jam.md). It comes with the request, so nothing lands between the room opening and the song
+    joining it: the apps used to add it, then seek it, after the room's first state, which was empty."""
+    listing: ListingIn
+    copies: list[ListingIn] = Field(default=[], max_length=MAX_JAM_COPIES)     # its other copies, best first
+    seconds: float = Field(default=0, ge=0)
+    playing: bool = True
+
+    @field_validator("seconds")
+    @classmethod
+    def _finite_seconds(cls, v: float) -> float:
+        if not math.isfinite(v):                         # as JamCommand's: NaN would poison every broadcast
+            raise ValueError("seconds must be a finite number")
+        return v
+
+
 class JamCreateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=40)
+    song: JamSong | None = None
 
 
 class JamJoinRequest(BaseModel):
     code: str = Field(min_length=1, max_length=32)
+    song: JamSong | None = None
 
 
 class JamInviteRequest(BaseModel):
@@ -530,15 +549,15 @@ class JamHostRequest(BaseModel):
 
 # One shape for every control message over /ws/jam; the handler checks which fields the type needs.
 class JamCommand(BaseModel):
-    type: Literal["play", "pause", "seek", "skip", "add", "remove", "move", "jump", "position", "only_host_plays",
-                  "only_host_controls"]
+    type: Literal["play", "pause", "seek", "skip", "add", "remove", "move", "jump", "ended", "position",
+                  "only_host_plays", "only_host_controls"]
     seconds: float | None = None                 # seek, position
     listings: list[ListingIn] | None = Field(default=None, max_length=MAX_LISTINGS)    # add
     # add: each song's other copies, in the order of `listings` (the same length when sent); best first
     copies: list[Annotated[list[ListingIn], Field(max_length=MAX_JAM_COPIES)]] | None = Field(
         default=None, max_length=MAX_LISTINGS)
     on: bool | None = None                       # only_host_plays, only_host_controls: the setting's new value
-    entry_id: UUID | None = None                 # remove, move, jump
+    entry_id: UUID | None = None                 # remove, move, jump, ended
     to_index: int | None = None                  # move: 0-based index in the queue
     # add: "end" queues the songs last; "next" puts them first in the queue; "now" plays the first at once (the song
     # playing is dropped, as jump does) with the rest next. One command, so no other member's change lands in between

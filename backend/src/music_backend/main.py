@@ -978,9 +978,10 @@ async def notification_unread_count(request: Request, user: Signed) -> MarkReadR
 async def create_jam(body: JamCreateRequest, request: Request,
                      user: Annotated[User, Depends(per_account("jam"))]) -> JamState:
     """Open a jam room. You are its host (the speakers) and its first member. The 8-character
-    code is what you give to other people; the room lives in this process and is lost on restart."""
+    code is what you give to other people. The song on your screen, when sent, is the room's first, where it was
+    (docs/jam.md)."""
     try:
-        room = request.app.state.jams.create(user.id, user.username, body.name)
+        room = request.app.state.jams.create(user.id, user.username, body.name, body.song)
     except jam.RoomLimit:
         raise HTTPException(status_code=429, detail="You already have too many open jams")
     return request.app.state.jams.state(room)
@@ -989,13 +990,14 @@ async def create_jam(body: JamCreateRequest, request: Request,
 @app.post("/jam/join")
 async def join_jam(body: JamJoinRequest, request: Request,
                    user: Annotated[User, Depends(per_account("jam"))]) -> JamState:
-    """Join a room by its code. Joining a room you are already in does nothing (same state back)."""
+    """Join a room by its code. A room with no song takes the one on your screen, when sent (docs/jam.md). Joining a
+    room you are already in changes nothing else (the same state back)."""
     try:
-        room, added = request.app.state.jams.join(user.id, user.username, body.code)
+        room, changed = request.app.state.jams.join(user.id, user.username, body.code, body.song)
     except jam.RoomNotFound:
         raise HTTPException(status_code=404, detail="No room with that code")
     state = request.app.state.jams.state(room)
-    if added:
+    if changed:
         await request.app.state.jams.broadcast(room, {"type": "state", "data": state.model_dump(mode="json")})
     return state
 
@@ -1063,8 +1065,11 @@ async def set_jam_host(room_id: UUID, body: JamHostRequest, request: Request,
 @app.delete("/jam/{room_id}/members/{member_id}", status_code=204)
 async def remove_jam_member(room_id: UUID, member_id: UUID, request: Request,
                             user: Annotated[User, Depends(per_account("jam"))]) -> Response:
-    """The host may remove another member; members use /leave to remove themselves."""
+    """The host may remove another member; members use /leave to remove themselves. The removed member's sockets are
+    told ("out", "removed") and closed, so their app leaves the jam and says why."""
     jams = request.app.state.jams
+    room_before = jams.get(room_id)
+    theirs = [ws for ws, uid in room_before.sockets.items() if uid == member_id] if room_before else []
     try:
         room = jams.remove_member(user.id, room_id, member_id)
     except jam.RoomNotFound:
@@ -1073,6 +1078,7 @@ async def remove_jam_member(room_id: UUID, member_id: UUID, request: Request,
         raise HTTPException(status_code=404, detail="You are not in this room")
     except jam.NotHost:
         raise HTTPException(status_code=403, detail="Only the host can remove members")
+    await jams.put_out(theirs, "removed")
     if room is not None:
         await jams.broadcast(room, {"type": "state", "data": jams.state(room).model_dump(mode="json")})
     return Response(status_code=204)
@@ -1083,7 +1089,7 @@ async def leave_jam(room_id: UUID, request: Request,
                     user: Annotated[User, Depends(per_account("jam"))]) -> Response:
     """Leave the room. If you were the host, the next member by join order inherits the speakers;
     if you were the last member, the room closes. Any WebSocket you still hold for this room is
-    closed with 4404 — leaving everywhere means leaving on every device."""
+    told ("out", "left") and closed with 4404 — leaving everywhere means leaving on every device."""
     jams = request.app.state.jams
     room_before = jams.get(room_id)
     mine = [ws for ws, uid in room_before.sockets.items() if uid == user.id] if room_before else []
@@ -1093,11 +1099,7 @@ async def leave_jam(room_id: UUID, request: Request,
         raise HTTPException(status_code=404, detail="No such room")
     except jam.NotAMember:
         raise HTTPException(status_code=404, detail="You are not in this room")
-    for ws in mine:                                  # the sockets are already off the room; now end them
-        try:
-            await ws.close(code=4404, reason="you left this room")
-        except Exception:
-            pass
+    await jams.put_out(mine, "left")                 # the sockets are already off the room; now end them
     if room is not None:
         await jams.broadcast(room, {"type": "state", "data": jams.state(room).model_dump(mode="json")})
     return Response(status_code=204)
