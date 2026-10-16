@@ -410,6 +410,7 @@ private struct LyricsSettings: View {
     @AppStorage("lyricsFetch") private var fetch = LyricsFetch.songStart
     @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion
     @AppStorage("geniusNotes") private var genius = false                // experimental, off by default (8 Oct)
+    @AppStorage("translateInto") private var translateInto = ""          // LyricsTranslations.target: "" the Mac's own (#19)
 
     var body: some View {
         Form {
@@ -426,6 +427,16 @@ private struct LyricsSettings: View {
                 }
             } footer: {
                 Text("Fetching when a song starts has the lyrics ready when you open them. Downloaded songs keep their lyrics offline.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Picker("Translate into", selection: $translateInto) {
+                    Text("System language").tag("")
+                    Divider()
+                    ForEach(LyricsTranslations.choices, id: \.id) { Text($0.name).tag($0.id) }
+                }
+            } footer: {
+                Text("For Translate in Lyrics. This Mac translates them (macOS asks to download a language the first time); what it can't goes to Google. The line under the translation says which.")
                     .foregroundStyle(.secondary)
             }
             Section {

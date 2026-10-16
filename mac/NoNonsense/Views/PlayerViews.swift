@@ -559,11 +559,12 @@ struct LyricsPanel: View {
     @AppStorage("geniusNotes") private var genius = false          // Settings › Lyrics › Genius notes (experimental)
     @State private var aboutShown = false
     @AppStorage("lyricsTranslated") private var translating = false  // stays on for the next foreign song
+    @AppStorage("translateInto") private var translateInto = ""       // Settings › Lyrics › Translate into; "" the Mac's own
 
-    /// The lyrics' language when they are found and not in the reader's own.
-    private func foreign(_ state: LyricsStore.State?, track: Track) -> Locale.Language? {
+    /// The lyrics' language when they are found and not in `target`.
+    private func foreign(_ state: LyricsStore.State?, track: Track, target: Locale.Language) -> Locale.Language? {
         guard case .found(let found) = state, !found.lines.isEmpty else { return nil }
-        return LyricsTranslations.shared.language(of: track.id, lines: found.lines)
+        return LyricsTranslations.shared.foreignLanguage(of: track.id, lines: found.lines, to: target)
     }
 
     var body: some View {
@@ -571,11 +572,14 @@ struct LyricsPanel: View {
             if let track = player.current {
                 let state = lyrics.state(for: track)
                 let notes = genius ? lyrics.notes[track.id] : nil
-                let language = foreign(state, track: track)
+                let target = LyricsTranslations.target(translateInto)
+                let language = foreign(state, track: track, target: target)
                 header(state, notes: notes, language: language)
                 Group {
                     if translating, let language, case .found(let found) = state {
-                        TranslatedLyricsView(songID: track.id, lyrics: found.lines, language: language).id(track.id)
+                        // one view per song and language: another language chosen translates the song again
+                        TranslatedLyricsView(songID: track.id, lyrics: found.lines, language: language, target: target)
+                            .id(LyricsTranslations.Key(song: track.id, target: target))
                     } else {
                         content(state, track: track, notes: notes)
                     }
@@ -1113,8 +1117,9 @@ private struct PlainLyricsView: View {
     }
 }
 
-private extension View {
-    /// Debug builds: tells the lyrics self-test which screen the panel shows. Release builds: nothing.
+extension View {
+    /// Debug builds: tells the lyrics self-tests which screen the panel shows (the translation one too). Release builds:
+    /// nothing.
     func selfTestShown(_ name: String) -> some View {
         #if DEBUG
         onAppear { SelfTest.lyricsShown = name }
