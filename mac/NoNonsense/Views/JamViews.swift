@@ -30,6 +30,7 @@ struct JamButton: View {
         }
         .help(jam.inJam ? "Jam" : "Start or Join a Jam")
         .accessibilityLabel("Jam")
+        .accessibilityValue(jam.inJam ? "Live" : "")                        // LIVE was not said (#32)
         .popover(isPresented: Binding(get: { panel.shown }, set: { panel.shown = $0 }), arrowEdge: .bottom) {
             JamPanel().frame(width: 340)
         }
@@ -52,6 +53,7 @@ private struct JamPanel: View {
 
 /// Not in a jam: start one, or join one with its code.
 private struct StartView: View {
+    @Environment(\.textScale) private var textScale
     @State private var code = ""
     @State private var problem: String?
     @State private var working = false
@@ -68,7 +70,7 @@ private struct StartView: View {
             HStack(spacing: 8) {
                 TextField("Code", text: $code)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: Font.TextStyle.body.macPointSize * textScale, design: .monospaced))   // the text size (#32)
                     .autocorrectionDisabled()
                     .onSubmit { join() }
                 Button("Join", action: join)
@@ -96,6 +98,7 @@ private struct StartView: View {
 /// In a jam: the code to share, where it plays, the song and its controls, Up Next, the people, and Leave.
 private struct RoomView: View {
     let room: JamState
+    @Environment(\.textScale) private var textScale
     @State private var copied = false
     private var jam: JamSession { .shared }
 
@@ -112,11 +115,12 @@ private struct RoomView: View {
                     copied = true
                 } label: {
                     Label(room.code.uppercased(), systemImage: copied ? "checkmark" : "doc.on.doc")
-                        .font(.system(.callout, design: .monospaced).weight(.semibold))
+                        .font(.system(size: Font.TextStyle.callout.macPointSize * textScale, weight: .semibold, design: .monospaced))
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.quiet)
                 .help("Copy the code: others join with it")
+                .accessibilityLabel("Copy the Code, \(room.code.lowercased().map(String.init).joined(separator: " "))")   // said letter by letter
                 .selfTestFrame("jam.code")
             }
 
@@ -172,6 +176,14 @@ private struct RoomView: View {
                     ForEach(room.members) { member in
                         Avatar(name: member.username, size: 26)
                             .help(member.username)
+                            // the avatar is hidden from VoiceOver (a picture of a letter): who is in the room was not said (#32)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(member.userID == room.hostID ? "\(member.username), host" : member.username)
+                            .accessibilityActions {
+                                if jam.isHost, member.userID != room.hostID {
+                                    Button("Remove \(member.username) from the Jam") { Task { await jam.remove(member) } }
+                                }
+                            }
                             .contextMenu {
                                 if jam.isHost, member.userID != room.hostID {
                                     Button("Remove \(member.username) from the Jam", role: .destructive) {
@@ -211,11 +223,13 @@ private struct RoomView: View {
                 }
                 .buttonStyle(.quiet)
                 .help(room.isPlaying ? "Pause" : "Play")
+                .accessibilityLabel(room.isPlaying ? "Pause" : "Play")                  // they had no names (#32)
                 Button { jam.skip() } label: {
                     Image(systemName: "forward.fill").font(.title3).frame(width: 28, height: 28)
                 }
                 .buttonStyle(.quiet)
                 .help("Next")
+                .accessibilityLabel("Next")
             }
             .padding(8)
             .background(.primary.opacity(0.05), in: .rect(cornerRadius: 10, style: .continuous))
@@ -280,5 +294,8 @@ private struct EntryRow: View {
         .onTapGesture(count: 2) { JamSession.shared.jump(to: entry) }
         .onHover { hovering = $0 }
         .help("Double-click to play now")
+        // one element: the song, Play Now as its press, Remove as an action (the ✕ shows only under the pointer; #32)
+        .accessibleTile("\(entry.listing.title), \(entry.listing.artists.joined(separator: ", "))") { JamSession.shared.jump(to: entry) }
+        .accessibilityAction(named: "Remove from the Jam") { JamSession.shared.remove(entry) }
     }
 }

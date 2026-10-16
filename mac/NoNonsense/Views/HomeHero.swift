@@ -88,20 +88,26 @@ private struct NowCard: View {
             .accessibilityLabel("Open Now Playing")
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(label)
-                    .tracking(2)
-                    .textStyle(size: 11.5, weight: .bold)
-                    .foregroundStyle(theme.color(.buttons) ?? .accentColor)    // Settings › Colours › Buttons
-                Text(track.title)
-                    .tracking(-1.2)
-                    .textStyle(size: 42, weight: .heavy)
-                    .lineLimit(1)
-                    .padding(.top, 6)
-                Text(track.artistLine)
-                    .textStyle(size: 16)
-                    .foregroundStyle(.primary.opacity(0.65))
-                    .lineLimit(1)
-                    .padding(.top, 2)
+                // the label, the title and the artists read as one: "Now playing, Title, Artists" (capitals were spelt
+                // out letter by letter, #32)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(label)
+                        .tracking(2)
+                        .textStyle(size: 11.5, weight: .bold)
+                        .foregroundStyle(theme.color(.buttons) ?? .accentColor)    // Settings › Colours › Buttons
+                        .accessibilityLabel(playing ? "Now playing" : "Paused")
+                    Text(track.title)
+                        .tracking(-1.2)
+                        .textStyle(size: 42, weight: .heavy)
+                        .lineLimit(1)
+                        .padding(.top, 6)
+                    Text(track.artistLine)
+                        .textStyle(size: 16)
+                        .foregroundStyle(.primary.opacity(0.65))
+                        .lineLimit(1)
+                        .padding(.top, 2)
+                }
+                .accessibilityElement(children: .combine)
                 HStack(spacing: 0) {
                     RoundPlay(size: 44, playing: playing, help: "Play / Pause (Space)") { player.togglePlayPause() }
                     // the one part of Home that moves while a song plays: a Core Animation line, and its text once a
@@ -169,6 +175,7 @@ private struct UpNextCard: View {
                 .foregroundStyle(.primary.opacity(0.7))
                 .padding(.trailing, 12)                            // over the songs' lengths
                 .help("Open Up Next")
+                .accessibilityLabel("See All of Up Next")          // four "See All" on Home: each says what it opens (#32)
             }
             .frame(minHeight: 32)
             ForEach(Array(next.enumerated()), id: \.offset) { i, track in
@@ -193,13 +200,14 @@ private struct UpNextLine: View {
             ArtworkView(url: track.image, size: 40, radius: 6)
             VStack(alignment: .leading, spacing: 0) {
                 Text(track.title).textStyle(size: 14, weight: .semibold).lineLimit(1)
-                Text(track.artistLine).textStyle(size: 12.5).foregroundStyle(.primary.opacity(0.55)).lineLimit(1)
+                Text(track.artistLine).textStyle(size: 12.5).foregroundStyle(.primary.opacity(0.6)).lineLimit(1)
             }
             Spacer(minLength: 8)
+            // 0.6, not 0.5 and 0.55: small text needs 4.5 : 1 on the card's light tint (#32)
             Text(formatTime(Double(track.duration)))
                 .monospacedDigit()
                 .textStyle(size: 12.5)
-                .foregroundStyle(.primary.opacity(0.5))
+                .foregroundStyle(.primary.opacity(0.6))
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 5)
@@ -208,9 +216,12 @@ private struct UpNextLine: View {
         .onTapGesture(perform: play)
         .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
         .padding(.trailing, 8)
-        .accessibilityElement(children: .combine)
+        // one element with what it shows (the artists were dropped, #32); pressing it plays the song now
+        .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Play \(track.title)")
+        .accessibilityLabel("\(track.title), \(track.artistLine), \(formatTime(Double(track.duration)))")
+        .accessibilityHint("Plays now")
+        .accessibilityAction { play() }
     }
 }
 
@@ -234,7 +245,8 @@ private struct ResumeCard: View {
                 Text("PICK UP WHERE YOU LEFT OFF")
                     .tracking(2)
                     .textStyle(size: 11.5, weight: .bold)
-                    .foregroundStyle(.primary.opacity(0.55))
+                    .foregroundStyle(.primary.opacity(0.6))
+                    .accessibilityLabel("Pick up where you left off")
                 Text(track.title)
                     .tracking(-0.6)
                     .textStyle(size: 26, weight: .heavy)

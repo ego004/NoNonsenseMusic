@@ -169,6 +169,7 @@ private struct PictureRow<Picture: View>: View {
         }
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)                 // "Gym, 12 songs": one row, its picture unsaid (#32)
         .selfTestFrame("sidebar.row:\(name)")
         #if DEBUG
         .onChange(of: detail, initial: true) { _, now in SelfTest.shownText["sidebar.detail:\(name)"] = now }
@@ -212,6 +213,7 @@ struct SearchView: View {
     @State private var failed = false
     @State private var task: Task<Void, Never>?
     @FocusState private var fieldFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// `initialQuery`: words searched at once, as the command bar's "All results for “…”" opens Search.
     init(focusRequests: Int = 0, initialQuery: String = "") {
@@ -298,7 +300,8 @@ struct SearchView: View {
                 }
             }
         }
-        .animation(.spring(response: 0.45, dampingFraction: 0.86), value: isIdle)
+        // the bar rises to the top as you type; with Reduce Motion it is there at once (#32)
+        .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.86), value: isIdle)
         .fixedTitle("Search")
         #if DEBUG
         .onChange(of: showsNoResults, initial: true) { _, now in SelfTest.noResultsShowing = now }
@@ -429,6 +432,7 @@ struct SongListView: View {
         HStack(alignment: .bottom, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title).tracking(-0.6).textStyle(size: 32, weight: .bold)         // as the Windows app's (15 Oct)
+                    .accessibilityAddTraits(.isHeader)
                 Text(item == .downloads ? "\(Self.count(tracks.count)) · \(formatBytes(downloads.totalBytes)) on this Mac" : Self.count(tracks.count))
                     .textStyle(.body).foregroundStyle(.secondary)
             }
@@ -478,6 +482,7 @@ struct FilterField: View {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
                     .buttonStyle(.plain)
                     .help("Clear")
+                    .accessibilityLabel("Clear")
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -535,6 +540,7 @@ struct SearchBar: View {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
                     .buttonStyle(.quiet)
                     .help("Clear")
+                    .accessibilityLabel("Clear")
             }
         }
         .padding(.horizontal, 18)
@@ -623,9 +629,8 @@ private struct RecentChip: View {
         .onTapGesture(perform: search)
         .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
         .contextMenu { Button("Remove", action: remove) }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Search \(query)")
+        .accessibleTile("Search “\(query)”", action: search)
+        .accessibilityAction(named: "Remove", remove)                  // the ✕ shows only under the pointer (#32)
     }
 }
 
@@ -680,9 +685,7 @@ struct CoverTile: View {
         }
         .contentShape(.rect)
         .onTapGesture(perform: play)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Play \(track.title)")
+        .accessibleTile("\(track.title), \(track.artistLine)", action: play)
         #if DEBUG
         .onAppear { SelfTest.appeared["cover", default: 0] += 1 }
         #endif
@@ -729,7 +732,7 @@ struct TiltCard<Art: View>: View {
                     }
                     .buttonStyle(.quiet)
                     .padding(10)
-                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    .transition(reduceMotion ? AnyTransition.opacity : .scale(scale: 0.6).combined(with: .opacity))
                     .accessibilityLabel("Play")
                 }
             }

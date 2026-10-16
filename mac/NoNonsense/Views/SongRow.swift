@@ -17,6 +17,7 @@ struct SongRow: View {
     /// False where the list handles the double-click (a list you can reorder: see `row`).
     var doubleClickPlays = true
     @Environment(Player.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expanded = false
 
     /// True for any copy of this song: playing a chosen listing changes `best`, not the song.
@@ -37,7 +38,7 @@ struct SongRow: View {
                 }
                 .padding(.leading, number == nil ? 56 : 44)     // under the title: artwork (44) + spacing (12), or number (34) + 10
                 .padding(.bottom, 6)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(reduceMotion ? AnyTransition.opacity : .opacity.combined(with: .move(edge: .top)))
             }
         }
     }
@@ -121,7 +122,6 @@ private struct SongRowLine: View {
                 }
             }
             .buttonStyle(.quiet(highlight: false))
-            .accessibilityLabel("Play \(track.title)")
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
@@ -151,7 +151,7 @@ private struct SongRowLine: View {
                     .foregroundStyle(.secondary)
                     .help("The only place this song plays from")
             } else if track.listings.count > 1 {
-                Button { withAnimation(.snappy(duration: 0.25)) { expanded.toggle() } } label: {
+                Button { withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { expanded.toggle() } } label: {
                     HStack(spacing: 4) {
                         Text("\(track.listings.count) listings")
                         Image(systemName: "chevron.right")
@@ -180,6 +180,29 @@ private struct SongRowLine: View {
         .background(filled ? AnyShapeStyle(highlight.opacity(0.12)) : AnyShapeStyle(.primary.opacity(hovering ? 0.05 : 0)),
                     in: .rect(cornerRadius: filled ? 12 : 10, style: .continuous))
         .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
+        // For VoiceOver the row is one element, read as it reads: "3. Title, Artists, 3:45", whether it plays, Play as
+        // its press, and the heart and the listings as actions. Before, it walked "Play Title" (the number lost), the
+        // title again, the artists, the source, an unnamed heart (hidden until the pointer came) and the time (#32)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(spoken)
+        .accessibilityValue(current ? (player.isBuffering ? "Loading" : player.isPlaying ? "Playing" : "Paused")
+                                    : downloads.isDownloaded(track) ? "Downloaded" : "")
+        .accessibilityAction { play() }
+        .accessibilityAction(named: library.isLiked(track) ? "Remove from Liked" : "Like") { Task { await library.toggleLike(track) } }
+        .accessibilityActions {
+            if track.listings.count > 1 {
+                Button(expanded ? "Hide the Listings" : "Show the \(track.listings.count) Listings") { expanded.toggle() }
+            }
+        }
+    }
+
+    /// The row as VoiceOver says it: the album number, the title, explicit, the artists, the length.
+    private var spoken: String {
+        [number.map { "\($0)." }, track.title, track.isExplicit ? "explicit" : nil, track.artistLine, formatTime(Double(track.duration))]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+            .replacingOccurrences(of: "., ", with: ". ")
     }
 
     /// An album row's number, in a 34 × 40 box where the cover would be (15 Oct, as in the Windows app): ▶ under the
@@ -190,7 +213,7 @@ private struct SongRowLine: View {
             Text(String(number))
                 .monospacedDigit()
                 .textStyle(size: 15, weight: .semibold)
-                .foregroundStyle(.primary.opacity(0.42))
+                .foregroundStyle(.primary.opacity(0.6))                // 0.42 read below 4.5 : 1 on a light window (#32)
                 .opacity(current || hovering ? 0 : 1)
             Image(systemName: "play.fill")
                 .opacity(!current && hovering ? 1 : 0)

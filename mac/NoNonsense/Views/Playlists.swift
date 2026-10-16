@@ -124,6 +124,7 @@ struct PlaylistView: View {
                 Text(detail.summary.isAlbum ? "Album" : "Playlist")
                     .tracking(1.4).textStyle(size: 11, weight: .bold).textCase(.uppercase).foregroundStyle(.secondary)
                 Text(detail.name).tracking(-0.5).textStyle(size: 32, weight: .bold).lineLimit(2)
+                    .accessibilityAddTraits(.isHeader)
                 Text(Self.stats(count: detail.items.count, seconds: detail.duration))
                     .textStyle(.body)
                     .foregroundStyle(.secondary)
@@ -156,6 +157,7 @@ struct PlaylistView: View {
                     .compatGlassButton()
                     .fixedSize()
                     .help("More")
+                    .accessibilityLabel("More")                            // it had no name (#32)
                 }
                 .controlSize(.large)
                 .padding(.top, 8)
@@ -222,6 +224,7 @@ struct PlaylistCover: View {
         }
         .frame(width: size, height: size)
         .clipShape(.rect(cornerRadius: size * 0.08, style: .continuous))
+        .accessibilityHidden(true)                                      // a picture beside the playlist's name (#32)
     }
 
     private func cell(_ i: Int) -> some View { ArtworkView(url: images[i], size: size / 2, radius: 0) }
@@ -247,10 +250,11 @@ struct NamePlaylistSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(.title3.weight(.semibold))
+            // the window's text size, as everywhere (Settings › Appearance › Sizes; #32)
+            Text(title).textStyle(.title3, weight: .semibold)
             TextField("Name", text: $name, prompt: Text("My playlist"))
                 .textFieldStyle(.roundedBorder)
-                .font(.title3)
+                .textStyle(.title3)
                 .focused($focused)
                 .onSubmit(go)
                 .keyframeAnimator(initialValue: 0.0, trigger: shakes) { field, x in
@@ -266,9 +270,9 @@ struct NamePlaylistSheet: View {
                 }
             if let problem {
                 Label(problem, systemImage: "exclamationmark.circle.fill")
-                    .font(.callout)
+                    .textStyle(.callout)
                     .foregroundStyle(.red)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(reduceMotion ? AnyTransition.opacity : .opacity.combined(with: .move(edge: .top)))
             }
             HStack {
                 Spacer()
@@ -398,6 +402,7 @@ struct SharePlaylistSheet: View {
     /// username, role → nil: it worked; otherwise why not.
     let submit: (String, String) async -> String?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var members: [PlaylistMember] = []
     @State private var copied = false
     @State private var username = ""
@@ -411,7 +416,7 @@ struct SharePlaylistSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(playlist.isOwner ? "Share “\(playlist.name)”" : "People on “\(playlist.name)”").font(.title3.weight(.semibold))
+                Text(playlist.isOwner ? "Share “\(playlist.name)”" : "People on “\(playlist.name)”").textStyle(.title3, weight: .semibold)
                 Spacer()
                 // the web address: anyone it is shared with, or anyone at all when it is public, can open it
                 Button(copied ? "Copied" : "Copy Link", systemImage: copied ? "checkmark" : "link") {
@@ -425,7 +430,7 @@ struct SharePlaylistSheet: View {
                 VStack(spacing: 0) {
                     ForEach(members) { member in
                         HStack {
-                            Image(systemName: "person.crop.circle").foregroundStyle(.secondary)
+                            Image(systemName: "person.crop.circle").foregroundStyle(.secondary).accessibilityHidden(true)
                             Text(member.username)
                             Spacer()
                             Text(member.roleName).foregroundStyle(.secondary)
@@ -433,6 +438,7 @@ struct SharePlaylistSheet: View {
                                 Button { remove(member) } label: { Image(systemName: "minus.circle") }
                                     .buttonStyle(.borderless)
                                     .help("Remove \(member.username)")
+                                    .accessibilityLabel("Remove \(member.username)")
                             }
                         }
                         .padding(.vertical, 6)
@@ -443,7 +449,7 @@ struct SharePlaylistSheet: View {
             if playlist.isOwner {
                 TextField("Username", text: $username, prompt: Text("Username"))
                     .textFieldStyle(.roundedBorder)
-                    .font(.title3)
+                    .textStyle(.title3)
                     .focused($focused)
                     .onSubmit(go)
                 // friends not on the playlist yet: a click fills the name, Share adds them with the permission below
@@ -461,6 +467,7 @@ struct SharePlaylistSheet: View {
                             }
                             .buttonStyle(.plain)
                             .help("Share with \(friend.username)")
+                            .accessibilityAddTraits(username == friend.username ? .isSelected : [])   // shown by a shade alone
                         }
                     }
                 }
@@ -472,9 +479,9 @@ struct SharePlaylistSheet: View {
             }
             if let problem {
                 Label(problem, systemImage: "exclamationmark.circle.fill")
-                    .font(.callout)
+                    .textStyle(.callout)
                     .foregroundStyle(.red)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(reduceMotion ? AnyTransition.opacity : .opacity.combined(with: .move(edge: .top)))
             }
             HStack {
                 Spacer()

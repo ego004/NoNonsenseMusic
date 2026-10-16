@@ -10,7 +10,7 @@ struct FriendsView: View {
     var body: some View {
         List {
             HStack(alignment: .bottom) {
-                Text("Friends").textStyle(.largeTitle, weight: .bold)
+                Text("Friends").textStyle(.largeTitle, weight: .bold).accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button { adding = true } label: { Label("Add Friend", systemImage: "person.badge.plus") }
                     .compatGlassButton(prominent: true)
@@ -70,7 +70,7 @@ struct FriendsView: View {
     }
 
     private func sectionTitle(_ text: String) -> some View {
-        Text(text).textStyle(.title3, weight: .bold).browseRow(top: 14, bottom: 4)
+        Text(text).textStyle(.title3, weight: .bold).accessibilityAddTraits(.isHeader).browseRow(top: 14, bottom: 4)
     }
 
     /// "12 Oct 2026" from the server's ISO 8601 time.
@@ -187,13 +187,15 @@ struct NotificationsButton: View {
 /// playlist shared with you (Open).
 private struct NotificationsList: View {
     let close: () -> Void
+    @Environment(\.textScale) private var textScale
     private var social: Social { .shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Notifications").textStyle(.headline).padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+            Text("Notifications").textStyle(.headline).accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
             if social.notifications.isEmpty {
-                Text("Nothing yet").foregroundStyle(.secondary)
+                Text("Nothing yet").textStyle(.body).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity).padding(.vertical, 30)
             } else {
                 ScrollView {
@@ -216,6 +218,7 @@ private struct NotificationsList: View {
             Avatar(name: n.from, size: 30)
             VStack(alignment: .leading, spacing: 6) {
                 Text(text(n)).textStyle(.callout).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityValue(n.read ? "" : "New")             // the dot alone said so (#32)
                 Text(FriendsView.day(n.createdAt)).textStyle(.caption).foregroundStyle(.secondary)
                 actions(n)
             }
@@ -228,7 +231,8 @@ private struct NotificationsList: View {
 
     private func text(_ n: AppNotification) -> AttributedString {
         var name = AttributedString(n.from)
-        name.font = .callout.weight(.semibold)
+        // at the text size around it (Settings › Appearance › Sizes): .callout stayed at the Mac's (#32)
+        name.font = .system(size: Font.TextStyle.callout.macPointSize * textScale, weight: .semibold)
         switch n.type {
         case "friend_request": return name + AttributedString(" wants to be friends.")
         case "friend_accepted": return name + AttributedString(" accepted your friend request.")

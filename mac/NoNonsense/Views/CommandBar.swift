@@ -295,7 +295,13 @@ final class CommandBarState {
         let rows = entries()
         let count = rows.count, row = chosenRow(of: count)
         if key == .downArrow || key == .upArrow {
-            if count > 0 { chosen = (row + (key == .downArrow ? 1 : count - 1)) % count }
+            guard count > 0 else { return }
+            chosen = (row + (key == .downArrow ? 1 : count - 1)) % count
+            // the keyboard stays in the field, so VoiceOver would say nothing as ↑ ↓ move down the list: the chosen
+            // row is said instead, as a combo box's list says it (#32)
+            let entry = rows[chosen]
+            let name = entry.song.map { "\($0.title), \($0.artistLine)" } ?? [entry.title, entry.detail].compactMap { $0 }.joined(separator: ", ")
+            AccessibilityNotification.Announcement("\(name), \(chosen + 1) of \(count)").post()
         } else if key == .escape {
             close()
         } else if !repeated, count > 0 {
@@ -555,6 +561,7 @@ private struct CommandList: View {
                         .textStyle(size: 11.5, weight: .bold)
                         .tracking(1.2)
                         .foregroundStyle(.secondary)
+                        .accessibilityAddTraits(.isHeader)
                         .padding(EdgeInsets(top: 10, leading: 14, bottom: 4, trailing: 14))
                 case .searching:
                     Text("Searching…")
@@ -584,10 +591,10 @@ private struct CommandRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            picture.padding(.trailing, 12)
+            picture.padding(.trailing, 12).accessibilityHidden(true)       // the symbol's own name ("forward.end") was read (#32)
             words.frame(maxWidth: .infinity, alignment: .leading)
             if let keys = entry.keys { KeyChip(keys: keys).padding(.leading, 10) }
-            if entry.isAll { Image(systemName: "arrow.right").textStyle(size: 13).foregroundStyle(.secondary) }
+            if entry.isAll { Image(systemName: "arrow.right").textStyle(size: 13).foregroundStyle(.secondary).accessibilityHidden(true) }
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
         .background {
@@ -598,7 +605,8 @@ private struct CommandRow: View {
         .onTapGesture(perform: run)
         .padding(.horizontal, 6)
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { run() }
         .selfTestFrame("commandBar.row:\(entry.title)")
     }
 

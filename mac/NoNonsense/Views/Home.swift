@@ -28,6 +28,7 @@ struct HomeView: View {
                         .tracking(-0.3)
                         .textStyle(size: 22, weight: .semibold)
                         .foregroundStyle(.primary.opacity(0.85))
+                        .accessibilityAddTraits(.isHeader)
                     NowHero()
                         .selfTestFrame("home.hero")
                 }
@@ -84,6 +85,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: gap) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).tracking(-0.3).textStyle(size: 22, weight: .bold)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button { open(seeAll) } label: {
                     HStack(spacing: 4) {
@@ -94,6 +96,7 @@ struct HomeView: View {
                 .buttonStyle(.quiet)
                 .textStyle(size: 14, weight: .medium)
                 .foregroundStyle(.primary.opacity(0.7))
+                .accessibilityLabel("See All \(title)")                // three "See All" here: each says what it opens (#32)
             }
             content()
         }
@@ -126,6 +129,7 @@ struct HomeView: View {
     private var firstStep: some View {
         VStack(spacing: 14) {
             Image(systemName: "music.note.house").font(.system(size: 44)).foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Text("Your music lives here").textStyle(.title2, weight: .semibold)
             Text("Search for a song you love, then play it, like it, or add it to a playlist.")
                 .foregroundStyle(.secondary)
@@ -285,10 +289,17 @@ private final class ShelfScrollerView: NSView {
     /// On by 80% of what shows, or to the end: one animation (420 ms, ease-out cubic, as in the Windows app).
     func moveOn() {
         guard let clip = enclosingScrollView?.contentView, let now = reading else { return }
+        let to = NSPoint(x: min(now.origin + now.width * 0.8, now.end), y: clip.bounds.minY)
+        // with Reduce Motion the shelf is at its new place at once: no glide sideways (#32)
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            clip.setBoundsOrigin(to)
+            enclosingScrollView?.reflectScrolledClipView(clip)
+            return
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.42
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.215, 0.61, 0.355, 1)
-            clip.animator().setBoundsOrigin(NSPoint(x: min(now.origin + now.width * 0.8, now.end), y: clip.bounds.minY))
+            clip.animator().setBoundsOrigin(to)
         }
     }
 
@@ -384,7 +395,7 @@ private struct LibraryTile<Picture: View>: View {
             picture()
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).textStyle(size: 14.5, weight: .semibold).lineLimit(1)
-                Text(detail).textStyle(size: 12.5).foregroundStyle(.primary.opacity(0.55)).lineLimit(1)
+                Text(detail).textStyle(size: 12.5).foregroundStyle(.primary.opacity(0.6)).lineLimit(1)   // 4.5 : 1 (#32)
             }
             Spacer(minLength: 0)
         }
@@ -393,9 +404,7 @@ private struct LibraryTile<Picture: View>: View {
         .contentShape(.rect)
         .onTapGesture(perform: open)
         .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Open \(name)")
+        .accessibleTile("\(name), \(detail)", action: open)
         .selfTestFrame("home.tile:\(name)")
     }
 }
@@ -441,9 +450,8 @@ struct PlaylistCard: View {
         .contentShape(.rect)
         .onTapGesture(perform: open)
         .modifier(PlaylistLoadsAndMenu(playlist: playlist, open: open))
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Open \(playlist.name)")
+        .accessibleTile("\(playlist.name), \(PlaylistView.stats(count: playlist.songCount, seconds: playlist.duration))",
+                        play: Self.play(detail, on: player), action: open)
         #if DEBUG
         .onAppear { SelfTest.appeared["playlist card", default: 0] += 1 }
         #endif
@@ -503,9 +511,7 @@ struct CompactSongTile: View {
                 Divider()
                 SongLibraryActions(track: track)
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Play \(track.title)")
+            .accessibleTile("\(track.title), \(track.artistLine)", action: play)
             #if DEBUG
             .onAppear { SelfTest.appeared["compact song row", default: 0] += 1 }
             #endif

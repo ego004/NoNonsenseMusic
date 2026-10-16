@@ -13,6 +13,7 @@ struct LibraryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 Text("Library").tracking(-1).textStyle(size: 40, weight: .bold).selfTestFrame("library.title")
+                    .accessibilityAddTraits(.isHeader)
                 section("Collections") {
                     ForEach(SidebarItem.collections(downloads)) { item in
                         CollectionCard(item: item, count: item.songCount(library: library, downloads: downloads), side: cardSize) {
@@ -40,7 +41,7 @@ struct LibraryView: View {
     /// A heading over cards that wrap onto new lines, as on Home.
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).tracking(-0.3).textStyle(size: 22, weight: .bold)
+            Text(title).tracking(-0.3).textStyle(size: 22, weight: .bold).accessibilityAddTraits(.isHeader)
             FlowLayout(spacing: 22, lineSpacing: 22) { content() }
         }
     }
@@ -71,9 +72,7 @@ private struct CollectionCard: View {
         }
         .contentShape(.rect)
         .onTapGesture(perform: open)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Open \(item.title)")
+        .accessibleTile("\(item.title), \(SongListView.count(count))", action: open)
         .selfTestFrame("library.collection:\(item.title)")
     }
 }

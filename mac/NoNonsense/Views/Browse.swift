@@ -90,6 +90,7 @@ struct ArtistView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Artist").tracking(1.4).textStyle(size: 11, weight: .bold).textCase(.uppercase).foregroundStyle(.secondary)
                     Text(artist.name).tracking(-0.5).textStyle(size: 36, weight: .bold).lineLimit(2).padding(.top, 4)
+                        .accessibilityAddTraits(.isHeader)
                     if let listeners = artist.monthlyListeners ?? artist.followers {
                         Text("\(listeners.formatted(.number.notation(.compactName))) \(artist.monthlyListeners != nil ? "monthly listeners" : "followers")")
                             .textStyle(.body).foregroundStyle(.secondary).padding(.top, 6)
@@ -101,13 +102,13 @@ struct ArtistView: View {
             .pageRow(top: 20, bottom: 18)
 
             if !tracks.isEmpty {
-                Text("Top Songs").textStyle(.title2, weight: .bold).pageRow(top: 8, bottom: 4)
+                Text("Top Songs").textStyle(.title2, weight: .bold).accessibilityAddTraits(.isHeader).pageRow(top: 8, bottom: 4)
                 ForEach(Array(tracks.prefix(10).enumerated()), id: \.element.id) { i, track in
                     SongRow(track: track, queue: tracks, index: i).pageRow(top: 1, bottom: 1, inset: 24)
                 }
             }
             if !artist.albums.isEmpty {
-                Text("Albums").textStyle(.title2, weight: .bold).pageRow(top: 22, bottom: 4)
+                Text("Albums").textStyle(.title2, weight: .bold).accessibilityAddTraits(.isHeader).pageRow(top: 22, bottom: 4)
                 AlbumGrid(albums: artist.albums).pageRow(top: 4, bottom: 24)
             }
         }
@@ -181,9 +182,12 @@ struct AlbumView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Album").tracking(1.4).textStyle(size: 11, weight: .bold).textCase(.uppercase).foregroundStyle(.secondary)
                     Text(album.title).tracking(-0.5).textStyle(size: 34, weight: .bold).lineLimit(2).padding(.top, 4)
+                        .accessibilityAddTraits(.isHeader)
                     ArtistLinks(artists: album.artists).textStyle(size: 20, weight: .medium).foregroundStyle(.tint).padding(.top, 4)
                     Text(Self.facts(year: album.year, songs: tracks.count, minutes: minutes))
                         .tracking(0.6).textStyle(size: 11.5, weight: .semibold).foregroundStyle(.secondary).padding(.top, 6)
+                        // in capitals for the eye; "MIN" was spelt out by VoiceOver (#32)
+                        .accessibilityLabel(Self.facts(year: album.year, songs: tracks.count, minutes: minutes).lowercased())
                     HStack(spacing: 10) {
                         PlayShuffleButtons(tracks: tracks)
                         Button {
@@ -336,10 +340,11 @@ struct ShelfHeader: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title).textStyle(.title3, weight: .bold)
+            Text(title).textStyle(.title3, weight: .bold).accessibilityAddTraits(.isHeader)
             Spacer()
             if more {
                 Button("See All", action: seeAll).buttonStyle(.quiet).foregroundStyle(.secondary)
+                    .accessibilityLabel("See All \(title)")                // each says what it opens (#32)
             }
         }
     }
@@ -362,9 +367,9 @@ struct AlbumCard: View {
         }
         .contentShape(.rect)
         .onTapGesture { Navigator.shared.open(.album(album)) }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Open \(album.title)")
+        .accessibleTile("\(album.title), \(album.year.map(String.init) ?? album.artists.joined(separator: ", "))") {
+            Navigator.shared.open(.album(album))
+        }
     }
 }
 
@@ -415,9 +420,7 @@ struct ArtistBubble: View {
         }
         .contentShape(.rect)
         .onTapGesture { Navigator.shared.open(.artist(artist.best)) }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Open \(artist.name)")
+        .accessibleTile(artist.name) { Navigator.shared.open(.artist(artist.best)) }
     }
 }
 
