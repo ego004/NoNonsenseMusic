@@ -19,6 +19,7 @@ import 'friends.dart';
 import 'home.dart';
 import 'in_front.dart';
 import 'jam_panel.dart';
+import 'layout.dart';
 import 'popover.dart';
 import 'scope.dart';
 import 'song_row.dart';
@@ -547,7 +548,7 @@ class _NowLineState extends State<_NowLine> {
       ),
       // a box of its own size: the time changing never lays out the card again
       SizedBox(
-        width: 104,
+        width: textWidth(context, 104, 12.5),
         child: Text('${formatTime(p.position)} / ${formatTime(p.duration)}',
             textAlign: TextAlign.right,
             maxLines: 1,

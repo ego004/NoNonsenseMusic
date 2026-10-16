@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/models.dart';
+import 'concept.dart';
 import 'glass_menu.dart';
 import 'scope.dart';
 
@@ -15,7 +16,8 @@ class CopyMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final player = Scope.of(context).player;
-    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55);
+    // Now Playing's secondary text, which reads on the cover's colours (#20)
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: NowPlayingInk.secondary);
     final base = (style ?? const TextStyle(fontSize: 13)).copyWith(color: muted);
     return ListenableBuilder(
       listenable: player,

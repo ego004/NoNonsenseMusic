@@ -35,13 +35,22 @@ class NowPlaying extends StatelessWidget {
       child: Focus(
         autofocus: true,
         child: ListenableBuilder(
-          listenable: p,
+          listenable: Listenable.merge([p, NowPlayingInk.behind]),
           builder: (context, _) {
             final t = p.current;
             if (t == null) return const SizedBox.shrink();
             final small = MediaQuery.sizeOf(context).width < 700 || MediaQuery.sizeOf(context).height < 600;
             final dark = theme.brightness == Brightness.dark;
-            return Stack(
+            // the cover's opacity, and the surface's veil over it from top to bottom: the text reads on the cover where
+            // the veil is thinnest (NowPlayingInk, #20)
+            final cover = small ? (dark ? 0.55 : 0.4) : (dark ? 0.78 : 0.55);
+            final veil = small ? const [0.35, 0.75] : const [0.5, 0.18, 0.82];
+            final readable = NowPlayingInk(theme, share: cover * (1 - veil.reduce((a, b) => a < b ? a : b)));
+            // the accent's text (the artists, a noted lyric, a mode that is on) reads on the cover's colours too
+            final accent = readable.readable(theme.colorScheme.primary, t.image == null ? const [] : NowPlayingInk.behind.value);
+            return Theme(
+              data: theme.copyWith(colorScheme: theme.colorScheme.copyWith(primary: accent)),
+              child: Stack(
               fit: StackFit.expand,
               children: [
                 if (small)
@@ -53,30 +62,17 @@ class NowPlaying extends StatelessWidget {
                 // computer's is stronger, strongest behind the song and deepening toward the edges
                 if (t.image != null)
                   Opacity(
-                    opacity: small ? (dark ? 0.55 : 0.4) : (dark ? 0.78 : 0.55),
-                    child: CoverBackdrop(url: t.image!),
+                    opacity: cover,
+                    child: CoverBackdrop(url: t.image!, ink: readable),
                   ),
                 DecoratedBox(
                   decoration: BoxDecoration(
-                    gradient: small
-                        ? LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              theme.colorScheme.surface.withValues(alpha: 0.35),
-                              theme.colorScheme.surface.withValues(alpha: 0.75),
-                            ],
-                          )
-                        : LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            stops: const [0, 0.45, 1],
-                            colors: [
-                              theme.colorScheme.surface.withValues(alpha: 0.5),
-                              theme.colorScheme.surface.withValues(alpha: 0.18),
-                              theme.colorScheme.surface.withValues(alpha: 0.82),
-                            ],
-                          ),
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      stops: small ? null : const [0, 0.45, 1],
+                      colors: [for (final a in veil) theme.colorScheme.surface.withValues(alpha: a)],
+                    ),
                   ),
                 ),
                 LayoutBuilder(
@@ -87,26 +83,34 @@ class NowPlaying extends StatelessWidget {
                       children: [
                         Row(
                           children: [
-                            Flexible(
-                              child: Text(
-                                t.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: -0.4,
-                                  height: 1.15,
-                                ),
+                            // the title has all the room the buttons leave, on one line as on the Mac and a computer.
+                            // A Spacer beside it took half that room, so "Superstar" by Dox broke onto a second line
+                            // on a phone with room to spare (#20)
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      t.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: -0.4,
+                                        height: 1.15,
+                                      ),
+                                    ),
+                                  ),
+                                  if (t.isExplicit)
+                                    const Padding(
+                                      padding: EdgeInsets.only(left: 8),
+                                      child: ExplicitBadge(),
+                                    ),
+                                ],
                               ),
                             ),
-                            if (t.isExplicit)
-                              const Padding(
-                                padding: EdgeInsets.only(left: 8),
-                                child: ExplicitBadge(),
-                              ),
                             // the playing song's heart and its menu (Add to Playlist, Download), as a row has them
-                            const Spacer(),
                             LikeButton(track: t, size: 22),
                             SongMoreButton(track: t, size: 22),
                           ],
@@ -117,7 +121,7 @@ class NowPlaying extends StatelessWidget {
                           artists: t.artists,
                           style: TextStyle(
                             fontSize: 16,
-                            color: ink.withValues(alpha: 0.62),
+                            color: ink.withValues(alpha: NowPlayingInk.secondary),
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -141,7 +145,7 @@ class NowPlaying extends StatelessWidget {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         fontSize: 13,
-                                        color: ink.withValues(alpha: 0.55),
+                                        color: ink.withValues(alpha: NowPlayingInk.secondary),
                                       ),
                                     ),
                                   ),
@@ -154,7 +158,7 @@ class NowPlaying extends StatelessWidget {
                                 child: Text(
                                   '·',
                                   style: TextStyle(
-                                    color: ink.withValues(alpha: 0.4),
+                                    color: ink.withValues(alpha: NowPlayingInk.tertiary),
                                   ),
                                 ),
                               ),
@@ -244,10 +248,10 @@ class NowPlaying extends StatelessWidget {
                               iconSize: phone ? 22 : 20,
                               style: IconButton.styleFrom(
                                 backgroundColor: p.panel == id
-                                    ? theme.colorScheme.primary.withValues(alpha: 0.18)
+                                    ? accent.withValues(alpha: 0.18)
                                     : Colors.transparent,
                               ),
-                              color: p.panel == id ? theme.colorScheme.primary : ink.withValues(alpha: 0.75),
+                              color: p.panel == id ? accent : ink.withValues(alpha: 0.75),
                               onPressed: () => p.setPanel(id),
                               icon: Icon(icon),
                             ),
@@ -378,7 +382,7 @@ class NowPlaying extends StatelessWidget {
                               if (t.isExplicit) const Padding(padding: EdgeInsets.only(left: 8), child: ExplicitBadge()),
                             ]),
                             const SizedBox(height: 3),
-                            ArtistLinks(artists: t.artists, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w500, color: theme.colorScheme.primary)),
+                            ArtistLinks(artists: t.artists, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w500, color: accent)),
                             const SizedBox(height: 4),
                             CopyMenu(track: t),
                           ]),
@@ -431,7 +435,7 @@ class NowPlaying extends StatelessWidget {
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 220),
                               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                                Text('NOW PLAYING', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 1.6, color: ink.withValues(alpha: 0.5))),
+                                Text('NOW PLAYING', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 1.6, color: ink.withValues(alpha: NowPlayingInk.secondary))),
                                 if (t.albumTitle != null)
                                   Text(t.albumTitle!, maxLines: 1, overflow: TextOverflow.ellipsis,
                                       style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ink.withValues(alpha: 0.85))),
@@ -493,6 +497,7 @@ class NowPlaying extends StatelessWidget {
                   },
                 ),
               ],
+            ),
             );
           },
         ),
@@ -536,7 +541,7 @@ class UpNext extends StatelessWidget {
     final s = Scope.of(context);
     final p = s.player;
     final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.55);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: NowPlayingInk.secondary); // reads on the cover (#20)
     // Built as a const child, it listens to the player itself; otherwise it would keep the queue from its first build.
     return ListenableBuilder(
       listenable: Listenable.merge([p, s.settings]),

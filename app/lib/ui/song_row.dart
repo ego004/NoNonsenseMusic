@@ -171,9 +171,10 @@ class _SongRowState extends State<SongRow> {
               ),
               const SizedBox(width: 8),
               SizedBox(
-                width: 44,
+                width: textWidth(context, 44, 12.5),
                 child: Text(
                   formatTime(track.duration.toDouble()),
+                  maxLines: 1,
                   textAlign: TextAlign.right,
                   style: TextStyle(
                     fontSize: 12.5,

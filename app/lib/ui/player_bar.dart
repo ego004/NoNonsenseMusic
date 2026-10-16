@@ -10,6 +10,7 @@ import 'concept.dart';
 import 'cover.dart';
 import 'glass.dart';
 import 'in_front.dart';
+import 'layout.dart';
 import 'redesign.dart';
 import 'scope.dart';
 import 'song_row.dart';
@@ -34,7 +35,9 @@ class PlayerBar extends StatelessWidget {
         final phone = MediaQuery.sizeOf(context).width < 700;
         // the concept (13 Oct): on a computer a pill that rises a little under the pointer
         final bar = Container(
-          height: phone ? 64 : 74,
+          // taller as the text grows (Android's font size, Windows' text size): at 200% the song's title and artists
+          // overflowed the bar by 34 points (#20)
+          height: (phone ? 64 : 74) + textGrowth(context, 14 + 12.5),
           constraints: const BoxConstraints(maxWidth: 940),
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: phone
@@ -520,9 +523,10 @@ class _ProgressState extends State<Progress> {
       child: Row(
         children: [
           SizedBox(
-            width: 38,
+            width: textWidth(context, 38, 11),
             child: Text(
               formatTime(pos),
+              maxLines: 1,
               textAlign: TextAlign.right,
               style: small,
             ),
@@ -544,8 +548,8 @@ class _ProgressState extends State<Progress> {
           ),
           const SizedBox(width: 8),
           SizedBox(
-            width: 42,
-            child: Text('-${formatTime(dur - pos)}', style: small),
+            width: textWidth(context, 42, 11),
+            child: Text('-${formatTime(dur - pos)}', maxLines: 1, style: small),
           ),
         ],
       ),

@@ -239,7 +239,7 @@ class Home extends StatelessWidget {
                     seeAll: openCollection == null ? null : () => openCollection!(Collection.liked), padding: EdgeInsets.fromLTRB(side, 0, side - 8, 8)),
               // on a computer it is cut off at the margins, as the rest of the page is
               Container(
-                height: 3 * 62,
+                height: 3 * (62 + textGrowth(context, 14 + 12)), // three songs, their two lines at any text size (#20)
                 padding: EdgeInsets.symmetric(horizontal: phone ? 0 : side),
                 child: GridView.builder(
                   scrollDirection: Axis.horizontal,

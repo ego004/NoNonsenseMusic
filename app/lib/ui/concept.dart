@@ -3,6 +3,7 @@
 // window draws no extra frames. Nothing blurs live (a blur redraws every frame); the colour behind Now Playing is the
 // cover, blurred once per song (CoverBackdrop).
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import '../core/cover_image.dart';
 import '../core/play_queue.dart';
 import 'cover.dart';
 import 'in_front.dart';
+import 'layout.dart';
 import 'scope.dart';
 import '../core/models.dart' show formatTime;
 import 'waiting.dart';
@@ -354,7 +356,9 @@ class _AppleScrubberState extends State<AppleScrubber> {
     final dur = p.duration;
     final pos = (_dragged ?? p.position).clamp(0, dur > 0 ? dur : 0).toDouble();
     final active = _hover || _dragged != null;
-    final small = TextStyle(fontSize: 11.5, color: ink.withValues(alpha: active ? 0.8 : 0.55), fontFeatures: const [FontFeature.tabularFigures()]);
+    // in Now Playing, its secondary text, which reads on the cover's colours (#20)
+    final small = TextStyle(fontSize: 11.5, color: ink.withValues(alpha: active ? 0.8 : widget.inBar ? 0.55 : NowPlayingInk.secondary),
+        fontFeatures: const [FontFeature.tabularFigures()]);
     final line = LayoutBuilder(builder: (context, box) {
           double at(double x) => dur <= 0 ? 0 : (x / box.maxWidth).clamp(0, 1) * dur;
           return MouseRegion(
@@ -386,11 +390,11 @@ class _AppleScrubberState extends State<AppleScrubber> {
     return RepaintBoundary(
       child: widget.compact
           ? Row(children: [
-              SizedBox(width: 38, child: Text(formatTime(pos), textAlign: TextAlign.right, style: small)),
+              SizedBox(width: textWidth(context, 38, 11.5), child: Text(formatTime(pos), maxLines: 1, textAlign: TextAlign.right, style: small)),
               const SizedBox(width: 8),
               Expanded(child: line),
               const SizedBox(width: 8),
-              SizedBox(width: 42, child: Text('-${formatTime(dur - pos)}', style: small)),
+              SizedBox(width: textWidth(context, 42, 11.5), child: Text('-${formatTime(dur - pos)}', maxLines: 1, style: small)),
             ])
           : Column(children: [
               line,
@@ -662,13 +666,125 @@ class _HoverCoverState extends State<HoverCover> {
   }
 }
 
+/// Now Playing's text, readable on the cover behind it whatever the cover, in either theme (#20), by the Mac's rule
+/// (NowPlayingInk in Components.swift). The text took the theme's colours and the backdrop the cover's: a white cover
+/// in the dark theme put light text on a light background (the title at 2.0:1, the copy playing at 1.5:1), a black one
+/// in the light theme the opposite (the copy at 2.5:1). So the text
+/// keeps its colour and each pixel of the blurred cover is kept where it reads: mixed toward black (dark theme) or white
+/// (light) just far enough that every kind of text reaches WCAG's AA contrast on it, as it shows where the cover shows
+/// most (at its opacity, under the thinnest part of the surface's veil). A pixel that reads already is left as it is,
+/// so the cover's hue stays, deeper or paler. Done once per song and theme on the 64-pixel picture; nothing per frame.
+/// The accent's text (the artists, a noted lyric) is mixed toward the text's colour until it reads on it too.
+class NowPlayingInk {
+  /// Now Playing's levels of the text's colour, as on the Mac: secondary text 70% (it was 50 to 62%: at 55% the light
+  /// theme's reads at 3.9:1 on the bare surface), symbols 50%, unlit lyrics 60% (35% read at 2.2:1 there).
+  static const secondary = 0.7, tertiary = 0.5, unlit = 0.6;
+
+  /// WCAG 2, AA: 4.5:1 for text; 3:1 for large text (the lyrics, 24 bold) and symbols. The pixels aim [headroom] times
+  /// higher, as on the Mac: the picture is stretched with smoothing, which blends neighbours.
+  static const text = 4.5, large = 3.0, headroom = 1.1;
+
+  /// A sample of what shows behind the text now (Now Playing's backdrop sets it once per song and theme): the accent's
+  /// text is made readable on it.
+  static final behind = ValueNotifier<List<Color>>(const []);
+
+  final bool dark;
+  final Color surface, ink;
+
+  /// How much of the cover shows where it shows most: its opacity, under the thinnest part of the veil over it.
+  final double share;
+
+  NowPlayingInk(ThemeData theme, {required this.share})
+      : dark = theme.brightness == Brightness.dark,
+        surface = theme.colorScheme.surface,
+        ink = theme.colorScheme.onSurface;
+
+  /// Every kind of text: how opaque its colour is, and the contrast it needs.
+  static const roles = [(1.0, text), (secondary, text), (tertiary, large), (unlit, large)];
+
+  static double contrast(Color a, Color b) {
+    final (x, y) = (a.computeLuminance(), b.computeLuminance());
+    return x > y ? (x + 0.05) / (y + 0.05) : (y + 0.05) / (x + 0.05);
+  }
+
+  /// A cover's colour as it shows behind the text.
+  Color shown(Color cover) => Color.lerp(surface, cover, share)!;
+
+  /// Every kind of text reads on [backdrop], [over] times over.
+  bool reads(Color backdrop, {double over = 1}) =>
+      roles.every((role) => contrast(Color.alphaBlend(ink.withValues(alpha: role.$1), backdrop), backdrop) >= role.$2 * over);
+
+  /// How far [cover] must be mixed toward black (dark theme) or white (light) for every kind of text to read on it.
+  double _amount(Color cover) {
+    final away = dark ? Colors.black : Colors.white;
+    return _least((t) => reads(shown(Color.lerp(cover, away, t)!), over: headroom));
+  }
+
+  /// [cover] mixed toward black (dark theme) or white (light) just far enough that every kind of text reads on it.
+  Color kept(Color cover) => Color.lerp(cover, dark ? Colors.black : Colors.white, _amount(cover))!;
+
+  /// The cover's pixels (RGBA, opaque), each kept where the text reads. The mix is worked out once per 1/32 of each
+  /// channel, for the worst colour there (its lightest in the dark theme, darkest in the light), and given to every
+  /// pixel in it: worked out a pixel at a time, a smooth cover of 4,096 colours took 25 ms; this way 4 ms (17 Oct, a test).
+  Uint8List keep(Uint8List pixels) {
+    final out = Uint8List.fromList(pixels);
+    final (edge, to) = dark ? (7, 0) : (0, 255);
+    final amounts = <int, double>{};
+    for (var i = 0; i + 3 < out.length; i += 4) {
+      final t = amounts.putIfAbsent(out[i] >> 3 << 10 | out[i + 1] >> 3 << 5 | out[i + 2] >> 3,
+          () => _amount(Color.fromARGB(255, out[i] & ~7 | edge, out[i + 1] & ~7 | edge, out[i + 2] & ~7 | edge)));
+      if (t == 0) continue;
+      for (var c = i; c < i + 3; c++) {
+        out[c] = (out[c] + (to - out[c]) * t).round();
+      }
+    }
+    return out;
+  }
+
+  /// [accent] mixed toward the text's colour just far enough that it reads on each of [behind] (the surface when
+  /// none): as text, and as faint as an unlit noted lyric.
+  Color readable(Color accent, List<Color> behind) {
+    final under = behind.isEmpty ? [surface] : behind;
+    return Color.lerp(accent, ink, _least((t) {
+      final c = Color.lerp(accent, ink, t)!;
+      return under.every((b) =>
+          contrast(c, b) >= text * headroom && contrast(Color.alphaBlend(c.withValues(alpha: unlit), b), b) >= large * headroom);
+    }))!;
+  }
+
+  /// The least t from 0 to 1 at which [reads] holds (it holds from there on): 0 when it holds at once, else found by
+  /// halving to 1/4,000.
+  static double _least(bool Function(double) reads) {
+    if (reads(0)) return 0;
+    var (low, high) = (0.0, 1.0);
+    for (var i = 0; i < 12; i++) {
+      final middle = (low + high) / 2;
+      if (reads(middle)) {
+        high = middle;
+      } else {
+        low = middle;
+      }
+    }
+    return high;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is NowPlayingInk && other.dark == dark && other.surface == surface && other.ink == ink && other.share == share;
+
+  @override
+  int get hashCode => Object.hash(dark, surface, ink, share);
+}
+
 /// Now Playing's backdrop: the cover, decoded at 64 pixels and blurred once when the song changes, then stretched by the
 /// GPU to fill the window. It stays one still 64-pixel texture, so nothing is blurred again while the song plays. The
 /// 12-pixel cover it replaces, stretched to the window, showed its pixels as soft blocks (15 Oct). The next song's
-/// backdrop fades in over the last.
+/// backdrop fades in over the last. Now Playing's keeps its pixels where its text reads on them ([ink], #20); the window's
+/// cover glow (no [ink]) shows the cover as it is, as the Mac's window does.
 class CoverBackdrop extends StatefulWidget {
   final String url;
-  const CoverBackdrop({super.key, required this.url});
+  final NowPlayingInk? ink;
+  const CoverBackdrop({super.key, required this.url, this.ink});
   @override
   State<CoverBackdrop> createState() => _CoverBackdropState();
 }
@@ -677,6 +793,7 @@ class _CoverBackdropState extends State<CoverBackdrop> {
   static const _px = 64;
   ui.Image? _shown, _leaving; // the backdrop, and the one it fades in over
   String? _wanted;
+  Uint8List? _blurred; // the blurred cover's pixels: kept again for the other theme
   ImageStream? _stream;
   ImageStreamListener? _listener;
 
@@ -689,12 +806,17 @@ class _CoverBackdropState extends State<CoverBackdrop> {
   @override
   void didUpdateWidget(CoverBackdrop old) {
     super.didUpdateWidget(old);
-    if (old.url != widget.url) _load(widget.url);
+    if (old.url != widget.url) {
+      _load(widget.url);
+    } else if (old.ink != widget.ink && widget.ink != null && _blurred != null) {
+      _keep(widget.url, widget.ink!, _blurred!);
+    }
   }
 
   void _load(String url) {
     _stop();
     _wanted = url;
+    _blurred = null;
     final listener = ImageStreamListener((info, _) {
       _stop();
       _blur(url, info);
@@ -720,14 +842,44 @@ class _CoverBackdropState extends State<CoverBackdrop> {
     final blurred = await picture.toImage(source.width, source.height);
     picture.dispose();
     info.dispose();
+    final ink = widget.ink;
+    if (!mounted || url != _wanted || ink == null) return _show(url, blurred);
+    final bytes = await blurred.toByteData(format: ui.ImageByteFormat.rawRgba);
+    blurred.dispose();
+    if (!mounted || url != _wanted || bytes == null) return;
+    _blurred = bytes.buffer.asUint8List();
+    await _keep(url, ink, _blurred!);
+  }
+
+  /// The blurred cover with each pixel kept where the text reads, shown; and a sample of it told to the text.
+  Future<void> _keep(String url, NowPlayingInk ink, Uint8List blurred) async {
+    final pixels = ink.keep(blurred);
+    final done = Completer<ui.Image>();
+    ui.decodeImageFromPixels(pixels, _px, _px, ui.PixelFormat.rgba8888, done.complete);
+    final kept = await done.future;
+    if (!mounted || url != _wanted || ink != widget.ink) {
+      kept.dispose();
+      return;
+    }
+    // every 8th pixel each way: the picture is smooth
+    NowPlayingInk.behind.value = [
+      for (var y = 4; y < _px; y += 8)
+        for (var x = 4; x < _px; x += 8)
+          ink.shown(Color.fromARGB(255, pixels[(y * _px + x) * 4], pixels[(y * _px + x) * 4 + 1], pixels[(y * _px + x) * 4 + 2])),
+    ];
+    _show(url, kept);
+  }
+
+  /// Shows [image], fading it in over the last one.
+  void _show(String url, ui.Image image) {
     if (!mounted || url != _wanted) {
-      blurred.dispose();
+      image.dispose();
       return;
     }
     final gone = _leaving; // still drawn until this frame: released after it
     setState(() {
       _leaving = _shown;
-      _shown = blurred;
+      _shown = image;
     });
     if (gone != null) WidgetsBinding.instance.addPostFrameCallback((_) => gone.dispose());
   }

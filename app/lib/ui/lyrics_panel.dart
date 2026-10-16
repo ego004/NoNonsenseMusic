@@ -35,7 +35,7 @@ class LyricsPanel extends StatelessWidget {
       listenable: Listenable.merge([s.lyrics, s.lyrics.translations, s.settings]),
       builder: (context, _) {
         final found = s.lyrics.of(t);
-        Widget message(String text) => Center(child: Text(text, style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6))));
+        Widget message(String text) => Center(child: Text(text, style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: NowPlayingInk.secondary))));
         if (found == null) return s.lyrics.unreachable.contains(t.id) ? message('Couldn\'t reach the server') : message('Finding lyrics…');
         if (found.lines.isEmpty) return message('Couldn\'t find lyrics');
         final genius = s.lyrics.notesOf(t);
@@ -102,7 +102,7 @@ class TranslatedLyrics extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final muted = TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6));
+    final muted = TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: NowPlayingInk.secondary));
     Widget centered(List<Widget> children) => Center(child: Column(mainAxisSize: MainAxisSize.min, children: children));
     final done = translations.linesOf(songId);
     if (done == null) {
@@ -264,7 +264,7 @@ class _TimedState extends State<_Timed> {
               padding: const EdgeInsets.symmetric(horizontal: 6),
               // a line with a note opens it rather than playing from it: "Play from here" lives inside the note
               child: NotedLyricLine(text: line.text, note: widget.notes[i], url: widget.notesUrl, onTap: play, onPlay: play,
-                  style: base.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: i == _lit ? 1 : 0.35))),
+                  style: base.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: i == _lit ? 1 : NowPlayingInk.unlit))),
             ),
           );
         },
@@ -390,7 +390,7 @@ class _NoteCard extends StatelessWidget {
           Text(note.text, maxLines: 7, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium?.copyWith(height: 1.4)),
           const SizedBox(height: 8),
           Text(note.verified ? 'Genius · verified by the artist · click for all of it' : 'Genius · click for all of it',
-              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.55))),
+              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: NowPlayingInk.secondary))),
         ]),
       ),
     );
