@@ -108,8 +108,9 @@ extension SelfTest {
                     for strength in strengths {
                         let at = "\(cover.name), \(mode), strength \(strength)"
                         let colours = Backdrop.colours(of: grid, dark: dark, strength: strength, readable: true)
-                        var shown: [RGB] = []
-                        for moment in moments {
+                        // at strength 0 the mesh is not drawn at all (and a picture of nothing came back as the last one)
+                        var shown: [RGB] = strength == 0 ? [window] : []
+                        for moment in moments where strength > 0 {
                             shown += pixels(Backdrop.picture(of: colours, strength: strength, at: moment, size: size), over: window)
                         }
                         guard !shown.isEmpty else { check("\(at): the backdrop is drawn", false); continue }
@@ -130,8 +131,9 @@ extension SelfTest {
                         }
                         // before #20, for the record (the default strength and the ends): not checked
                         if strength == 0 || strength == Look.nowPlayingColour || strength == 1 {
-                            let old = pixels(Backdrop.picture(of: Backdrop.colours(of: grid, dark: dark, strength: strength, readable: false),
-                                                              strength: strength, size: size), over: window)
+                            let old = strength == 0 ? [window]
+                                : pixels(Backdrop.picture(of: Backdrop.colours(of: grid, dark: dark, strength: strength, readable: false),
+                                                          strength: strength, size: size), over: window)
                             report("readable: before #20, \(at): " + before.map { role in
                                 "\(role.name) \(ratio(old.map(role.contrast(on:)).min() ?? 0))"
                             }.joined(separator: ", "))

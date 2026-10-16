@@ -301,9 +301,10 @@ nonisolated struct RGB: Equatable, Sendable {
 /// Appearance › Surfaces › Now Playing), the backdrop still or moving (#20).
 ///
 /// The text took the system's colours, which follow only light or dark; the backdrop took the cover's. A bright cover
-/// in dark mode put light text on a light background, a dark cover in light mode the opposite (MEASURED-BEFORE). Choosing dark or light text per song would have turned Now Playing's glass,
-/// menus and controls the other way with it, and still failed on a cover half bright and half dark, where neither
-/// reads everywhere. So the text keeps its colours and the backdrop is kept where they read: each of the mesh's nine
+/// in dark mode put light text on a light background, a dark cover in light mode the opposite: the title at 1.04:1 on
+/// a white cover in dark mode, 1.03:1 on a black one in light, at the default strength (NN_SELFTEST_READABLE, 16 Oct).
+/// Choosing dark or light text per song would have turned Now Playing's glass, menus and controls the other way with
+/// it, and still failed on a cover half bright and half dark, where neither reads everywhere. So the text keeps its colours and the backdrop is kept where they read: each of the mesh's nine
 /// colours, before it is drawn, is mixed toward black (dark mode) or white (light) just far enough that every kind of
 /// text reaches WCAG's AA contrast on it, as it shows (at the colour strength, over the window's colour). A colour that
 /// reads already is left as it is: the cover's hue stays, only deeper or paler. The accent's text (the artists, a noted
@@ -312,7 +313,7 @@ nonisolated struct RGB: Equatable, Sendable {
 ///
 /// The levels: the system's label colour, then 70% and 50% of it where the system's are 55% and 25% (50% and 26% in
 /// light mode, whose secondary text reaches 3.9:1 at best, on white), and unlit lyrics at 60% of the label where they
-/// were 38% (2.7:1 on the bare dark window).
+/// were 38% (2.7:1 on a black cover in dark mode).
 @Observable
 final class NowPlayingInk {
     static let shared = NowPlayingInk()

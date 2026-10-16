@@ -216,7 +216,9 @@ extension SelfTest {
                     let underlined = noted.attribute(.underlineStyle, at: 0, effectiveRange: nil) != nil
                     check("the line with a Genius note is in another colour (the accent), not underlined",
                           colour(noted) != nil && colour(noted) != colour(plain) && !underlined)
-                    check("… and unlit it fades less (0.6 against 0.38)", abs(texts[2].opacity - 0.6) < 0.01 && abs(texts[4].opacity - 0.38) < 0.01,
+                    // unlit, a noted line and the others alike at 60%: 38% read at 2.7:1 on the bare dark window (#20)
+                    check("… and unlit it fades as the others do, to 60%", abs(texts[2].opacity - LyricLinesView.unlit) < 0.01
+                          && abs(texts[4].opacity - LyricLinesView.unlit) < 0.01,
                           String(format: "%.2f and %.2f", texts[2].opacity, texts[4].opacity))
                 } else {
                     check("the first five lines are drawn", false, "\(drawn.count) drawn")

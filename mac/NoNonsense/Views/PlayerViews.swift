@@ -805,7 +805,7 @@ final class LyricLinesView: NSView {
     private static let spacing: CGFloat = 14
     private static let inset: CGFloat = 20
     /// A line not being sung: its colour, faded (switching primary/secondary snapped, 7 Oct). 0.6, a noted line's accent
-    /// as much: at 0.38 an unlit line was 2.7:1 on the bare dark window, under the 3:1 large text needs (#20)
+    /// as much: at 0.38 an unlit line was 2.7:1 on a black cover in dark mode, under the 3:1 large text needs (#20)
     static let unlit: Float = 0.6
     private static let introGap: CGFloat = 140     // before the first line: it sits this far below the top
 
