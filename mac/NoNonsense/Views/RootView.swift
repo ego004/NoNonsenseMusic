@@ -102,7 +102,7 @@ struct RootView: View {
                             // the player's problems always warn; the library's messages bring their own symbol (✓ for "Added to …")
                             Label(message, systemImage: player.errorMessage != nil ? "exclamationmark.triangle.fill" : library.messageSymbol)
                                 .textStyle(.callout)
-                                .symbolEffect(.bounce, value: message)          // the icon hops when a new message arrives
+                                .symbolEffect(.bounce, value: reduceMotion ? "" : message)   // the icon hops when a new message arrives
                                 .padding(.horizontal, 14).padding(.vertical, 8)
                                 .compatGlass(in: .capsule)
                                 .compatGlassID("message", in: glass)
@@ -124,7 +124,7 @@ struct RootView: View {
                     }
                 }
                 // the message's spring on the message and the bar only: on the whole area, it animated the list too
-                .animation(.spring(response: 0.45, dampingFraction: 0.8), value: player.errorMessage ?? library.message)
+                .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.8), value: player.errorMessage ?? library.message)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 18)
             }
@@ -154,8 +154,10 @@ struct RootView: View {
             .windowToolbarFullScreenVisibility(player.showNowPlaying && player.current != nil ? .onHover : .automatic)
             // the strip above is the only edge: the system's own soft edge drew a second one along it
             .compatTopEdgeEffectHidden()
-            .animation(.spring(response: 0.45, dampingFraction: 0.86), value: player.current == nil)
+            .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.86), value: player.current == nil)
         }
+        // Now Playing covers the window: what is under it is out of VoiceOver's reach too, as if it were not there (#32)
+        .accessibilityHidden(player.showNowPlaying && player.current != nil)
         // the command bar's list, under its field in the toolbar: drawn in the window, so the field keeps the keyboard
         .overlay { CommandListLayer().ignoresSafeArea() }
         // Now Playing in its own host, faded in and out by Core Animation: see NowPlayingLayer
@@ -169,7 +171,7 @@ struct RootView: View {
                 if player.showNowPlaying && player.current != nil, let message = player.errorMessage ?? library.message {
                     Label(message, systemImage: player.errorMessage != nil ? "exclamationmark.triangle.fill" : library.messageSymbol)
                         .textStyle(.callout)
-                        .symbolEffect(.bounce, value: message)
+                        .symbolEffect(.bounce, value: reduceMotion ? "" : message)
                         .padding(.horizontal, 14).padding(.vertical, 8)
                         .compatGlass(in: .capsule)
                         .transition(.opacity)
@@ -268,11 +270,24 @@ struct RootView: View {
         }
         // Settings › Lyrics › when a song starts: this song's lyrics, and the next one's, so Lyrics opens ready.
         // Each song is asked for once (LyricsStore); the id also changes when Up Next is reordered
+        // VoiceOver hears what the eye sees change by itself: a new song (autoplay, a jam, the end of the last one) and
+        // the messages over the bar ("Couldn't play …", "Added to …"). Said once, politely, only when they change (#32)
+        .onChange(of: player.current?.id) { _, id in
+            if id != nil, let song = player.current { announce("Now playing: \(song.title), \(song.artistLine)") }
+        }
+        .onChange(of: player.errorMessage ?? library.message) { _, message in
+            if let message { announce(message) }
+        }
         .task(id: [player.current?.id, player.nextTrack?.id, lyricsFetch.rawValue]) {
             guard lyricsFetch == .songStart, let current = player.current else { return }
             lyrics.fetch(current)
             if let next = player.nextTrack { lyrics.fetch(next) }
         }
+    }
+
+    /// Said by VoiceOver when it is running, after what it is saying; nothing otherwise.
+    private func announce(_ text: String) {
+        AccessibilityNotification.Announcement(text).post()
     }
 
     /// The Search page itself, no page over it: it has its own field, so the command bar is not shown there.
@@ -464,6 +479,7 @@ private struct PlaylistSheets: ViewModifier {
 private struct ConnectionBanner: View {
     @Environment(ServerLauncher.self) private var server
     @Environment(LibraryStore.self) private var library
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var retrying = false
     private var connectivity: Connectivity { .shared }
 
@@ -495,6 +511,6 @@ private struct ConnectionBanner: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .compatGlass(in: .capsule)
-        .transition(.move(edge: .top).combined(with: .opacity))
+        .transition(reduceMotion ? AnyTransition.opacity : .move(edge: .top).combined(with: .opacity))
     }
 }

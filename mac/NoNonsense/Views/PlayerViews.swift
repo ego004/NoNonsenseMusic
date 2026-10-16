@@ -16,7 +16,7 @@ struct PlayerBar: View {
     private let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
 
     /// Opens Now Playing with this panel beside the song (`.none`: the song alone, the centre of attention).
-    private func open(_ panel: NowPlayingPanel, symbol: String, help: String) -> some View {
+    private func open(_ panel: NowPlayingPanel, symbol: String, title: String, shortcut: String = "") -> some View {
         Button {
             panelRaw = panel.rawValue
             player.showNowPlaying = true
@@ -25,8 +25,8 @@ struct PlayerBar: View {
         }
         .buttonStyle(.quiet)
         .foregroundStyle(.secondary)
-        .help(help)
-        .accessibilityLabel(help)
+        .help(title + shortcut)
+        .accessibilityLabel(title)                                   // the shortcut is in the help, not the name (#32)
         .selfTestFrame("bar.open.\(panel.rawValue)")
     }
 
@@ -42,10 +42,14 @@ struct PlayerBar: View {
                     }
                     .buttonStyle(.quiet(highlight: false))
                     .help("Open Now Playing (⇧⌘F)")
+                    // the bar's song, for VoiceOver, in one element that opens Now Playing (the cover had no name, #32);
+                    // the title beside it is in this name, so it is not read twice. The artists stay buttons of their own
+                    .accessibilityLabel("Now playing: \(track.title), \(track.artistLine)")
 
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
                             Text(track.title).textStyle(size: 14, weight: .semibold).lineLimit(1)
+                                .accessibilityHidden(true)
                             if track.isExplicit { ExplicitBadge() }
                         }
                         ArtistLinks(artists: track.artists).textStyle(size: 12.5).foregroundStyle(.secondary)
@@ -105,10 +109,10 @@ struct PlayerBar: View {
         HStack(spacing: 14) {
             LikeButton(track: track, font: .title3)
                 .selfTestFrame("bar.like")
-            if kept >= 3 { open(.lyrics, symbol: "quote.bubble", help: "Lyrics") }
-            if kept >= 2 { open(.upNext, symbol: "list.bullet", help: "Up Next") }
+            if kept >= 3 { open(.lyrics, symbol: "quote.bubble", title: "Lyrics") }
+            if kept >= 2 { open(.upNext, symbol: "list.bullet", title: "Up Next") }
             if kept >= 1 { VolumeControl().selfTestFrame("bar.volume") }
-            if kept >= 4 { open(.none, symbol: "arrow.up.left.and.arrow.down.right", help: "Now Playing (⇧⌘F)") }
+            if kept >= 4 { open(.none, symbol: "arrow.up.left.and.arrow.down.right", title: "Now Playing", shortcut: " (⇧⌘F)") }
         }
         .fixedSize()
         .selfTestFrame("bar.row")
@@ -166,6 +170,7 @@ struct TransportControls: View {
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Settings › Colours › Buttons; System is your Mac's accent.
     private var active: Color { theme.color(.buttons) ?? .accentColor }
@@ -175,8 +180,9 @@ struct TransportControls: View {
     var body: some View {
         HStack(spacing: compact ? 6 : 0) {
             // shuffle and repeat are the same width, one on each side: ▶ stays at the exact centre
-            Button { withAnimation(.snappy(duration: 0.25)) { player.toggleShuffle() } } label: {
-                mode(Image(systemName: "shuffle").symbolEffect(.bounce, value: player.isShuffled), on: player.isShuffled)
+            // with Reduce Motion: no hop, no growing circle (#32)
+            Button { withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { player.toggleShuffle() } } label: {
+                mode(Image(systemName: "shuffle").symbolEffect(.bounce, value: reduceMotion ? false : player.isShuffled), on: player.isShuffled)
             }
             .help(player.isShuffled ? "Shuffle is on (⌘S)" : "Shuffle (⌘S)")
             .accessibilityLabel("Shuffle")
@@ -186,7 +192,7 @@ struct TransportControls: View {
             Button { player.previous() } label: {
                 Image(systemName: "backward.fill")
                     .font(compact ? .title3 : .title)
-                    .symbolEffect(.bounce.byLayer, value: player.previousPresses)
+                    .symbolEffect(.bounce.byLayer, value: reduceMotion ? 0 : player.previousPresses)
                     .frame(width: skip, height: skip)
             }
                 .help("Previous (⌘←)")
@@ -201,6 +207,7 @@ struct TransportControls: View {
                     if player.isBuffering {
                         ProgressView()
                             .controlSize(compact ? .small : .regular)
+                            .accessibilityHidden(true)                  // the button says it: "Loading"
                             .environment(\.colorScheme, scheme == .dark ? .light : .dark)     // readable on the disc
                     } else {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
@@ -215,18 +222,19 @@ struct TransportControls: View {
             .buttonStyle(.quiet(highlight: false))                  // a square highlight around a disc looked stuck on
             .help("Play / Pause (Space)")
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+            .accessibilityValue(player.isBuffering ? "Loading" : "")
             gap
             Button { player.next() } label: {
                 Image(systemName: "forward.fill")
                     .font(compact ? .title3 : .title)
-                    .symbolEffect(.bounce.byLayer, value: player.nextPresses)
+                    .symbolEffect(.bounce.byLayer, value: reduceMotion ? 0 : player.nextPresses)
                     .frame(width: skip, height: skip)
             }
                 .help("Next (⌘→)")
                 .accessibilityLabel("Next")
             gap
 
-            Button { withAnimation(.snappy(duration: 0.25)) { player.cycleRepeat() } } label: {
+            Button { withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { player.cycleRepeat() } } label: {
                 mode(Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").contentTransition(.symbolEffect(.replace)),
                      on: player.repeatMode != .off)
             }
@@ -282,6 +290,7 @@ private struct NowPlayingVolume: View {
             Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }), in: 0...1)
                 .tint(theme.color(.volume))
                 .accessibilityLabel("Volume")
+                .accessibilityValue(player.volumeSaid)
                 // a light tick at every tenth while you drag (Settings › Trackpad › Haptic ticks), as the line does per minute
                 .sensoryFeedback(.alignment, trigger: Int((player.volume * 10).rounded())) { _, _ in haptics }
             Button { player.setVolume(1) } label: { Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary) }
@@ -318,6 +327,7 @@ struct NowPlayingView: View {
     @AppStorage("nowPlayingSolid") private var surfaceSolid = Look.nowPlayingSolid
     @AppStorage("nowPlayingColour") private var colourStrength = Look.nowPlayingColour
     @State private var isFullScreen = NSApp.keyWindow?.styleMask.contains(.fullScreen) ?? false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var panel: NowPlayingPanel { NowPlayingPanel(rawValue: panelRaw) ?? .upNext }
 
     /// The side panel and its gap from the song (15 Oct, as in the Windows app).
@@ -357,7 +367,7 @@ struct NowPlayingView: View {
                                 .frame(width: Self.panelWidth)
                                 .selfTestFrame("nowPlaying.panel")
                                 .padding(.leading, side + Self.panelGap)
-                                .transition(.opacity.combined(with: .offset(x: 30)))
+                                .transition(reduceMotion ? AnyTransition.opacity : .opacity.combined(with: .offset(x: 30)))
                         }
                     }
                     .padding(.vertical, 64).padding(.horizontal, 24)
@@ -370,8 +380,9 @@ struct NowPlayingView: View {
                 }
             }
         }
-        // the panel opening or closing: once, eased out (the Windows app's 0.42 s)
-        .animation(.timingCurve(0.215, 0.61, 0.355, 1, duration: 0.42), value: panelRaw)
+        // the panel opening or closing: once, eased out (the Windows app's 0.42 s); with Reduce Motion the song does not
+        // slide over, the panel only fades in (#32)
+        .animation(reduceMotion ? .easeOut(duration: 0.2) : .timingCurve(0.215, 0.61, 0.355, 1, duration: 0.42), value: panelRaw)
         .simultaneousGesture(MagnifyGesture().onEnded { if $0.magnification < 0.85 { player.showNowPlaying = false } })
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in isFullScreen = true }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in isFullScreen = false }
@@ -471,6 +482,8 @@ struct NowPlayingView: View {
                     .tracking(1.6)
                     .textStyle(size: 10.5, weight: .bold)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel("Now Playing")                  // not spelt out letter by letter
+                    .accessibilityAddTraits(.isHeader)
                     .selfTestFrame("nowPlaying.title")
                 if let album = track.albumTitle {
                     Text(album).textStyle(size: 13, weight: .semibold).foregroundStyle(.primary.opacity(0.85)).lineLimit(1)
@@ -490,6 +503,7 @@ struct NowPlayingView: View {
                 }
                 .buttonStyle(.quiet(highlight: false))
                 .help(isFullScreen ? "Exit Full Screen (⌃⌘F)" : "Full Screen (⌃⌘F)")
+                .accessibilityLabel(isFullScreen ? "Exit Full Screen" : "Full Screen")     // it had no name (#32)
             }
             .fixedSize()
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -595,7 +609,7 @@ struct LyricsPanel: View {
 
     private func header(_ state: LyricsStore.State?, notes: GeniusNotes?, language: Locale.Language?) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("Lyrics").textStyle(.headline)
+            Text("Lyrics").textStyle(.headline).accessibilityAddTraits(.isHeader)
             Spacer()
             // lyrics in another language: their translation, made on this Mac
             if language != nil {
@@ -618,6 +632,7 @@ struct LyricsPanel: View {
                 Button { aboutShown.toggle() } label: { Image(systemName: "info.circle") }
                     .buttonStyle(.quiet)
                     .help("About This Song")
+                    .accessibilityLabel("About This Song")                  // it had no name (#32)
                     .selfTestFrame("lyrics.about")
                     .popover(isPresented: $aboutShown, arrowEdge: .bottom) { GeniusAboutCard(about: about, url: notes?.url) }
             }
@@ -676,6 +691,7 @@ private struct TimedLyricsView: View {
     @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion       // seconds per line change (Settings › Lyrics)
     @AppStorage("buttonFeedback") private var feedback = Look.buttonFeedback  // the highlight under the pointer
     @Environment(ThemeStore.self) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var current: Int?
     let active: Bool                                   // false while hidden behind Up Next: the lines ignore the mouse
     let notes: [Int: GeniusNote]                       // Genius notes by line: those lines are in the accent; a click opens one
@@ -692,7 +708,8 @@ private struct TimedLyricsView: View {
 
     var body: some View {
         // the noted lines take the accent (Settings › Colours › Buttons; System is your Mac's)
-        LyricLines(lines: lyrics.lines, current: current, motion: motion, fontSize: LyricsFont.size * textScale, feedback: feedback,
+        // with Reduce Motion the lit line changes at once, the strip moved without a glide (#32)
+        LyricLines(lines: lyrics.lines, current: current, motion: reduceMotion ? 0 : motion, fontSize: LyricsFont.size * textScale, feedback: feedback,
                    active: active, noted: Set(notes.keys), accent: theme.color(.buttons) ?? .accentColor,
                    openNote: { openNote = NoteAnchor(line: $0, rect: $1) }) {
             jump(to: $0)
@@ -1247,7 +1264,7 @@ struct UpNextView: View {
         let entries = player.upNextEntries                 // a copy of the queue's tail: once, not three times (#12)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Up Next").textStyle(.headline)
+                Text("Up Next").textStyle(.headline).accessibilityAddTraits(.isHeader)
                 Spacer()
                 AutoplayButton()
                 if !entries.isEmpty {
@@ -1346,9 +1363,14 @@ private struct UpNextRow: View {
             Divider()
             Button("Remove from Up Next", role: .destructive, action: remove)
         }
-        .accessibilityElement(children: .combine)
+        // one element: the song and its artists (the artists went missing, #32), Play as its press, Remove as an action;
+        // Move Up and Move Down come from the stack it is in
+        .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("\(track.title). Click to play now; drag to move")
+        .accessibilityLabel("\(track.title), \(track.artistLine)")
+        .accessibilityHint("Plays now")
+        .accessibilityAction { play() }
+        .accessibilityAction(named: "Remove from Up Next", remove)
     }
 }
 
@@ -1368,6 +1390,9 @@ private struct NotedLine: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.rect)
             .onTapGesture { open = true }
+            .accessibilityAddTraits(.isButton)                     // a line with a note opens it (#32)
+            .accessibilityHint("Opens its Genius note")
+            .accessibilityAction { open = true }
             .popover(isPresented: $open, arrowEdge: .leading) { GeniusNoteCard(note: note, url: url) }
     }
 }

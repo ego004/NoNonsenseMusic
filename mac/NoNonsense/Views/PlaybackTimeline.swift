@@ -45,7 +45,8 @@ struct PlaybackTimeline: View {
                        timesBelow: timesBelow,
                        timesAfter: timesAfter,
                        fill: NSColor(theme.color(.progress) ?? Color.primary.opacity(timesAfter ? 0.8 : 0.7)),
-                       now: { [player] in player.livePosition })
+                       now: { [player] in player.livePosition },
+                       seek: { [player] seconds in player.seek(by: seconds) })
             .frame(height: timesBelow ? 14 + fontSize * 1.5 : max(14, fontSize * 1.4))
             .overlay {
                 // the drag area: the line (between the two times, or the full width above them). Home's has none
@@ -73,9 +74,8 @@ struct PlaybackTimeline: View {
             }
             // while scrubbing: a tick each time the drag crosses a whole minute
             .sensoryFeedback(.alignment, trigger: dragged.map { Int($0 / 60) }) { _, _ in haptics && dragged != nil }
-            .accessibilityElement()
-            .accessibilityLabel("Progress")
-            .accessibilityValue("\(formatTime(player.livePosition)) of \(formatTime(player.duration))")
+            // VoiceOver reads the layers' view itself, a slider whose time is worked out when it is read: the value given
+            // here before was the time of this body's last run, a play or a pause ago (#32)
     }
 }
 
@@ -91,12 +91,14 @@ private struct TimelineLayers: NSViewRepresentable {
     let timesAfter: Bool
     let fill: NSColor
     let now: () -> Double
+    let seek: (Double) -> Void
 
     func makeNSView(context: Context) -> TimelineLayersView { TimelineLayersView() }
 
     func updateNSView(_ view: TimelineLayersView, context: Context) {
         view.configure(running: running, duration: duration, shown: dragged, thickness: thickness, fontSize: fontSize,
                        labelWidth: labelWidth, timesBelow: timesBelow, timesAfter: timesAfter, fill: fill, now: now)
+        view.seek = seek
     }
 }
 
@@ -117,6 +119,8 @@ final class TimelineLayersView: NSView {
     private var timesAfter = false                             // Home: "0:26 / 3:36" in one layer after the line
     private var fill = NSColor.labelColor
     private var now: () -> Double = { 0 }
+    /// Moves the song on or back by so many seconds: VoiceOver's increment and decrement, 5 s as ← and → (#32).
+    var seek: (Double) -> Void = { _ in }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -249,6 +253,21 @@ final class TimelineLayersView: NSView {
         }
         CATransaction.commit()
     }
+
+    // MARK: - VoiceOver (#32)
+    // A slider named "Progress" whose value is said "1:12 of 3:45": worked out when VoiceOver reads it, so it is the time
+    // now and costs nothing while nobody asks (no timer, no SwiftUI body). VO-↑ and VO-↓ seek 5 s, as → and ← do.
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .slider }
+    override func accessibilityLabel() -> String? { "Progress" }
+    override func accessibilityValue() -> Any? { NSNumber(value: max(0, shown ?? now())) }
+    override func accessibilityMinValue() -> Any? { NSNumber(value: 0) }
+    override func accessibilityMaxValue() -> Any? { NSNumber(value: duration) }
+    override func accessibilityValueDescription() -> String? { "\(formatTime(max(0, shown ?? now()))) of \(formatTime(duration))" }
+    override func accessibilityPerformIncrement() -> Bool { seek(5); return true }
+    override func accessibilityPerformDecrement() -> Bool { seek(-5); return true }
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? { self }    // clicks pass through (hitTest), VoiceOver's do not
 
     #if DEBUG
     /// Self-tests: is the played part animating, and what does the elapsed time say

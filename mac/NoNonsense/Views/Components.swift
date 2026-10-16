@@ -29,6 +29,9 @@ struct ArtworkView: View {
         .frame(width: size, height: size)
         .clipShape(.rect(cornerRadius: radius, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(.primary.opacity(0.08), lineWidth: 0.5) }
+        // a cover always sits beside its title, or in a button that is named: VoiceOver read an unnamed picture, or
+        // "music note", before every row (#32)
+        .accessibilityHidden(true)
         .task(id: url) {
             guard let url else { image = nil; return }
             // keep showing the current cover while the next one loads; swap only when it is ready
@@ -367,7 +370,8 @@ final class LiveArtworkView: NSView {
         let path = shadowPath(playing)
         let now = stage.presentation() ?? stage
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        if !first {
+        // with Reduce Motion the cover takes its new size at once: no spring (#32)
+        if !first && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             let spring = CASpringAnimation(perceptualDuration: 0.52, bounce: 0.3)
             spring.keyPath = "transform.scale"
             spring.fromValue = now.value(forKeyPath: "transform.scale")
@@ -456,7 +460,9 @@ final class LiveArtworkView: NSView {
     }
 
     /// From 94% to full size with a soft spring: SwiftUI's spring(response: 0.5, dampingFraction: 0.85), as before.
+    /// None with Reduce Motion (#32): the new cover's crossfade is enough.
     private func grow() {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         let spring = CASpringAnimation(perceptualDuration: 0.5, bounce: 0.15)
         spring.keyPath = "transform.scale"
         spring.fromValue = 0.94
@@ -549,14 +555,19 @@ struct PlayingSpeaker: View {
     var color: Color? = nil                      // the bars' colour (shape styles cannot reach a layer); nil: white
     @AppStorage("animatedSpeaker") private var animated = Look.animatedSpeaker
     @Environment(Player.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        // still while Now Playing covers the lists: its blur re-blurs the whole window whenever anything under it moves
-        if playing && animated && !player.showNowPlaying {
-            EqualizerBars(color: NSColor(color ?? .white)).frame(width: 12, height: 11)
-        } else {
-            Image(systemName: playing ? "speaker.wave.2.fill" : "play.fill").font(font).foregroundStyle(style)
+        // still while Now Playing covers the lists: its blur re-blurs the whole window whenever anything under it moves;
+        // and with Reduce Motion, where bars moving for as long as a song plays are what it asks to stop (#32)
+        Group {
+            if playing && animated && !reduceMotion && !player.showNowPlaying {
+                EqualizerBars(color: NSColor(color ?? .white)).frame(width: 12, height: 11)
+            } else {
+                Image(systemName: playing ? "speaker.wave.2.fill" : "play.fill").font(font).foregroundStyle(style)
+            }
         }
+        .accessibilityHidden(true)                               // a mark: the row or button it is in says "playing"
     }
 }
 
@@ -636,6 +647,7 @@ struct LikeButton: View {
     var font: Font = .body
     @Environment(LibraryStore.self) private var library
     @Environment(ThemeStore.self) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Settings › Colours › Heart; System is the system pink.
     private var heart: Color { theme.color(.heart) ?? Color(nsColor: .systemPink) }
@@ -649,10 +661,13 @@ struct LikeButton: View {
                 .font(font)
                 .foregroundStyle(liked ? AnyShapeStyle(heart) : AnyShapeStyle(.secondary))
                 .contentTransition(.symbolEffect(.replace))
-                .symbolEffect(.bounce, value: liked)
+                .symbolEffect(.bounce, value: reduceMotion ? false : liked)     // no hop with Reduce Motion
         }
         .buttonStyle(.quiet)
         .help(liked ? "Remove from Liked" : "Like")
+        // VoiceOver said the symbol's own name ("heart", "heart fill"): a name, and the state as its value (#32)
+        .accessibilityLabel("Like")
+        .accessibilityValue(liked ? "Liked" : "Not liked")
     }
 }
 
@@ -946,7 +961,26 @@ struct VolumeControl: View {
                 .sensoryFeedback(.levelChange, trigger: Int((player.volume * 10).rounded())) { _, _ in haptics }   // a tick every 10%
                 .help("Volume (⌘↑ / ⌘↓)")
                 .accessibilityLabel("Volume")
+                .accessibilityValue(player.volumeSaid)
         }
+    }
+}
+
+extension Player {
+    /// The volume as VoiceOver says it, "40%": the slider's own value was read as "1" or "0.4" (#32).
+    var volumeSaid: String { "\(Int((volume * 100).rounded()))%" }
+}
+
+extension View {
+    /// A tile or card that a click opens or plays, as VoiceOver gets it: one button named with all it shows ("Gym, 12
+    /// songs · 48 min", "Title, Artists"), the click as its press, and the ▶ that shows under the pointer as a Play
+    /// action. Before, each said only "Open Gym" or "Play Title" (#32).
+    func accessibleTile(_ label: String, play: (() -> Void)? = nil, action: @escaping () -> Void) -> some View {
+        accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(label)
+            .accessibilityAction(.default, action)
+            .accessibilityActions { if let play { Button("Play", action: play) } }
     }
 }
 

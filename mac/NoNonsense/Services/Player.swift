@@ -391,7 +391,7 @@ final class Player {
             seek(by: event.keyCode == 124 ? 5 : -5)
             return true
         case 49:                                            // Space
-            guard current != nil else { return false }
+            guard current != nil, !controlHasKeyboard(focused) else { return false }
             togglePlayPause()
             return true
         default:
@@ -409,6 +409,15 @@ final class Player {
         default:
             return false
         }
+    }
+
+    /// With Keyboard navigation on (System Settings › Keyboard), Tab moves the keyboard from control to control and Space
+    /// presses the one it is on, as everywhere on the Mac: that control takes Space, not play and pause (#32). The window
+    /// itself, or a list, holding the keyboard is not a control (Space plays there, as before); with Keyboard navigation
+    /// off nothing changes.
+    private func controlHasKeyboard(_ responder: NSResponder?) -> Bool {
+        guard NSApp.isFullKeyboardAccessEnabled, let responder else { return false }
+        return !(responder is NSWindow || responder is NSTableView)
     }
 
     /// Two-finger swipe across the player bar: left = next song, right = previous. One skip per swipe;
