@@ -48,6 +48,7 @@ jobs:
       - name: Widget, as macOS sees it (embedded and sandboxed; what pluginkit and chronod say of an ad-hoc signed one)
         working-directory: mac
         run: |
+          sw_vers
           app=build/Build/Products/Release/NoNonsenseMusic.app
           ext=$app/Contents/PlugIns/NoNonsenseWidget.appex
           ls -d "$ext"
@@ -57,16 +58,23 @@ jobs:
           ditto "$app" /Applications/NoNonsenseMusic.app
           /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -R -trusted /Applications/NoNonsenseMusic.app
           pluginkit -a /Applications/NoNonsenseMusic.app/Contents/PlugIns/NoNonsenseWidget.appex || true
-          open -g /Applications/NoNonsenseMusic.app --args -serverURL http://127.0.0.1:8799 -discordEnabled NO
-          sleep 25
-          pkill -x NoNonsenseMusic || true
-          echo "--- pluginkit: ours, then every widget extension"
+          sleep 5
+          echo "--- 1. registered: pluginkit, then chronod and ExtensionKit"
           pluginkit -m -A -v -i app.nononsense.music.widget || true
-          pluginkit -m -A -v -p com.apple.widgetkit-extension | head -30
-          echo "--- chronod and pkd on ours"
-          log show --start "$since" --info --debug --style compact --predicate 'process == "chronod" OR process == "pkd"'             | grep -iE "nononsense|purg|restricted|cache it" | head -80
-          echo "--- chronod, everything (first 80 lines)"
-          log show --start "$since" --info --debug --style compact --predicate 'process == "chronod"' | head -80
+          log show --start "$since" --info --debug --style compact             --predicate 'process == "chronod" AND (eventMessage CONTAINS[c] "nononsense" OR eventMessage CONTAINS "not entitled")' | head -40
+          echo "--- 2. the app has run (a gallery lists only apps that have), then chronod starts afresh and reads every extension"
+          open -g /Applications/NoNonsenseMusic.app --args -serverURL http://127.0.0.1:8799 -discordEnabled NO
+          sleep 20
+          pkill -x NoNonsenseMusic || true
+          again=$(date '+%Y-%m-%d %H:%M:%S')
+          killall chronod || true
+          sleep 3
+          open -g -b com.apple.notificationcenterui || true            # asks chronod for widgets: launchd starts it again
+          sleep 25
+          pgrep -lx chronod || echo "chronod not running"
+          log show --start "$again" --info --debug --style compact             --predicate 'process == "chronod" AND (eventMessage CONTAINS[c] "nononsense" OR eventMessage CONTAINS "purging" OR eventMessage CONTAINS "not entitled")' | head -60
+          echo "--- 3. for comparison, an Apple widget in the same pass"
+          log show --start "$again" --info --debug --style compact             --predicate 'process == "chronod" AND eventMessage CONTAINS "com.apple.Notes.WidgetExtension"' | head -8
       - name: Test database (PostgreSQL 18, music_test) and the server's packages
         run: |
           brew install postgresql@18 uv
