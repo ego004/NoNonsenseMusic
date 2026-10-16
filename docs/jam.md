@@ -40,7 +40,7 @@ keeps time with the music rather than with the server's clock.
 | `add` (end of the queue) | yes | | yes |
 | `add` with placement `next` or `now` | yes | | refused: the apps send it as `end` and say so |
 | `play`, `pause`, `seek`, `skip`, `remove`, `move`, `jump` | yes | | refused: the apps do not send them and say so |
-| `ended` | yes (see "The song ends") | | yes |
+| `ended` | yes, near the song's end (see "The song ends") | yes, at any point | yes |
 | `position` | | yes | |
 | `only_host_plays`, `only_host_controls` | | yes | |
 | give the host's role, remove a member, invite a friend | | yes | |
@@ -97,10 +97,14 @@ A member's player is muted while `only_host_plays` is on or the member turned Pl
 ## The song ends
 
 Every app that plays the room's song to its end sends `ended` with the entry's id, once. The server moves the room on
-(as Next) at the first one, if that entry is still the current song and the playhead is within 3 s of the song's end (or
-its length is unknown), and ignores the others. So the room moves on when the song ends, whichever device is first, even
-when the host's app is gone or hung (#28); a device whose copy is shorter cannot cut the song short for the others; and
-an end reported twice moves the room once. (Windows' player reports an end up to three times: sent as two skips, they
+(as Next) at the first one that counts, if that entry is still the current song, and ignores the rest:
+- the host's counts whatever the playhead: the host's player is the room's clock, and when every copy is shorter than
+  the listing says (a radio edit, YouTube Music copies of a JioSaavn listing), only the host's end comes, early;
+- a member's counts only within 3 s of the song's end by the room's clock (or when its length is unknown), so a member
+  whose copy is shorter cannot cut the song short for the others, and the room still moves on when the host's app is
+  gone or hung (#28).
+
+An end reported twice moves the room once. (Windows' player reports an end up to three times: sent as two skips, they
 had the room jump over the next song, 17 Oct.)
 
 A copy that will not play on one device is that device's alone: it tries the song's other copies, as outside a jam;
@@ -174,7 +178,8 @@ own test server on CI, with songs made on the runner: no internet).
 3. Play and pause, by the host and by a member: the room and every player follow.
 4. Seek, by the host and by a member: every player moves to it; under 2.5 s apart nothing moves.
 5. Next and Previous: the next song for everyone; Previous restarts the song.
-6. The song ends: the first `ended` moves the room on; a second, or one far from the end, does nothing.
+6. The song ends: the host's `ended` moves the room on, and a member's near the end; a second, or a member's far from
+   the end, does nothing.
 7. The host leaves: the next member is host, and is told.
 8. A slow load: the song starts at the playhead as it is when it is ready.
 9. A failed copy: the next copy plays; when none does, the room is not skipped.

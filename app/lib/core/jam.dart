@@ -518,9 +518,9 @@ class JamSession extends ChangeNotifier {
     if (!_locked()) _send(JamCommand.move(entry.entryId, toIndex));
   }
 
-  /// The room's song played to its end on this device. Every member's app says so; the server moves the room on at
-  /// the first one near the end (docs/jam.md), so the room no longer waits for the host's app. A copy that would not
-  /// play is not an end: it is this device's alone.
+  /// The room's song played to its end on this device. Every member's app says so; the server moves the room on at the
+  /// host's, or at a member's near the end (docs/jam.md), so the room no longer waits for the host's app. A copy that
+  /// would not play is not an end: it is this device's alone.
   void songEnded() {
     final entry = _loadedEntry;
     // once per entry: Windows' player reports a song's end up to three times (17 Oct); as two skips, they had the room

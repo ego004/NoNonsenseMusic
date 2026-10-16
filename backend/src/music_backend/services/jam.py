@@ -45,9 +45,11 @@ CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # no l/1/0/o: a code read al
 # players never stopped (a deploy takes about 4 s, 14 Oct), so the playhead counts the time between; after longer, the
 # room waits, paused where it was
 RESUME_WITHIN = 60
-# seconds: an `ended` moves the room on only this close to the song's end by the room's clock. Every member's app sends
-# one when the song ends there, so the room no longer waits for the host's app (gone, or hung as in #28); and a copy a
-# second or two shorter than the host's (YouTube's video against YouTube Music's song) cannot cut the song for the others
+# seconds: a member's `ended` moves the room on only this close to the song's end by the room's clock. Every member's app
+# sends one when the song ends there, so the room no longer waits for the host's app (gone, or hung as in #28); and a
+# member's copy a second or two shorter than the host's (YouTube's video against YouTube Music's song) cannot cut the song
+# for the others. The host's is taken whatever the playhead: its player is the room's clock, and when every copy is
+# shorter than the listing says (a radio edit, YouTube Music copies of a JioSaavn listing) only the host's end moves on
 END_WITHIN = 3.0
 
 
@@ -333,12 +335,13 @@ class JamHub:
                                  skip=sender)
             return
         if cmd.type == "ended":
-            # every member's app sends it as the song ends there: the first one near the end moves the room on; the
-            # others, and one far from the end, change nothing and answer nothing
+            # every member's app sends it as the song ends there: the host's moves the room on, and so does the first
+            # member's near the end; the others (the same entry again, or a member's far from the end) change nothing
+            # and answer nothing
             if cmd.entry_id is None or room.current is None or cmd.entry_id != room.current.entry_id:
                 return
             duration = room.current.listing.duration
-            if duration > 0 and self.playhead(room) < duration - END_WITHIN:
+            if user_id != room.host_id and duration > 0 and self.playhead(room) < duration - END_WITHIN:
                 return
             self._advance(room)
         if cmd.type == "play":

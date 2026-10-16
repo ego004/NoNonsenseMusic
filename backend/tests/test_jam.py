@@ -776,6 +776,23 @@ async def test_6_the_first_ended_near_the_end_moves_the_room_on_and_the_rest_do_
 
 
 @pytest.mark.anyio
+async def test_6_the_hosts_early_ended_moves_the_room_and_a_members_does_not():
+    """Every copy shorter than the listing says (a radio edit, YouTube Music copies of a JioSaavn listing): every end
+    comes early. The host's player is the room's clock, so its end moves the room; a member's alone would not."""
+    hub = jam.JamHub()
+    room, host, member, host_ws, member_ws = two_people_in_a_room(hub)
+    await hub.handle_command(room, host, JamCommand(type="add", listings=[make_listing(1, 200), make_listing(2)]), host_ws)
+    first = room.current.entry_id
+    room.position_seconds, room.position_at = 190.0, time.time()             # 10 s before the listed end
+    await hub.handle_command(room, member, JamCommand(type="ended", entry_id=first), member_ws)
+    assert room.current.entry_id == first, "a member's shorter copy cannot cut the song for the others"
+    await hub.handle_command(room, host, JamCommand(type="ended", entry_id=first), host_ws)
+    assert room.current.listing.title == "Song 2" and room.is_playing, "the host's end moves the room: it does not stick"
+    await hub.handle_command(room, host, JamCommand(type="ended", entry_id=first), host_ws)
+    assert room.current.listing.title == "Song 2", "an end reported twice moves the room once"
+
+
+@pytest.mark.anyio
 async def test_ended_with_no_known_length_moves_on_and_is_open_to_a_member_the_host_controls():
     hub = jam.JamHub()
     room, host, member, host_ws, member_ws = two_people_in_a_room(hub)

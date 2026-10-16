@@ -376,8 +376,8 @@ final class JamSession {
     }
 
     /// The room's song played to its end on this Mac. Every member's app says so; the server moves the room on at the
-    /// first one near the end (docs/jam.md), so the room no longer waits for the host's app. A copy that would not play
-    /// is not an end: it is this Mac's alone.
+    /// host's, or at a member's near the end (docs/jam.md), so the room no longer waits for the host's app. A copy that
+    /// would not play is not an end: it is this Mac's alone.
     func songEnded() {
         if let loadedEntry { send(JamCommand(type: "ended", entryID: loadedEntry), quietly: true) }
     }
