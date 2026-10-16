@@ -264,6 +264,7 @@ struct RootView: View {
             JamSession.shared.me = account.user?.id
             await server.ensureRunning()     // starts the backend if nothing answers (Services/ServerLauncher.swift)
             await Connectivity.shared.checkServer()
+            await JamSession.shared.resume()                 // back in the jam this Mac was in when the app last ran
             await library.refresh()
         }
         // Settings › Lyrics › when a song starts: this song's lyrics, and the next one's, so Lyrics opens ready.

@@ -206,7 +206,7 @@ private struct RoomView: View {
                     Text(entry.listing.artists.joined(separator: ", ")).textStyle(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 6)
-                Button { jam.togglePlay() } label: {
+                Button { jam.setPlaying(!room.isPlaying) } label: {     // what this button shows: the room
                     Image(systemName: room.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 28, height: 28)
                 }
                 .buttonStyle(.quiet)

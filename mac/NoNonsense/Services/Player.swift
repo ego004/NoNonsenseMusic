@@ -249,7 +249,7 @@ final class Player {
     #endif
 
     func togglePlayPause() {
-        if let jam { jam.togglePlay(); return }
+        if let jam { jam.setPlaying(!isPlaying); return }          // what the button shows, as on Windows (docs/jam.md)
         guard current != nil else { return }
         // after "Stopped: … Press play to try again" the loaded copy is the one that failed: play() on it did nothing
         // (isPlaying on, no sound). Play means: try this song again, from its first copy
@@ -709,6 +709,12 @@ final class Player {
 
     private func giveUp(_ track: Track, because reason: String?) {
         isBuffering = false
+        // in a jam a copy failing is this Mac's alone: the room plays on, and this Mac waits for the next song
+        // (docs/jam.md). A skip here moved the room on for everyone: a member's failure until 12 Oct, the host's until 17 Oct
+        if jam != nil {
+            show("Couldn't play “\(track.title)”." + (reason.map { " " + $0 } ?? "") + " The jam plays on.", seconds: 6)
+            return
+        }
         failuresInARow += 1
         // three songs in a row would not play: something is wrong for all of them (no internet, the server gone, a
         // source blocking us). Stop and say so, instead of trying the whole queue: with no internet it cycled (7 Oct)
@@ -722,8 +728,6 @@ final class Player {
             return
         }
         show("Couldn't play “\(track.title)”." + (reason.map { " " + $0 } ?? ""), seconds: 6)
-        // in a jam the room moves on: a local seek to 0 would have reset everyone's playhead and stalled the room
-        if let jam { jam.songEnded(); return }
         // repeat on and nothing in the queue plays: one full round of failures, then stop instead of looping forever
         go(to: failuresInARow >= queue.count ? nil : order.indexAfterNext())
     }
@@ -772,6 +776,7 @@ final class Player {
 
     private func itemEnded(_ item: AVPlayerItem?) {
         guard item === player.currentItem, let track = current else { return }
+        // in a jam the room moves on at the first device to finish (docs/jam.md)
         if let jam { report("finish", track, at: Int(duration)); jam.songEnded(); return }
         report("finish", track, at: Int(duration))
         let after = order.indexAfterEnd()
