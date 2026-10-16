@@ -23,6 +23,8 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
+      # the taskbar buttons in the real runner (#22): their presses reach Dart, and the toolbar goes on where a taskbar is
+      - run: flutter test integration_test/taskbar_buttons_test.dart -d windows
       - run: flutter build windows --release
       - uses: actions/upload-artifact@v4
         with:

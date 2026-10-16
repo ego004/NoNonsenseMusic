@@ -21,6 +21,7 @@ import 'core/media_controls.dart';
 import 'core/player.dart';
 import 'core/jam.dart';
 import 'core/settings.dart';
+import 'core/taskbar_buttons.dart';
 import 'core/social.dart';
 import 'core/accent.dart';
 import 'ui/in_front.dart';
@@ -57,6 +58,7 @@ Future<void> main() async {
   final started = auth.start(); // The stored token, checked with the server: the sign-in screen or the app.
   MediaControls(player).start();
   HomeScreenWidget(player, library, auth, accent).start(); // Android's home-screen widget
+  if (Platform.isWindows) TaskbarButtons(player, library, auth).start(); // Previous, Play, Next under the taskbar preview
   settings.addListener(() => applyMaterial(settings));
   await applyMaterial(settings);
   watchInFront();

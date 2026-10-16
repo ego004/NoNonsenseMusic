@@ -47,6 +47,33 @@ class WidgetAction {
   String toString() => kind;
 }
 
+/// Runs a press from outside the window: Android's home-screen widget, Windows' taskbar buttons (TaskbarButtons).
+/// Play with nothing loaded resumes the latest play.
+Future<void> runPress(WidgetAction a, Player player, Library library) async {
+  void resume() {
+    final recent = library.recent.map((s) => s.track).toList();
+    if (recent.isNotEmpty) player.play(recent);
+  }
+
+  switch (a.kind) {
+    case 'toggle':
+      player.current == null ? resume() : player.togglePlayPause();
+    case 'next':
+      await player.next();
+    case 'previous':
+      await player.previous();
+    case 'back10':
+      if (player.current != null) await player.seekBy(-10);
+    case 'forward10':
+      if (player.current != null) await player.seekBy(10);
+    case 'like':
+      final t = player.current;
+      if (t != null) await library.toggleLike(t);
+    case 'resume':
+      resume();
+  }
+}
+
 /// What the widget draws, as the plain map it is stored as.
 abstract final class HomeWidgetState {
   /// Nothing loaded: the song shown is the latest play, which Play resumes (no queue is kept between launches).
@@ -105,7 +132,7 @@ class HomeScreenWidget {
     _channel.setMethodCallHandler((call) async {
       if (call.method != 'press') return;
       final a = WidgetAction.parse(call.arguments as String);
-      if (a != null) await run(a);
+      if (a != null) await runPress(a, player, library);
     });
     for (final l in _followed) {
       l.addListener(_changed);
@@ -138,32 +165,7 @@ class HomeScreenWidget {
     if (a == null || auth.user == null) return;
     if ((a.kind == 'resume' || a.kind == 'toggle') && library.recent.isEmpty) return;
     PlaylistLinks.widgetPress.value = null;
-    unawaited(run(a));
-  }
-
-  Future<void> run(WidgetAction a) async {
-    switch (a.kind) {
-      case 'toggle':
-        player.current == null ? _resume() : player.togglePlayPause();
-      case 'next':
-        await player.next();
-      case 'previous':
-        await player.previous();
-      case 'back10':
-        if (player.current != null) await player.seekBy(-10);
-      case 'forward10':
-        if (player.current != null) await player.seekBy(10);
-      case 'like':
-        final t = player.current;
-        if (t != null) await library.toggleLike(t);
-      case 'resume':
-        _resume();
-    }
-  }
-
-  void _resume() {
-    final recent = library.recent.map((s) => s.track).toList();
-    if (recent.isNotEmpty) player.play(recent);
+    unawaited(runPress(a, player, library));
   }
 
   Future<void> _write() async {
