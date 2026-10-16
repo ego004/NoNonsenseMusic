@@ -175,6 +175,16 @@ jobs:
             -discordEnabled NO -ApplePersistenceIgnoreState YES > commandbar.log 2>&1 || true
           grep SELFTEST commandbar.log
           grep -q "commandbar: all checks pass" commandbar.log
+      - name: Self-test, Now Playing's text on any cover (NN_SELFTEST_READABLE)
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          env NN_SELFTEST_READABLE=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 300 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > readable.log 2>&1 || true
+          grep SELFTEST readable.log
+          grep -q "readable: all checks pass" readable.log
       - name: CPU at rest on Home (NN_SELFTEST_IDLE; the Debug build, so above what you would see; a number, not a check)
         if: ${{ !cancelled() }}
         continue-on-error: true

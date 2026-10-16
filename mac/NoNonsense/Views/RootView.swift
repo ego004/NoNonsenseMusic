@@ -343,14 +343,18 @@ private struct NowPlayingLayer: NSViewRepresentable {
     }
 }
 
-/// What RootView gives every screen, given again inside Now Playing's own host: the tint and the text size.
+/// What RootView gives every screen, given again inside Now Playing's own host: the tint and the text size. Over the
+/// cover's colours the tint is made readable on them, and secondary and tertiary text are Now Playing's own, which
+/// read where the system's do not (NowPlayingInk, #20).
 private struct NowPlayingRoot: View {
     @Environment(ThemeStore.self) private var theme
+    @Environment(\.colorScheme) private var scheme
     @AppStorage("textScale") private var textScale = Look.textScale
 
     var body: some View {
         NowPlayingView()
-            .tint(theme.color(.buttons))
+            .tint(NowPlayingInk.shared.readable(theme.color(.buttons), dark: scheme == .dark))
+            .foregroundStyle(Color(nsColor: .labelColor), Color(nsColor: NowPlayingInk.secondary), Color(nsColor: NowPlayingInk.tertiary))
             .environment(\.textScale, textScale)
     }
 }

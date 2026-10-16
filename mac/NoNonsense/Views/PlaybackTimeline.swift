@@ -20,6 +20,9 @@ struct PlaybackTimeline: View {
     var timesAfter = false
     /// A text size of its own, in points before Settings › Text size (Home's 12.5); nil: `textStyle`'s.
     var textSize: CGFloat? = nil
+    /// The times' colour: Now Playing's secondary text, which reads on the cover's colours (#20); nil: the system's
+    /// secondary text (Home's, 60% of the label).
+    var timesColour: NSColor? = nil
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
     @Environment(\.textScale) private var textScale
@@ -45,6 +48,7 @@ struct PlaybackTimeline: View {
                        timesBelow: timesBelow,
                        timesAfter: timesAfter,
                        fill: NSColor(theme.color(.progress) ?? Color.primary.opacity(timesAfter ? 0.8 : 0.7)),
+                       times: timesColour ?? (timesAfter ? NSColor.labelColor.withAlphaComponent(0.6) : .secondaryLabelColor),
                        now: { [player] in player.livePosition })
             .frame(height: timesBelow ? 14 + fontSize * 1.5 : max(14, fontSize * 1.4))
             .overlay {
@@ -90,13 +94,14 @@ private struct TimelineLayers: NSViewRepresentable {
     let timesBelow: Bool
     let timesAfter: Bool
     let fill: NSColor
+    let times: NSColor
     let now: () -> Double
 
     func makeNSView(context: Context) -> TimelineLayersView { TimelineLayersView() }
 
     func updateNSView(_ view: TimelineLayersView, context: Context) {
         view.configure(running: running, duration: duration, shown: dragged, thickness: thickness, fontSize: fontSize,
-                       labelWidth: labelWidth, timesBelow: timesBelow, timesAfter: timesAfter, fill: fill, now: now)
+                       labelWidth: labelWidth, timesBelow: timesBelow, timesAfter: timesAfter, fill: fill, times: times, now: now)
     }
 }
 
@@ -116,6 +121,7 @@ final class TimelineLayersView: NSView {
     private var timesBelow = false
     private var timesAfter = false                             // Home: "0:26 / 3:36" in one layer after the line
     private var fill = NSColor.labelColor
+    private var times = NSColor.secondaryLabelColor
     private var now: () -> Double = { 0 }
 
     override init(frame: NSRect) {
@@ -135,12 +141,12 @@ final class TimelineLayersView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }      // SwiftUI's overlay takes the clicks and drags
 
     func configure(running: Bool, duration: Double, shown: Double?, thickness: CGFloat, fontSize: CGFloat,
-                   labelWidth: CGFloat, timesBelow: Bool, timesAfter: Bool, fill: NSColor, now: @escaping () -> Double) {
+                   labelWidth: CGFloat, timesBelow: Bool, timesAfter: Bool, fill: NSColor, times: NSColor, now: @escaping () -> Double) {
         let restyled = fontSize != self.fontSize || fill != self.fill || thickness != self.thickness || labelWidth != self.labelWidth
             || timesBelow != self.timesBelow || timesAfter != self.timesAfter
         self.running = running; self.duration = duration; self.shown = shown; self.now = now
         self.thickness = thickness; self.fontSize = fontSize; self.labelWidth = labelWidth; self.timesBelow = timesBelow; self.fill = fill
-        self.timesAfter = timesAfter
+        self.timesAfter = timesAfter; self.times = times              // the times take it at once (restart)
         if restyled { needsLayout = true }
         restart()
     }
@@ -237,7 +243,7 @@ final class TimelineLayersView: NSView {
     private func setTimes() {
         let time = max(0, shown ?? now())
         let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
-        let colour = resolved(timesAfter ? NSColor.labelColor.withAlphaComponent(0.6) : .secondaryLabelColor)
+        let colour = resolved(times)
         func text(_ s: String) -> NSAttributedString { NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: colour]) }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if timesAfter {
