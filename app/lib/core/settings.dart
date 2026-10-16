@@ -8,6 +8,7 @@ import 'auth.dart';
 import 'lyrics.dart';
 import 'models.dart';
 import 'player.dart';
+import 'translation.dart';
 
 /// The window's background on Windows, drawn by Windows itself rather than by the app (no CPU of the app's), with the
 /// app's panels as glass over it. Solid Dark and Solid Light set the theme too (themeFor).
@@ -52,6 +53,10 @@ class Settings extends ChangeNotifier {
 
   /// Lyrics › Translate: whether lyrics in another language show with their translation. Off by default and kept.
   bool translateLyrics = false;
+
+  /// Settings › Lyrics › Translate into: one of [LyricsTranslations.languages], or '' (the default) for the device's
+  /// language.
+  String translateInto = '';
 
   /// The name this device shows in the user's list of signed-in devices.
   /// The user chooses it on the sign-in screen; it starts as the computer's name ([Auth.computerName]).
@@ -99,6 +104,9 @@ class Settings extends ChangeNotifier {
     checkUpdates = _p.getBool('checkUpdates') ?? true;
     skippedUpdate = _p.getString('skippedUpdate');
     translateLyrics = _p.getBool('lyricsTranslated') ?? false;
+    // a language no longer offered is the device's again
+    final into = _p.getString('translateInto') ?? '';
+    translateInto = LyricsTranslations.languages.containsKey(into) ? into : '';
     deviceName = _p.getString('deviceName') ?? Auth.computerName;
     theme =
         ThemeMode.values.asNameMap()[_p.getString('theme')] ?? ThemeMode.system;
@@ -114,7 +122,7 @@ class Settings extends ChangeNotifier {
   }
 
   /// Copy the settings into the globals the rest of the app reads: the server URL, the explicit-track
-  /// preference, and the two lyric options.
+  /// preference, and the three lyric options.
   void _apply() {
     Api.base = server;
     Track.prefersExplicit = explicit;
@@ -123,6 +131,7 @@ class Settings extends ChangeNotifier {
     Player.autoplaySkipsRecent = autoplaySkipsRecent;
     LyricsStore.early = lyricsEarly;
     LyricsStore.genius = geniusNotes;
+    LyricsStore.translateInto = translateInto;
     AudioCache.shared.limitMB = audioCacheMB;
   }
 
@@ -183,6 +192,10 @@ class Settings extends ChangeNotifier {
       _set('skippedUpdate', version, () => skippedUpdate = version);
   Future<void> setTranslateLyrics(bool on) =>
       _set('lyricsTranslated', on, () => translateLyrics = on);
+
+  /// The lyrics showing translated are translated again into [language] (kept per language, LyricsTranslations).
+  Future<void> setTranslateInto(String language) =>
+      _set('translateInto', language, () => translateInto = language);
 
   /// [s] as the app joins paths to it: trimmed, without trailing slashes, with a scheme; blank is the SERVER
   /// compile-time define. Api joins `$base/$path`, so "https://host/" asked for "https://host//search", which the

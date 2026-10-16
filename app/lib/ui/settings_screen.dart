@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/discord.dart';
 import '../core/settings.dart';
+import '../core/translation.dart';
 import 'account_settings.dart';
 import 'layout.dart';
 import 'scope.dart';
@@ -186,6 +187,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
         ),
         _slider(context, 'Line movement', s.settings.lyricsMotion, 0.3, 1.5, 'Quick', 'Slow', s.settings.setLyricsMotion),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Translate into'),
+          subtitle: const Text('For Translate in Lyrics. Google translates them; only their text is sent.'),
+          trailing: _Fit(child: DropdownButton<String>(isExpanded: true,
+            value: s.settings.translateInto,
+            onChanged: (v) { if (v != null) s.settings.setTranslateInto(v); },
+            items: [
+              const DropdownMenuItem(value: '', child: Text('System language')),
+              for (final MapEntry(key: code, value: name) in LyricsTranslations.languages.entries)
+                DropdownMenuItem(value: code, child: Text(name)),
+            ],
+          )),
+        ),
         SwitchListTile(
           value: s.settings.geniusNotes,
           onChanged: s.settings.setGeniusNotes,
