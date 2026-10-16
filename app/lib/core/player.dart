@@ -129,10 +129,10 @@ class Player extends ChangeNotifier implements JamPlayer {
       {int startAt = 0, List<String>? keys, String? source, bool shuffled = false, bool wholeList = false}) async {
     if (jam != null) {
       if (startAt >= tracks.length) return;
-      jam!.add(wholeList ? (shuffled ? ([...tracks]..shuffle()) : tracks.sublist(startAt)).take(50).toList() : [tracks[startAt]],
+      // the jam says what it did (JamSession.add)
+      return jam!.add(
+          wholeList ? (shuffled ? ([...tracks]..shuffle()) : tracks.sublist(startAt)).take(50).toList() : [tracks[startAt]],
           placement: 'now');
-      _show('Playing in the jam');
-      return;
     }
     await _skipIfPlaying();
     queue.load(tracks, startAt, keys: keys, source: source, shuffled: shuffled);
@@ -141,10 +141,7 @@ class Player extends ChangeNotifier implements JamPlayer {
   }
 
   void playNext(Track t) {
-    if (jam != null) {
-      jam!.add([t], placement: 'next');
-      return _show('Plays next in the jam');
-    }
+    if (jam != null) return jam!.add([t], placement: 'next');
     if (current == null) { play([t]); return; }
     queue.insertNext(t);
     _announce();
@@ -152,10 +149,7 @@ class Player extends ChangeNotifier implements JamPlayer {
   }
 
   void addToQueue(Track t) {
-    if (jam != null) {
-      jam!.add([t]);
-      return _show('Added to the jam');
-    }
+    if (jam != null) return jam!.add([t]);
     if (current == null) { play([t]); return; }
     queue.append(t);
     _announce();
@@ -238,7 +232,7 @@ class Player extends ChangeNotifier implements JamPlayer {
   }
 
   void togglePlayPause() {
-    if (jam != null) return jam!.togglePlay();
+    if (jam != null) return jam!.setPlaying(!isPlaying); // what the button shows, as on the Mac (docs/jam.md)
     if (current == null) return;
     _audio.playing ? _pause() : _play();
   }
@@ -256,7 +250,6 @@ class Player extends ChangeNotifier implements JamPlayer {
   }
 
   Future<void> seekBy(double seconds) async {
-    if (jam != null && !jam!.isHost) return; // a remote has no song of its own to measure from
     seek((await readPosition() + seconds).clamp(0, duration));
   }
 
@@ -342,15 +335,18 @@ class Player extends ChangeNotifier implements JamPlayer {
   bool get jamLoading => _loading;
 
   @override
-  JamCarry? get jamCarry {
-    final t = current;
-    if (t == null || !isPlaying) return null;
-    final playing = t.listings[_copy.clamp(0, t.listings.length - 1)];
-    return JamCarry(playing, position, JamCommand.otherCopies(t, playing: playing));
+  String? get jamPlayingKey => playingListing?.key;
+
+  @override
+  JamSong? get jamSong {
+    final t = current, playing = playingListing;
+    if (t == null || playing == null) return null;
+    return JamSong(playing, position, playing: isPlaying, copies: JamCommand.otherCopies(t, playing: playing));
   }
 
   @override
-  Track? get jamOnScreen => current;
+  Future<List<Track>> jamRadio(Listing seed, List<Listing> exclude) async =>
+      autoplay ? Catalog.radio(seed, exclude, limit: 10, skipRecent: autoplaySkipsRecent) : const <Track>[];
 
   @override
   void jamSay(String text) => _show(text);
@@ -567,6 +563,9 @@ class Player extends ChangeNotifier implements JamPlayer {
       _load(t.listings[next], start: start);
       return;
     }
+    // In a jam a copy failing is this device's alone: the room plays on, and this device waits for the next song
+    // (docs/jam.md). A skip here moved the room on for everyone: a member's failure until 12 Oct, the host's until 17 Oct
+    if (jam != null) return _show("Couldn't play “${t.title}”. The jam plays on.");
     _failuresInARow++;
     if (_failuresInARow >= 3) {
       _failuresInARow = 0;
@@ -575,17 +574,13 @@ class Player extends ChangeNotifier implements JamPlayer {
       return;
     }
     _show("Couldn't play “${t.title}”.");
-    // In a jam every member's device plays the room's song: one device's copies failing is that device's alone. A skip
-    // here moved the whole room on for everyone; the room moves on only when it is the host's song that will not play
-    // (as Player.giveUp does on the Mac)
-    if (jam != null) return jam!.songEnded();
     _go(queue.indexAfterNext());
   }
 
   void _ended() {
     _failuresInARow = 0; // a song played to its end
     _report('finish', current, duration.round());
-    if (jam != null) return jam!.songEnded(); // the room decides what follows
+    if (jam != null) return jam!.songEnded(); // the room moves on at the first device to finish (docs/jam.md)
     _go(queue.indexAfterEnd());
   }
 

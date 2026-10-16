@@ -36,8 +36,9 @@ Future<SocketLink> _connectIo(Uri url) async =>
 /// done, and the socket does the rest.
 ///
 /// Each connection needs a single-use ticket (`POST /ws-ticket`), so the session token never goes into a URL. The
-/// server closes a silent socket after 30 s, so the socket sends the text "ping" every 25 s; between messages it
-/// waits, which costs no CPU. A dropped connection is retried after 1 s, then after twice as long each time it fails
+/// server closes a silent socket after 30 s, so the socket sends the text "ping" once it has sent nothing for 25 s: a
+/// jam host's position reports, every 15 s, keep it open on their own (docs/jam.md). Between messages it waits, which
+/// costs no CPU. A dropped connection is retried after 1 s, then after twice as long each time it fails
 /// to connect, up to 60 s while the server is away.
 class LiveSocket {
   LiveSocket({
@@ -69,6 +70,7 @@ class LiveSocket {
   bool _running = false;
   SocketLink? _link;
   Completer<void>? _nap;
+  Timer? _pinger;
 
   bool get isRunning => _running;
 
@@ -86,6 +88,7 @@ class LiveSocket {
   void stop() {
     _running = false;
     _run++;
+    _pinger?.cancel();
     _link?.close();
     _link = null;
     final nap = _nap;
@@ -98,10 +101,19 @@ class LiveSocket {
     if (link == null) return false;
     try {
       link.send(text);
-      return true;
     } catch (_) {
       return false;
     }
+    _quiet(link);
+    return true;
+  }
+
+  /// "ping" once [link] has sent nothing for [pingEvery]: one timer, set again by every message sent.
+  void _quiet(SocketLink link) {
+    _pinger?.cancel();
+    _pinger = Timer(pingEvery, () {
+      if (identical(_link, link) && !send('ping')) link.close(); // a link that cannot send is gone: connect again
+    });
   }
 
   /// The WebSocket address for [path] on the server: ws:// for http, wss:// for https.
@@ -159,6 +171,7 @@ class LiveSocket {
       return false;
     }
     _link = link;
+    _quiet(link);
     var heard = false;
     final ended = Completer<void>();
     void end() {
@@ -174,18 +187,13 @@ class LiveSocket {
         debugPrint('socket $path: could not handle a message: $e\n$s');
       }
     }, onError: (Object _) => end(), onDone: end);
-    final pinger = Timer.periodic(pingEvery, (_) {
-      try {
-        link.send('ping');
-      } catch (_) {
-        end();
-      }
-    });
     await ended.future;
-    pinger.cancel();
     await subscription.cancel();
     link.close();
-    if (identical(_link, link)) _link = null;
+    if (identical(_link, link)) {
+      _link = null;
+      _pinger?.cancel();
+    }
     return heard;
   }
 }

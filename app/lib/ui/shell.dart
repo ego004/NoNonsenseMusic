@@ -135,7 +135,8 @@ class _ShellState extends State<Shell> {
     JamSession.shared
       ..player = s.player
       ..me = s.auth.user?.id
-      ..addListener(_sayJamEnded);
+      ..addListener(_sayJamEnded)
+      ..resume(); // back in the jam this device was in when the app last ran (docs/jam.md)
     Social.shared.start();
   }
 

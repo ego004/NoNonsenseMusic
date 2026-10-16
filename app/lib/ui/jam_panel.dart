@@ -300,7 +300,7 @@ class _RoomViewState extends State<_RoomView> {
         ),
         IconButton(
           tooltip: room.isPlaying ? 'Pause' : 'Play',
-          onPressed: jam.togglePlay,
+          onPressed: () => jam.setPlaying(!room.isPlaying), // what this button shows: the room
           icon: Icon(room.isPlaying ? FluentIcons.pause_24_filled : FluentIcons.play_24_filled),
         ),
         IconButton(tooltip: 'Next', onPressed: jam.skip, icon: const Icon(FluentIcons.next_24_filled)),

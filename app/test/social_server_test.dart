@@ -84,7 +84,7 @@ void main() {
     const song = Listing(source: 'jiosaavn', id: 'live-test-song', title: 'Live Test Song', artists: ['Alex'], duration: 180);
     jam.add([Track(song, [song])]);
     await until(() => jam.state!.current?.listing.id == 'live-test-song', 'the added song to become current');
-    jam.togglePlay();
+    jam.setPlaying(false);
     await until(() => jam.state!.isPlaying != true, 'the pause to reach the room');
 
     await jam.leave();
