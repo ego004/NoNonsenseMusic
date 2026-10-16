@@ -96,10 +96,12 @@ A member's player is muted while `only_host_plays` is on or the member turned Pl
 
 ## The song ends
 
-Every app that plays the room's song to its end sends `ended` with the entry's id. The server moves the room on (as
-Next) at the first one, if that entry is still the current song and the playhead is within 3 s of the song's end (or its
-length is unknown), and ignores the others. So the room moves on when the song ends, whichever device is first, even
-when the host's app is gone or hung (#28); and a device whose copy is shorter cannot cut the song short for the others.
+Every app that plays the room's song to its end sends `ended` with the entry's id, once. The server moves the room on
+(as Next) at the first one, if that entry is still the current song and the playhead is within 3 s of the song's end (or
+its length is unknown), and ignores the others. So the room moves on when the song ends, whichever device is first, even
+when the host's app is gone or hung (#28); a device whose copy is shorter cannot cut the song short for the others; and
+an end reported twice moves the room once. (Windows' player reports an end up to three times: sent as two skips, they
+had the room jump over the next song, 17 Oct.)
 
 A copy that will not play on one device is that device's alone: it tries the song's other copies, as outside a jam;
 when none plays it says so and waits for the next song. The room is not skipped for everyone (a member's failing copy

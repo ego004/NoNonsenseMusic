@@ -523,8 +523,14 @@ class JamSession extends ChangeNotifier {
   /// play is not an end: it is this device's alone.
   void songEnded() {
     final entry = _loadedEntry;
-    if (entry != null) _send(JamCommand.ended(entry), quietly: true);
+    // once per entry: Windows' player reports a song's end up to three times (17 Oct); as two skips, they had the room
+    // jump over the next song
+    if (entry == null || entry == _endedEntry) return;
+    _endedEntry = entry;
+    _send(JamCommand.ended(entry), quietly: true);
   }
+
+  String? _endedEntry;
 
   /// Sends [command] over the room's socket. While it is not connected (just joined, or connecting again) nothing is
   /// sent and the user is told: a command sent late could pause the room long after the button was pressed.

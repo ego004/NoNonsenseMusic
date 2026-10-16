@@ -254,7 +254,9 @@ void main() {
     test('6. every member says when the song ended here: the entry it loaded, not one the room moved to', () async {
       await joinAsMember(roomJson(host: 'u2', current: entry('e1', listing('a'))));
       jam.songEnded();
-      expect(sent().single, {'type': 'ended', 'entry_id': 'e1'}, reason: 'not the host: the room no longer waits for it');
+      jam.songEnded();
+      expect(sent().single, {'type': 'ended', 'entry_id': 'e1'},
+          reason: 'not the host: the room no longer waits for it; and once, though Windows reports an end up to three times');
     });
 
     test('7. the host leaving makes the next member host, who is told and runs Autoplay', () async {
