@@ -319,8 +319,17 @@ final class NowPlayingInk {
     static let shared = NowPlayingInk()
 
     /// Now Playing's secondary and tertiary text (RootView's NowPlayingRoot sets them for all of it).
-    static let secondary = NSColor.labelColor.withAlphaComponent(0.7)
-    static let tertiary = NSColor.labelColor.withAlphaComponent(0.5)
+    static let secondary = level(0.7)
+    static let tertiary = level(0.5)
+
+    /// The text's colour, white in dark mode and black in light (the label colour's own), at `alpha`, following light or
+    /// dark as the system's colours do. `labelColor.withAlphaComponent` kept the mode it was made in: in dark mode it
+    /// drew black text on a black cover (the self-test's pictures, 16 Oct).
+    private nonisolated static func level(_ alpha: Double) -> NSColor {
+        NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor.white : NSColor.black).withAlphaComponent(alpha)
+        }
+    }
     /// WCAG 2, AA: 4.5:1 for text; 3:1 for large text (the lyrics, 24 pt extra bold) and symbols.
     static let text = 4.5
     static let large = 3.0

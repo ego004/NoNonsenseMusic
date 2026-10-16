@@ -97,6 +97,13 @@ extension SelfTest {
                 let window = ground.window
                 report(String(format: "readable: %@ mode: window %.3f %.3f %.3f, text %.0f%% of %.0f %.0f %.0f", mode, window.r, window.g, window.b,
                               labelAlpha * 100, label.r * 255, label.g * 255, label.b * 255))
+                // the levels follow light and dark: made from labelColor with another alpha, they stayed black in dark mode
+                for (name, level, alpha) in [("secondary", NowPlayingInk.secondary, 0.7), ("tertiary", NowPlayingInk.tertiary, 0.5)] {
+                    let got = NowPlayingInk.Ground.resolved(level, dark: dark)
+                    check("\(mode) mode: \(name) text is the text's own colour at \(Int(alpha * 100))%",
+                          got.colour == label && abs(got.alpha - alpha) < 0.01,
+                          String(format: "%.0f %.0f %.0f at %.2f", got.colour.r * 255, got.colour.g * 255, got.colour.b * 255, got.alpha))
+                }
                 // the text as it was before #20: the system's secondary text, unlit lyrics at 38% of the label
                 let before = [NowPlayingInk.Role(name: "text", colour: label, alpha: labelAlpha, target: NowPlayingInk.text),
                               NowPlayingInk.Role(name: "secondary text", colour: label,
