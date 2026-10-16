@@ -144,7 +144,7 @@ extension SelfTest {
             }
             report("translateinto: from English (Spanish for English) on this Mac: \(statuses.joined(separator: ", "))")
             check("each language offered is one Apple's framework translates", unsupported.isEmpty, unsupported.joined(separator: ", "))
-            let apple = await LanguageAvailability().supportedLanguages
+            let apple = await Task.detached { await LanguageAvailability().supportedLanguages }.value   // made and asked off the main actor
             report("translateinto: Apple's framework translates \(apple.count): \(apple.map(\.minimalIdentifier).sorted().joined(separator: " "))")
             check("the uploader's translation is used only in the chosen language: English into English, not into Hindi",
                   LyricsTranslations.provided(sung(es, translations: en), in: english) == en
@@ -185,14 +185,14 @@ extension SelfTest {
             UserDefaults.standard.set(true, forKey: "lyricsTranslated")
             UserDefaults.standard.set("en", forKey: "translateInto")
             if !player.isMuted { player.toggleMute() }
-            func madeUp(_ name: String, _ found: [LyricLine]) -> Track {
+            @MainActor func madeUp(_ name: String, _ found: [LyricLine]) -> Track {
                 let listing = Listing(source: "jiosaavn", id: "selftest-translateinto-\(name)-\(UInt32.random(in: 0 ... .max))",
                                       title: "Made-Up \(name) Song", artists: ["Kai"], album: nil, duration: 200, popularity: nil, image: nil)
                 let track = Track(best: listing, listings: [listing])
                 lyrics.give(Lyrics(lyricsSource: "lrclib", synced: true, lines: found), notes: nil, for: track)
                 return track
             }
-            func timedShown() -> Bool {
+            @MainActor func timedShown() -> Bool {
                 NSApp.windows.compactMap { $0.contentView?.superview }.flatMap { descendants(of: $0) }.contains { $0 is LyricLinesView }
             }
             let first = madeUp("Spanish", sung(es, translations: en))
