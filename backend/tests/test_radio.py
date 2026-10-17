@@ -160,6 +160,16 @@ def test_radio_finds_the_video_of_a_song_not_stored_yet(client, monkeypatch):
     assert searched == ["Nanchaku Seedhe Maut"] and asked == ["nanchaku001"]
 
 
+def test_radio_finds_the_video_when_one_title_names_the_film(client, monkeypatch):
+    # JioSaavn's "Kesariya" is YouTube Music's "Kesariya (From "Brahmastra")": 21 of 82 JioSaavn songs missed so (17 Oct)
+    searching(monkeypatch, [ytmusic_copy("kesariya001", 'Kesariya (From "Brahmastra")', ["Arijit Singh"])])
+    asked = asking(monkeypatch, ytmusic, [listing("from-ytm")])
+    store(client, Listing(source="jiosaavn", id="jio-kesariya", title="Kesariya", artists=["Pritam", "Arijit Singh"],
+                          album=None, duration=268, popularity=None))
+    client.post("/radio", json=radio(seed_source="jiosaavn", seed_id="jio-kesariya"))
+    assert asked == ["kesariya001"]
+
+
 def test_radio_never_starts_from_another_songs_video(client, monkeypatch):
     # YouTube Music's first result for a title is not always the song ("Pasoori" gave "Jhol" first, 14 Oct)
     searching(monkeypatch, [ytmusic_copy("other000001", "Jhol", ["Maanu"])])
@@ -184,6 +194,25 @@ def test_radio_drops_a_song_played_as_its_plain_youtube_copy(client, monkeypatch
     r = client.post("/radio", json=radio(seed_source="ytmusic", seed_id="seed",
                                          exclude=[{"source": "youtube", "source_id": "vidPlayed01"}]))
     assert [s["best"]["id"] for s in r.json()["songs"]] == ["vidFresh001"]
+
+
+def test_radio_reads_the_station_past_what_it_drops(client, monkeypatch):
+    # the next refill asks for the same song's station: its next songs lie past the 30 already queued (17 Oct)
+    from music_backend.main import STATION_DEPTH
+    station = [ytmusic_copy("seed", "Seed")] + [Listing(source="ytmusic", id=f"v{i:02}", title=f"Song {i}", artists=[f"A{i}"],
+                                                        album=None, duration=200, popularity=None) for i in range(60)]
+    asked = []
+
+    async def deep(source_id, limit=25):
+        asked.append(limit)
+        return station[:limit]
+    monkeypatch.setattr(ytmusic, "radio", deep)
+    queued = [{"source": "ytmusic", "source_id": f"v{i:02}"} for i in range(30)]
+    r = client.post("/radio", json=radio(seed_source="ytmusic", seed_id="seed", exclude=queued, limit=20))
+    assert [s["best"]["id"] for s in r.json()["songs"]] == [f"v{i:02}" for i in range(30, 50)]
+    many = [{"source": "jiosaavn", "source_id": str(i)} for i in range(100)]
+    client.post("/radio", json=radio(seed_source="ytmusic", seed_id="seed", exclude=many, limit=50))
+    assert asked == [20 + 1 + 31, STATION_DEPTH]                     # the queued songs and the seed; then at most 150
 
 
 def test_radio_respects_the_limit(client, monkeypatch):

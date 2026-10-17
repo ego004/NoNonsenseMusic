@@ -114,7 +114,9 @@ did that until 12 Oct; the host's did until this spec).
 ## Autoplay
 
 The host's app, with Autoplay on: when the room has one song or fewer queued, it asks the radio for songs like the last
-one and adds them to the end, once per song asked about. One app asks, not every member's.
+one a person chose, never one Autoplay added (seeded from those, each refill drifted further off), leaving out the
+room's songs and the ones Autoplay added before, and adds them to the end, once per song asked about. One app asks, not
+every member's.
 
 ## Connections, restarts and the room going away
 

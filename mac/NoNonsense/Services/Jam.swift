@@ -272,7 +272,9 @@ final class JamSession {
         state = nil
         problem = nil
         loadedEntry = nil
-        radioSeed = nil
+        radioAskedAfter = nil
+        station = nil
+        autoplayed = []
         playHere = true
         player?.jamSetSilent(false)
         player?.jam = nil
@@ -397,24 +399,31 @@ final class JamSession {
 
     // MARK: Autoplay for the room
 
-    @ObservationIgnored private var radioSeed: String?
+    @ObservationIgnored private var radioAskedAfter: String?
     @ObservationIgnored private var radioAsking = false
+    /// What this host's Autoplay added to the room, oldest first, and the song their station follows.
+    @ObservationIgnored private var autoplayed: [Listing] = []
+    @ObservationIgnored private var station: Listing?
 
     /// The room's Autoplay, run by the host alone (one app asks, not every member's): when one song or fewer is left in
-    /// the queue, songs like the room's last one are added, as Up Next does outside a jam. Once per seed, and only after
-    /// an answer, so a failure is asked again at the next change.
+    /// the queue, songs like the last one a person chose are added, as Up Next does outside a jam. Once per song asked
+    /// about, and only after an answer, so a failure is asked again at the next change.
     private func refillIfNeeded(_ room: JamState) {
         guard isHost, Player.autoplay, room.queue.count <= 1, !radioAsking,
-              let last = room.queue.last?.listing ?? room.current?.listing, radioSeed != last.key else { return }
-        let exclude = ([room.current?.listing].compactMap { $0 }) + room.queue.map(\.listing)
+              let last = room.queue.last?.listing ?? room.current?.listing, radioAskedAfter != last.key else { return }
+        // a song Autoplay added never seeds it: the station goes on from the last song a person chose (docs/jam.md)
+        let seed = autoplayed.contains(where: { $0.key == last.key }) ? station ?? last : last
+        let exclude = autoplayed + ([room.current?.listing].compactMap { $0 }) + room.queue.map(\.listing)
         radioAsking = true
         Task {
             defer { radioAsking = false }
-            guard let songs = try? await API.radio(seed: last, exclude: exclude, limit: 10,
+            guard let songs = try? await API.radio(seed: seed, exclude: exclude, limit: 10,
                                                   skipRecent: Player.autoplaySkipsRecent), !songs.isEmpty,
                   state?.roomID == room.roomID else { return }
-            radioSeed = last.key
+            radioAskedAfter = last.key
+            station = seed
             let tracks = songs.map { Track($0) }
+            autoplayed += tracks.map(\.best)
             send(JamCommand(type: "add", listings: tracks.map(\.best), copies: tracks.map { Self.otherCopies($0) }), quietly: true)
         }
     }

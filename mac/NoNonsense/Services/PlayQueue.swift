@@ -53,6 +53,8 @@ struct PlayQueue {
     var nextTrack: Track? { entries.indices.contains(index + 1) ? entries[index + 1].track : nil }
     /// The entries after the current one, in play order: what Up Next shows (each with its own key, for a list).
     var upcoming: [Entry] { entries.indices.contains(index + 1) ? Array(entries[(index + 1)...]) : [] }
+    /// The song Autoplay's station follows: the last one in the queue that Autoplay did not add.
+    var autoplaySeed: Track? { entries.last { !$0.autoplay }?.track }
 
     /// A new queue. `keys` name the entries (playlist item ids); without them each entry gets its own.
     mutating func load(_ tracks: [Track], startAt i: Int, keys: [String]? = nil, source: String? = nil, shuffled: Bool) {

@@ -630,6 +630,14 @@ async def test_ytmusic_radio_parses_the_watch_playlist(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_ytmusic_radio_keeps_every_track_read_each_video_once(monkeypatch):
+    # a page holds ~50 tracks whatever the limit, and the pages after the first repeat a few of its songs (17 Oct)
+    tracks = [watch_track(f"v{i}", f"Song {i}", "3:00") for i in range(50)] + [watch_track("v3", "Song 3", "3:00")]
+    monkeypatch.setattr(ytmusic, "client", lambda: FakeYTMusicRadio(watch_playlist={"tracks": tracks}))
+    assert [l.id for l in await ytmusic.radio("v0", 21)] == [f"v{i}" for i in range(50)]
+
+
+@pytest.mark.anyio
 async def test_ytmusic_radio_a_made_up_video_is_empty(monkeypatch):
     monkeypatch.setattr(ytmusic, "client", lambda: FakeYTMusicRadio())  # get_watch_playlist raises KeyError
     assert await ytmusic.radio("nope", 25) == []

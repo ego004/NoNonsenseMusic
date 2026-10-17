@@ -18,7 +18,7 @@ void main() {
     expect(autoplay.due(queueOf(5, at: 2), enabled: true), isNotNull, reason: '2 left');
   });
 
-  test('once per seed: the same last song is not asked about again, a new last song is', () {
+  test('once per last song: the same last song is not asked about again, a new last song is', () {
     final autoplay = Autoplay();
     final q = queueOf(3, at: 1);
     expect(autoplay.due(q, enabled: true)!.lastId, 'jiosaavn:id-s2');
@@ -27,6 +27,21 @@ void main() {
     expect(autoplay.due(q, enabled: true)!.lastId, 'jiosaavn:id-radio');
     autoplay.reset();
     expect(autoplay.due(q, enabled: true), isNotNull, reason: 'a new queue starts over');
+  });
+
+  test('every refill follows the last song the user chose, never one Autoplay added', () {
+    final autoplay = Autoplay();
+    final q = queueOf(2, at: 1);
+    expect(autoplay.due(q, enabled: true)!.seed.id, 'id-s1');
+    q
+      ..appendAutoplay(song('r1'))
+      ..appendAutoplay(song('r2'));
+    expect(autoplay.due(q, enabled: true)!.seed.id, 'id-s1', reason: 'not r2: seeded from it, refills drifted off');
+    q
+      ..append(song('mine'))
+      ..appendAutoplay(song('r3'))
+      ..moveTo(3);
+    expect(autoplay.due(q, enabled: true)!.seed.id, 'id-mine', reason: 'a song the user queues is the station from then on');
   });
 
   test('never with repeat on, with Autoplay off, or while a jam decides', () {

@@ -379,7 +379,9 @@ class JamSession extends ChangeNotifier {
     final was = state;
     state = null;
     problem = null;
-    _loadedEntry = _radioSeed = null;
+    _loadedEntry = _radioAskedAfter = null;
+    _station = null;
+    _autoplayed.clear();
     _playHere = true;
     player?.jamSetSilent(false);
     player?.jam = null;
@@ -627,23 +629,31 @@ class JamSession extends ChangeNotifier {
     if (!p.jamLoading && (p.position - at).abs() > seekBeyond) p.jamFollowSeek(at);
   }
 
-  String? _radioSeed;
+  String? _radioAskedAfter;
   bool _radioAsking = false;
+  // what this host's Autoplay added to the room, oldest first, and the song their station follows
+  final _autoplayed = <Listing>[];
+  Listing? _station;
 
   /// The room's Autoplay, run by the host's app alone (one app asks, not every member's): with one song or fewer
-  /// queued, songs like the last one are added at the end, once per song asked about, and only after an answer, so a
-  /// failure is asked again at the next change. As on the Mac; a room hosted here used to run dry.
+  /// queued, songs like the last one a person chose are added at the end, once per song asked about, and only after an
+  /// answer, so a failure is asked again at the next change. As on the Mac; a room hosted here used to run dry.
   Future<void> _refill(JamState room) async {
     final last = (room.queue.lastOrNull ?? room.current)?.listing;
     final p = player;
-    if (room.hostId != me || p == null || room.queue.length > 1 || _radioAsking || last == null || _radioSeed == last.key) {
+    if (room.hostId != me || p == null || room.queue.length > 1 || _radioAsking || last == null ||
+        _radioAskedAfter == last.key) {
       return;
     }
+    // a song Autoplay added never seeds it: the station goes on from the last song a person chose (docs/jam.md)
+    final seed = _autoplayed.any((l) => l.key == last.key) ? _station ?? last : last;
     _radioAsking = true;
     try {
-      final songs = await p.jamRadio(last, [?room.current?.listing, for (final e in room.queue) e.listing]);
+      final songs = await p.jamRadio(seed, [..._autoplayed, ?room.current?.listing, for (final e in room.queue) e.listing]);
       if (songs.isEmpty || state?.roomId != room.roomId) return;
-      _radioSeed = last.key;
+      _radioAskedAfter = last.key;
+      _station = seed;
+      _autoplayed.addAll([for (final t in songs) t.best]);
       _send(JamCommand.add([for (final t in songs) t.best], copies: [for (final t in songs) JamCommand.otherCopies(t)]),
           quietly: true);
     } catch (_) {
