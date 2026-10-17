@@ -103,7 +103,7 @@ final class Player {
         guard tracks.indices.contains(i) else { return }
         if let jam { jam.add([tracks[i]], .now); return }   // in a jam: this song plays for the room at once, not the list
         reportSkipIfNeeded()
-        radioSeed = nil                                   // a new queue: Autoplay may seed from it, whatever came before
+        radioAskedAfter = nil                             // a new queue: Autoplay may ask for it, whatever came before
         order.load(tracks, startAt: i, keys: keys, source: source, shuffled: shufflePreferred)
         startCurrent()
     }
@@ -203,33 +203,41 @@ final class Player {
     /// Autoplay was switched on: the queue may need songs now.
     func upNextChanged() { refillIfNeeded() }
 
-    /// Up Next › Autoplay (on by default): when two songs or fewer are left, songs like the last one are added.
+    /// Up Next › Autoplay (on by default): when two songs or fewer are left, songs like the last one you chose are added.
     static var autoplay: Bool { UserDefaults.standard.object(forKey: "autoplay") as? Bool ?? true }
     /// Settings › Playback › Autoplay (on by default): the server leaves out your last 50 played songs, skipped ones too.
     static var autoplaySkipsRecent: Bool { UserDefaults.standard.object(forKey: "autoplaySkipsRecent") as? Bool ?? true }
-    /// The seed last asked about: one request per seed, so a station with nothing new is not asked again and again.
-    @ObservationIgnored private var radioSeed: String?
+    /// The queue's last song when Autoplay last had an answer: one request per last song, so a station with nothing new
+    /// is not asked again and again.
+    @ObservationIgnored private var radioAskedAfter: String?
     @ObservationIgnored private var radioAsking = false
 
-    /// Asks the server's radio (POST /radio) for songs like the queue's last one. Not in a jam (the room decides), not
+    /// Asks the server's radio (POST /radio) for songs like the last one you chose. Not in a jam (the room decides), not
     /// with repeat on (the queue never runs out).
     private func refillIfNeeded() {
         guard Self.autoplay, jam == nil, order.repeatMode == .off, upNext.count <= 2, let last = queue.last,
-              radioSeed != last.best.key, !radioAsking else { return }
-        // a video of the song first: the server starts YouTube Music's station from one, and a JioSaavn copy needs it
-        // found first (#24)
-        let seed = ["ytmusic", "youtube", "jiosaavn"].lazy.compactMap { source in last.listings.first { $0.source == source } }.first
-            ?? last.best
-        // what is still to come (and the song playing): the station must not repeat it. The server leaves out what was
-        // played lately on its own, unless that is switched off
-        let exclude = queue[index...].flatMap(\.listings)
+              radioAskedAfter != last.best.key, !radioAsking else { return }
+        // every refill asks for the station of the last song you chose, which the server reads on past the songs it
+        // gave. Seeded from the one before's last song, refills drifted: 98% of a first refill was the chosen song's
+        // station, then 32%, 14%, 13% (Do I Wanna Know? to Fifth Harmony in three, 17 Oct). A video of the song first:
+        // the server starts YouTube Music's station from one, and a JioSaavn copy needs it found first (#24)
+        let chosen = order.autoplaySeed ?? last
+        let seed = ["ytmusic", "youtube", "jiosaavn"].lazy.compactMap { source in chosen.listings.first { $0.source == source } }.first
+            ?? chosen.best
+        // every song in the queue, played ones too, each copy once: the station read on must not give them again (the
+        // server also leaves out what was played lately, unless that is switched off). As on Windows and Android
+        var seen = Set<String>()
+        let exclude = queue.flatMap(\.listings).filter { seen.insert($0.key).inserted }
         radioAsking = true
         Task {
-            defer { radioAsking = false }
-            guard let songs = try? await API.radio(seed: seed, exclude: exclude, skipRecent: Self.autoplaySkipsRecent), !songs.isEmpty else { return }
+            let songs = try? await API.radio(seed: seed, exclude: exclude, skipRecent: Self.autoplaySkipsRecent)
+            radioAsking = false
+            // another song was played meanwhile: the answer is not for its queue, and this request kept that queue from
+            // asking, so it is asked for now (its Up Next stayed empty, and the music stopped after it)
+            guard queue.last?.id == last.id else { refillIfNeeded(); return }
+            guard let songs, !songs.isEmpty else { return }
             // marked only after an answer: a failure (offline, a busy server) is asked again at the next song
-            radioSeed = last.best.key
-            guard queue.last?.id == last.id else { return }                 // the queue changed meanwhile: not for it
+            radioAskedAfter = last.best.key
             order.appendAutoplay(songs.map(Track.init))
             announceNext()
             publish()
@@ -445,7 +453,7 @@ final class Player {
     /// The session ended (signed out): nothing of that account keeps playing, stays queued, or shows in Control Center
     /// and Discord. Shuffle and repeat are this Mac's settings, so they stay.
     func stop() {
-        radioSeed = nil
+        radioAskedAfter = nil
         loads += 1                                                // an address still on its way is dropped
         resolving = false
         player.pause()

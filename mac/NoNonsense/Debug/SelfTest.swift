@@ -456,6 +456,14 @@ enum SelfTest {
         check("drag: a song of yours dragged under the heading is Autoplay's", names(q) == "abPQ"
               && q.upcoming.map(\.autoplay) == [false, true, true], names(q))
 
+        // Autoplay's station is the last song you chose, never one Autoplay added: seeded from its own last song, each
+        // refill drifted further off (Do I Wanna Know? to Fifth Harmony in three, 17 Oct)
+        q = PlayQueue(); q.load(Array(abcde.prefix(2)), startAt: 1, shuffled: false)
+        q.appendAutoplay([song("P"), song("Q")])
+        check("Autoplay's station: the last song you chose, not Autoplay's last", q.autoplaySeed?.title == "b", q.autoplaySeed?.title ?? "none")
+        q.append(song("Y"))
+        check("…a song you add is the station from then on", q.autoplaySeed?.title == "Y", q.autoplaySeed?.title ?? "none")
+
         // Add to Queue: the end of Up Next, kept by a playlist sync, still last once shuffle is off again
         q = PlayQueue(); q.load(abcde, startAt: 1, keys: keys, source: "playlist:5", shuffled: false)
         q.append(song("Y"))

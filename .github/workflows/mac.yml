@@ -114,6 +114,16 @@ jobs:
                         f"{bool(about and about.description)}, {len(about.produced_by) if about else 0} producers, "
                         f"{len(about.samples) if about else 0} samples, {time.monotonic() - start:.1f} s")
           asyncio.run(main())'
+      - name: Self-test, the queue's rules (NN_SELFTEST_QUEUE), on made-up songs
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true
+          env NN_SELFTEST_QUEUE=1 DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 120 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > queue.log 2>&1 || true
+          grep SELFTEST queue.log
+          grep -q "queue: all rules pass" queue.log
       # The redesign (15 Oct, as in the Windows app): each part's checks, with pictures of the window as it is on screen
       - name: Self-test, sidebar, Library and Jam (NN_SELFTEST_SHELL)
         if: ${{ !cancelled() }}
@@ -185,6 +195,17 @@ jobs:
             -discordEnabled NO -ApplePersistenceIgnoreState YES > jam.log 2>&1 || true
           grep SELFTEST jam.log
           grep -q "jam: all checks pass" jam.log
+      - name: Self-test, Autoplay (NN_SELFTEST_AUTOPLAY) on real songs, if YouTube Music and JioSaavn answer this runner
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true
+          env NN_SELFTEST_AUTOPLAY=1 DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 120 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > autoplay.log 2>&1 || true
+          grep SELFTEST autoplay.log
+          grep -q "autoplay: all checks pass" autoplay.log
       - name: CPU at rest on Home (NN_SELFTEST_IDLE; the Debug build, so above what you would see; a number, not a check)
         if: ${{ !cancelled() }}
         continue-on-error: true
