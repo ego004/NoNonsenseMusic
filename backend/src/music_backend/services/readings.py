@@ -16,6 +16,7 @@ from collections import OrderedDict
 from typing import Any
 
 from music_backend.models import Listing
+from music_backend.services import library
 from music_backend.services.matching import normalise
 from music_backend.services.video_titles import without_video_labels
 from music_backend.sources import jiosaavn, ytmusic
@@ -94,7 +95,9 @@ async def _confirm(pool, listings: list[Listing]) -> None:
                 continue
             async with pool.connection() as conn:
                 # only while the stored copy still shows the title that was confirmed
-                await conn.execute("UPDATE listings SET title = %s, artists = %s WHERE source = %s AND source_id = %s"
-                                   " AND title = %s", [reading[0], reading[1], listing.source, listing.id, listing.title])
+                words = library.stored_words(*reading)
+                await conn.execute("UPDATE listings SET title = %s, artists = %s, words = %s WHERE source = %s"
+                                   " AND source_id = %s AND title = %s", [*reading, words, listing.source, listing.id, listing.title])
+            library.vocabulary.add(words)
         except Exception as e:                        # a background task: logged, never raised into a request
             logger.warning("reading %s %s: %s", listing.source, listing.id, type(e).__name__)

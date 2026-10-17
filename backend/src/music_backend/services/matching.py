@@ -235,6 +235,43 @@ def found(word: str, have: set[str]) -> bool:
                             process.extractOne(word, have, scorer = fuzz.ratio, score_cutoff = TYPO_SIMILARITY) is not None)
 
 
+def words_of(names: list[str]) -> set[str]:
+    """The words found() looks among: a title's and its artists' (or any names'), normalised, each once. A stored copy
+    keeps its own (listings.words), so the library is searched without normalising it again (#26)."""
+    return set(normalise(" ".join(names)).split())
+
+
+class Vocabulary:
+    """Every word stored copies have (listings.words), by length: the words a typed word may be a typo of.
+
+    Searching the library (#26) asks the database for the copies that hold, for each typed word, one of the words found()
+    would take for it. Those words come from here, so no song of the library is compared with what was typed one by
+    one, and the cost grows little with the library (library.matching_songs has the measurements).
+    """
+    def __init__(self) -> None:
+        self._known: set[str] = set()
+        self._by_length: dict[int, list[str]] = defaultdict(list)
+
+    def add(self, words: list[str]) -> None:
+        for word in words:
+            if word not in self._known:
+                self._known.add(word)
+                self._by_length[len(word)].append(word)
+
+    def alike(self, word: str) -> list[str]:
+        """The word itself, then every known word found() takes for it: for TYPO_MIN_LENGTH letters or more, those
+        TYPO_SIMILARITY alike. Only lengths that can be that alike are compared: a ratio is 200 × the common letters over
+        both lengths, so 85 needs the shorter word to be at least 85/115 of the longer."""
+        n = len(word)
+        if n < TYPO_MIN_LENGTH:
+            return [word]
+        low, high = -(-n * TYPO_SIMILARITY // (200 - TYPO_SIMILARITY)), n * (200 - TYPO_SIMILARITY) // TYPO_SIMILARITY
+        return [word, *(other for length in range(low, high + 1)
+                        for other, _, _ in process.extract(word, self._by_length.get(length, ()), scorer = fuzz.ratio,
+                                                           score_cutoff = TYPO_SIMILARITY, limit = None)
+                        if other != word)]
+
+
 def coverage(query: str, song: Song, lead: bool = False) -> float:
     """How much of what was typed a song contains: the share of the query's words found (typos allowed) in a title and
     its artists, the best of the song's copies. lead=True leaves out who it features: every artist but the first, and a
@@ -244,8 +281,7 @@ def coverage(query: str, song: Song, lead: bool = False) -> float:
         return 1.0
     most = 0
     for listing in song.listings:
-        named = [_FEATURED.sub("", listing.title), *listing.artists[:1]] if lead else [listing.title, *listing.artists]
-        have = set(normalise(" ".join(named)).split())
+        have = words_of([_FEATURED.sub("", listing.title), *listing.artists[:1]] if lead else [listing.title, *listing.artists])
         most = max(most, sum(found(word, have) for word in words))
     return most / len(words)
 
@@ -278,6 +314,37 @@ def merge_youtube(songs: list[Song], videos: list[Listing]) -> list[Song]:
             # appended last: the app falls back to it only after the music sources' copies fail
             target.listings.append(video.best)
     return songs
+
+
+def library_first(songs: list[Song], mine: list[Song], query: str) -> list[Song]:
+    """The user's own songs that match (library.matching_songs) first, marked in_library, then the sources' songs: each
+    song once (#26).
+
+    A source's song that has a copy in common with one of the user's is that song: its copies join the user's row (the
+    copy that plays is picked again among them all, as pick_best does; the stored cover stays) and it is not listed again
+    below. The user's songs keep the order they came in (those the sources found, in the sources' order, then the most
+    recently added), except that those the query names by title or first artist go first (by_relevance, as for the
+    rest).
+    """
+    owner = {(listing.source, listing.id): own for own in mine for listing in own.listings}
+    rest = []
+    for song in songs:
+        own = next((owner[key] for key in ((l.source, l.id) for l in song.listings) if key in owner), None)
+        if own is None:
+            rest.append(song)
+            continue
+        for listing in song.listings:
+            if (listing.source, listing.id) not in owner:
+                owner[(listing.source, listing.id)] = own
+                own.listings.append(listing)
+        own.score = max(own.score, song.score)
+    first = []
+    for own in mine:
+        song = to_song(own.listings, own.score)
+        song.image = own.image or song.image
+        song.in_library = True
+        first.append(song)
+    return by_relevance(first, query) + rest
 
 
 # ---------- albums and artists: the same pipeline, over AlbumRefs and ArtistRefs ----------

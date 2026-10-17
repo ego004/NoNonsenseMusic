@@ -17,7 +17,7 @@ from collections.abc import Callable
 import httpx
 
 from music_backend.core import db
-from music_backend.services import readings
+from music_backend.services import library, readings
 from music_backend.services.video_titles import parse_video_title
 from music_backend.sources import ytmusic
 
@@ -69,8 +69,9 @@ async def reread(pool, apply: bool, readers: dict[str, Callable[[str], Reading |
                            f" → {reading[0]!r} by {reading[1]}")
             if apply:
                 async with pool.connection() as conn:
-                    await conn.execute("UPDATE listings SET title = %s, artists = %s WHERE source = %s AND source_id = %s",
-                                       [reading[0], reading[1], row["source"], row["source_id"]])
+                    await conn.execute("UPDATE listings SET title = %s, artists = %s, words = %s"
+                                       " WHERE source = %s AND source_id = %s",
+                                       [*reading, library.stored_words(*reading), row["source"], row["source_id"]])
         await asyncio.sleep(pause)
     return changes
 
