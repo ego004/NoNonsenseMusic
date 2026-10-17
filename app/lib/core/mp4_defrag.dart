@@ -5,17 +5,21 @@ import 'dart:typed_data';
 /// Rewrites a fragmented MP4 as a plain one, for Windows.
 ///
 /// YouTube's audio (itag 140) is a fragmented MP4: a `moov` with empty sample tables, then one `moof` + `mdat` pair per
-/// few seconds of sound. Media Foundation, which just_audio_windows plays through, reads the empty tables as a song
-/// with nothing in it: it jumps to the end and reports the song finished, so every YouTube copy "ended" at once and
-/// the player moved on without a word (checked 12 Oct on Windows 11 with Windows.Media.Playback.MediaPlayer: the
-/// fragmented file ends at once; the same audio as a plain MP4 plays). The Mac's AVPlayer plays both.
+/// few seconds of sound. Media Foundation, which just_audio_windows plays through, cannot play one that also has an
+/// edit list (`edts`), as every YouTube Music copy does (its AAC priming, 1600 samples): it jumps to the end and
+/// reports the song finished. A YouTube video's audio has none and plays either way. Measured 15 Oct (#30) on
+/// Windows 11 with Windows.Media.Playback.MediaPlayer: "Regardless" from YouTube Music ended at once, the same song's
+/// video played; with its `edts` blanked the YouTube Music file played, and the video's with that `edts` added ended
+/// at once; both play as plain MP4s. So on Windows a YouTube Music copy plays only rewritten. The Mac's AVPlayer
+/// plays them all.
 ///
 /// The plain file has the same samples in the same order, one chunk per fragment's run, with the sample tables (stts,
 /// stsc, stsz, stco) built from the fragments and the durations filled in; `mvex` and `sidx` are dropped. Single-track
 /// files only, which every audio stream here is.
 class Mp4Defrag {
   /// Rewrites [file] in place as a plain MP4 when it is a fragmented one; any other file is left as it is. Returns
-  /// whether it rewrote the file. Runs on another isolate: a song is a few MB, read and written whole.
+  /// whether it rewrote the file; throws when it could not (the file is then as it was). Runs on another isolate: a
+  /// song is a few MB, read and written whole.
   static Future<bool> ensurePlain(File file) async {
     // Most files are plain already (rewritten on an earlier play, or not YouTube's): their top-level box headers say so
     // in a few small reads, without reading the song.
@@ -60,8 +64,25 @@ class Mp4Defrag {
     if (plain == null) return false;
     final temp = File('$path.plain');
     temp.writeAsBytesSync(plain, flush: true);
-    temp.renameSync(path); // replaces the fragmented file
-    return true;
+    // Windows refuses to replace a file another program has open (a scanner or an indexer looking at the new file):
+    // asked again for a moment, as AudioDownload._rename does. Given up, the fragmented file stays and this throws, so
+    // the player is never given it: one played anyway ended at once, and the copy then stuck at 0:00 (15 Oct, #30)
+    for (var attempt = 1;; attempt++) {
+      try {
+        temp.renameSync(path); // replaces the fragmented file
+        return true;
+      } on FileSystemException {
+        if (attempt >= 5) {
+          try {
+            temp.deleteSync();
+          } on FileSystemException {
+            // left for AudioCache.open to remove
+          }
+          rethrow;
+        }
+        sleep(Duration(milliseconds: 50 * attempt));
+      }
+    }
   }
 
   /// The plain MP4 for the fragmented MP4 [bytes]; null when [bytes] is not fragmented. Throws FormatException for a

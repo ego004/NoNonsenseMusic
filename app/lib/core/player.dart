@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show File, Platform;
+import 'dart:io' show File, FileSystemException, Platform;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -29,7 +29,7 @@ import 'youtube.dart';
 /// Footprint: listeners hear about changes of song, play/pause, buffering, the queue and Now Playing, never about
 /// the position, which is read when needed (`readPosition`).
 class Player extends ChangeNotifier implements JamPlayer {
-  final _audio = ja.AudioPlayer();
+  final ja.AudioPlayer _audio;
   final queue = PlayQueue();
   final List<StreamSubscription> _subs = [];
 
@@ -50,9 +50,13 @@ class Player extends ChangeNotifier implements JamPlayer {
   static bool autoplaySkipsRecent = true;
 
   final _autoplay = Autoplay();
-  final _cache = AudioCache.shared;
-  final _fetches = AudioDownloads.shared;
+  final AudioCache _cache;
+  final AudioDownloads _fetches;
   final _downloads = DownloadStore.shared;
+
+  /// How long the player may take to open a copy before it counts as one that will not load.
+  @visibleForTesting
+  static Duration loadTimeout = const Duration(seconds: 15);
 
   /// The file the loaded audio plays from (a download or a cached song), or null when it streams from the network. A
   /// file that will not play is deleted and the song is loaded again from the network.
@@ -65,27 +69,41 @@ class Player extends ChangeNotifier implements JamPlayer {
   bool _reported = false; // the current song's "play" was sent
   int _loads = 0; // each load's number: news about a replaced copy is ignored
   bool _loading = false;
+  bool _ready = false; // the loaded copy has been ready: a "completed" before that is the replaced copy's
   // How long the loaded copy has really played, from _heardFrom (its start or the last seek). A copy that "finishes" far
-  // sooner than its length did not play: Windows takes a fragmented MP4 as already over, jumps to its end and reports
-  // it finished, which moved on to the next song without a word
+  // sooner than its length did not play: Windows takes a fragmented MP4 with an edit list (YouTube Music's) as already
+  // over, jumps to its end and reports it finished, which moved on to the next song without a word
   final _heard = Stopwatch();
   double _heardFrom = 0;
   bool _refetched = false; // this copy's file was already dropped and fetched again once: a second failure moves on
 
-  Player() {
+  /// [audio] and [fetches]: tests give fakes; the app uses the system's player and the shared cache.
+  Player({ja.AudioPlayer? audio, AudioDownloads? fetches})
+      : _audio = audio ?? ja.AudioPlayer(),
+        _fetches = fetches ?? AudioDownloads.shared,
+        _cache = (fetches ?? AudioDownloads.shared).cache {
     _subs.add(_audio.playerStateStream.listen((st) {
       final playing = st.playing && st.processingState != ja.ProcessingState.completed;
       final buffering = st.playing && (st.processingState == ja.ProcessingState.loading || st.processingState == ja.ProcessingState.buffering);
       playing ? _heard.start() : _heard.stop();
       if (playing != isPlaying || buffering != isBuffering) _set(() { isPlaying = playing; isBuffering = buffering; });
+      if (st.processingState == ja.ProcessingState.ready && !_ready) {
+        _ready = true;
+        _heard.reset(); // heard from when it can be: not while it opened
+      }
       if (st.processingState == ja.ProcessingState.ready && !_reported) {
         // the run of failures ends once a song is heard (_ended, _skipIfPlaying), not here: a copy can load and still
         // not play
         _reported = true;
         _report('play', current, 0);
       }
-      // while a load runs, "completed" is the previous copy's state, not news: acting on it skipped the song loading
-      if (st.processingState == ja.ProcessingState.completed && !_loading) _endedTooSoon() ? _failed(playing: true) : _ended();
+      // while a load runs, "completed" is the previous copy's state, not news: acting on it skipped the song loading.
+      // Nor after it, until the new copy has been ready: Windows' player still reported the replaced copy's "completed"
+      // once the load had returned, which ended the new copy before it started ("Couldn't play" with a copy that plays,
+      // and a jam host skipped the room's song, 15 Oct, #30)
+      if (st.processingState == ja.ProcessingState.completed && !_loading && _ready) {
+        _endedTooSoon() ? _failed(playing: true) : _ended();
+      }
     }));
     // a copy that dies while playing; a failed load is caught in _load (counted once, not twice)
     _subs.add(_audio.playbackEventStream.listen((_) {}, onError: (Object _, StackTrace _) { if (!_loading) _failed(); }));
@@ -406,43 +424,49 @@ class Player extends ChangeNotifier implements JamPlayer {
   Future<void> _load(Listing l, {bool fresh = false, bool start = true, double? resumeAt}) async {
     final mine = ++_loads;
     _loading = true;
+    _ready = false;
     try {
       final uri = await _plan(l, fresh: fresh);
       if (mine != _loads) return; // replaced while asking
       final child = ja.AudioSource.uri(uri);
+      // Bounded, so that a copy the player never finishes opening fails like any other and the next one is tried:
+      // Windows' player, given a file that is not there, stayed "loading" with no error, and the song sat at 0:00
+      // (15 Oct, #30). Only the player's own opening counts: a slow fetch in _plan is not timed.
       if (Platform.isMacOS || Platform.isIOS) {
         // Apple's player: the song ends at its listed length + 1 s, as in the Mac app (a misread length played on in
         // silence there); the clip is AVPlayer's own end time, nothing measured per second
-        await _audio.setAudioSource(ja.ClippingAudioSource(child: child, end: l.duration > 0 ? Duration(seconds: l.duration + 1) : null));
+        await _audio
+            .setAudioSource(ja.ClippingAudioSource(child: child, end: l.duration > 0 ? Duration(seconds: l.duration + 1) : null))
+            .timeout(loadTimeout);
       } else {
-        await _audio.setAudioSource(child);
+        await _audio.setAudioSource(child).timeout(loadTimeout);
       }
       if (mine != _loads) return;
       // a copy chosen mid-song (resumeAt) or the room's song in a jam (_resumeAt) carries on from that second; a second
       // or less, or the last two, start from the beginning
       final at = resumeAt ?? (_resumeAt != null ? jam?.playhead ?? _resumeAt : null);
       _resumeAt = null;
+      var from = 0.0;
       if (at != null && at > 1) {
         final length = _audio.duration;
         if (length == null || at < length.inMilliseconds / 1000 - 2) {
           await _audio.seek(Duration(milliseconds: (at * 1000).round()));
+          from = at;
         }
       }
       if (mine != _loads) return;
       _heard.reset();
-      _heardFrom = position;
+      // where the copy starts, as asked, not as read back: Windows' player can still report the replaced copy's place
+      // (224 s of a copy that had not started), which made a copy that ended at once look heard to its end (#30)
+      _heardFrom = from;
       if (start && !(jam != null && _startPaused)) _play();
     } catch (e) {
       // why a copy did not load (on the Mac preview, YouTube copies fail with -1 "unknown error")
       debugPrint('copy did not load (${l.source}): ${e is ja.PlayerException ? 'code ${e.code}, ${e.message}' : e}');
-      if (mine == _loads) {
-        // a file that will not play is deleted and the song fetched again, once, before any other copy is tried
-        if (!_refetched && await _dropFile()) {
-          _refetched = true;
-          return _load(l, start: start, resumeAt: resumeAt);
-        }
-        _failed(); // a copy that will not load; an older load's failure says nothing now
-      }
+      if (mine != _loads) return; // an older load's failure says nothing now
+      // a file that will not play is deleted and the song fetched again, once, before any other copy is tried
+      if (await _refetch(l, start: start, resumeAt: resumeAt)) return;
+      if (mine == _loads) _failed(); // a copy that will not load
     } finally {
       if (mine == _loads) _loading = false;
     }
@@ -458,6 +482,7 @@ class Player extends ChangeNotifier implements JamPlayer {
       // the default copy plays whichever copy of the song was downloaded; another copy only when it is the one downloaded
       final saved = _downloads.fileFor(t, copy: l.key == t.listings.first.key ? null : l);
       if (saved != null && saved.existsSync()) {
+        // the user's own file: one that cannot be made playable is passed over for the next copy, never deleted
         await _plain(saved);
         _fromFile = saved;
         _fromDownload = true;
@@ -466,15 +491,16 @@ class Player extends ChangeNotifier implements JamPlayer {
     }
     final cached = _cache.file(l.key);
     if (cached != null) {
-      await _plain(cached);
-      _fromFile = cached;
+      _fromFile = cached; // first: a cached file that cannot be made playable is deleted and fetched again
       _fromDownload = false;
-      return cached.uri;
+      return (await _plain(cached)).uri;
     }
     final url = await Api.audioUrl(l, fresh: fresh);
-    // Windows cannot play YouTube's fragmented MP4 as it arrives (see Mp4Defrag): the song is fetched whole first.
-    // Bounded ranges come at full speed, so that is a second or two on a good connection
-    if (Platform.isWindows && YouTubeLookup.resolvesOnDevice(l.source) && _cache.enabled) {
+    // Windows cannot play YouTube Music's fragmented MP4 as it arrives (see Mp4Defrag): a YouTube copy is fetched whole
+    // first, with the cache off too (its file then goes at the next song's fetch, AudioCache.evict); given the link
+    // instead, Windows ended a YouTube Music copy at once (15 Oct, #30). Bounded ranges come at full speed, so that is a
+    // second or two on a good connection
+    if (Platform.isWindows && YouTubeLookup.resolvesOnDevice(l.source) && _cache.folder != null) {
       final download = _fetches.fetch(l.key, Uri.parse(url))..start();
       _fetches.keep(_wanted(l.key));
       await download.whole();
@@ -482,10 +508,9 @@ class Player extends ChangeNotifier implements JamPlayer {
         throw StateError('The audio did not arrive whole: ${download.failure ?? (download.isCancelled ? 'cancelled' : 'unfinished')}');
       }
       final file = _cache.path(l.key);
-      await _plain(file);
       _fromFile = file;
       _fromDownload = false;
-      return file.uri;
+      return (await _plain(file)).uri;
     }
     if (!_cache.enabled) return Uri.parse(url);
     try {
@@ -497,15 +522,14 @@ class Player extends ChangeNotifier implements JamPlayer {
     }
   }
 
-  /// On Windows, rewrites [f] as a plain MP4 when it is a fragmented one (YouTube's), which Windows cannot play. A file
-  /// it cannot rewrite is left as it is: if it then ends at once, _endedTooSoon catches it.
-  Future<void> _plain(File f) async {
-    if (!Platform.isWindows) return;
-    try {
-      await Mp4Defrag.ensurePlain(f);
-    } catch (e) {
-      debugPrint('could not rewrite ${f.path} as a plain MP4: $e');
-    }
+  /// [f], ready for the player: on Windows rewritten as a plain MP4 when it is a fragmented one (YouTube's, see
+  /// Mp4Defrag). Throws when [f] is not there or cannot be rewritten, which fails the load. Both were handed to the
+  /// player before: a YouTube Music copy left fragmented ended at once, and a missing file never finished opening, so
+  /// the song sat at 0:00 with no word (15 Oct, #30).
+  Future<File> _plain(File f) async {
+    if (!f.existsSync()) throw FileSystemException('The audio file is not there', f.path);
+    if (Platform.isWindows) await Mp4Defrag.ensurePlain(f);
+    return f;
   }
 
   /// Whether the copy that just "finished" stopped far short of its length: heard for under half of what was left
@@ -520,11 +544,30 @@ class Player extends ChangeNotifier implements JamPlayer {
     final f = _fromFile;
     if (f == null) return false;
     _fromFile = null;
-    if (_fromDownload) {
-      await _downloads.dropFile(f);
-    } else if (f.existsSync()) {
-      f.deleteSync();
+    try {
+      if (_fromDownload) {
+        await _downloads.dropFile(f);
+      } else if (f.existsSync()) {
+        f.deleteSync();
+      }
+    } catch (e) {
+      // another program has it open: the copy is loaded again all the same, and the next copy follows if it fails
+      // again (unhandled, this error stopped the song from loading again at all)
+      debugPrint('could not delete ${f.path}: $e');
     }
+    return true;
+  }
+
+  /// A copy that would not play from its file: the file is deleted and the copy loaded again from the network, with a
+  /// new link, once; then the next copy is tried. Returns whether it loaded it again.
+  Future<bool> _refetch(Listing l, {required bool start, double? resumeAt}) async {
+    if (_refetched || _fromFile == null) return false;
+    _refetched = true;
+    final load = _loads;
+    await _dropFile();
+    if (load != _loads) return true; // another copy or song was loaded meanwhile
+    if (YouTubeLookup.resolvesOnDevice(l.source)) YouTubeLookup.instance.forget(l.id);
+    await _load(l, start: start, resumeAt: resumeAt);
     return true;
   }
 
@@ -543,8 +586,7 @@ class Player extends ChangeNotifier implements JamPlayer {
     final start = playing || isPlaying || _loading || !_reported;
     if (_fromFile != null && !_refetched) {
       // a file that stopped playing: deleted, and the same copy loaded again from the network, once
-      _refetched = true;
-      _dropFile().then((_) => _load(t.listings[_copy], start: start));
+      unawaited(_refetch(t.listings[_copy], start: start));
       return;
     }
     // a YouTube link this device looked up and that would not play: never handed out again

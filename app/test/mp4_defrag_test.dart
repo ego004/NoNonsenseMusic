@@ -1,4 +1,5 @@
 // Tests for Mp4Defrag: a fragmented MP4 like YouTube's becomes a plain one with the same samples, which Windows plays.
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -115,6 +116,36 @@ void main() {
     expect(await Mp4Defrag.ensurePlain(file), isFalse, reason: 'plain already: left as it is');
     await dir.delete(recursive: true);
   });
+
+  test('a rewrite Windows will not let replace the song at first is asked again (#30)', () async {
+    final dir = await Directory.systemTemp.createTemp('defrag');
+    final file = File('${dir.path}/song.m4a')..writeAsBytesSync(fragmented([
+          [
+            [1, 2, 3]
+          ]
+        ]));
+    final holder = file.openSync(); // as a scanner would hold a new file: Windows refuses to replace it
+    Timer(const Duration(milliseconds: 120), holder.closeSync);
+    expect(await Mp4Defrag.ensurePlain(file), isTrue);
+    expect(Mp4Defrag.isFragmented(file), isFalse);
+    expect(File('${file.path}.plain').existsSync(), isFalse);
+    await dir.delete(recursive: true);
+  }, skip: !Platform.isWindows ? 'elsewhere a file that is open can be replaced' : null);
+
+  test('a rewrite that may never replace the song fails, leaving the song as it was and no rewrite behind', () async {
+    final dir = await Directory.systemTemp.createTemp('defrag');
+    final file = File('${dir.path}/song.m4a')..writeAsBytesSync(fragmented([
+          [
+            [1, 2, 3]
+          ]
+        ]));
+    final holder = file.openSync();
+    await expectLater(Mp4Defrag.ensurePlain(file), throwsA(isA<FileSystemException>()));
+    expect(Mp4Defrag.isFragmented(file), isTrue);
+    expect(File('${file.path}.plain').existsSync(), isFalse);
+    holder.closeSync();
+    await dir.delete(recursive: true);
+  }, skip: !Platform.isWindows ? 'elsewhere a file that is open can be replaced' : null);
 
   test('a plain file is left as it is', () {
     final plain = Mp4Defrag.defragment(fragmented([
