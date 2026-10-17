@@ -13,7 +13,7 @@ from psycopg import errors
 from music_backend.core import db, ratelimit
 from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications, jam, readings, served, spotify_import
 from music_backend.services.matching import (rank_songs, merge_youtube, rank_albums, rank_artists, artists_by_name, by_relevance,
-                                             coverage, artists_match)
+                                             coverage, artists_match, library_first)
 from music_backend.models import (SpotifyImportRequest, SpotifyImportStatus, EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
@@ -41,6 +41,9 @@ async def lifespan(app: FastAPI):
     pool = db.make_pool(db.DATABASE_URL)
     await pool.open()
     await db.migrate(pool)
+    async with pool.connection() as conn:
+        if filled := await library.load_words(conn):              # the words a search finds your songs by (#26)
+            logger.info("search: words given to %d stored copies", filled)
     app.state.pool = pool
     app.state.limits = ratelimit.Limiter()                        # rate limits (core/ratelimit.py): counts in memory
     app.state.served = served.ServedListings()                    # what search etc. returned: the only copies stored
@@ -270,14 +273,19 @@ async def search(q: str, request: Request, user: Annotated[User, Depends(per_acc
     youtube: also search plain YouTube (MUS-13). Off by default, so a normal search never asks it;
     when on, its videos rank below every music-source song (merge_youtube) and its channels join
     the artists. albums come from the music sources only: plain YouTube has no albums.
+
+    The songs of your own library that match come first, marked in_library (#26): each song once, a source's copy of
+    one of them joining its row (library_first).
     """
     songs, albums, artists, sources = await ranked_search(q, youtube, filter)
-    remember_served(request, songs)
-    # a song already stored keeps the cover it has in the library (one indexed query)
     async with request.app.state.pool.connection() as conn:
+        mine = await library.matching_songs(conn, user.id, q, songs) if filter in ("all", "songs") else []
+        # a song already stored keeps the cover it has in the library (one indexed query)
         covers = await library.stored_covers(conn, [l for song in songs for l in song.listings])
     for song in songs:
         song.image = next((covers[(l.source, l.id)] for l in song.listings if (l.source, l.id) in covers), song.image)
+    songs = library_first(songs, mine, q)
+    remember_served(request, songs)
     return SearchResponse(query = q, sources = sources, songs = songs, albums = albums, artists = artists)
 
 

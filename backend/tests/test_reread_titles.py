@@ -31,9 +31,10 @@ async def test_a_stored_upload_shows_its_song_and_keeps_its_identity(pool):
     changes = await reread(pool, apply=True, readers=readers, pause=0)
     assert any(upload.id in c and "'until dawn' by ['slipfunc']" in c for c in changes)
     async with pool.connection() as conn:
-        shown = await (await conn.execute("SELECT title, artists FROM listings WHERE source_id = %s", [upload.id])).fetchone()
+        shown = await (await conn.execute("SELECT title, artists, words FROM listings WHERE source_id = %s", [upload.id])).fetchone()
         identity = await (await conn.execute("SELECT title FROM songs WHERE id = %s", [song_id])).fetchone()
     assert (shown["title"], shown["artists"]) == ("until dawn", ["slipfunc"])
+    assert shown["words"] == ["dawn", "slipfunc", "until"]  # what a search finds it by (#26) follows
     assert identity["title"] == "slipfunc - until dawn"     # what new copies are compared with: as first stored
 
 

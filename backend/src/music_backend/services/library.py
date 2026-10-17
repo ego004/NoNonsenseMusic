@@ -13,11 +13,22 @@ from psycopg import AsyncConnection
 
 from music_backend.services import notifications
 from music_backend.services.served import ServedListings
-from music_backend.services.matching import normalise, pick_best, pick_cover, same_recording
+from music_backend.services.matching import Vocabulary, normalise, pick_best, pick_cover, same_recording, words_of
 from music_backend.models import (EventType, LibrarySong, Listing, Member, Notification,
                                   PlaylistMetadata, PlaylistItem, Song)
 
 logger = logging.getLogger(__name__)
+
+# Every word the stored copies have, in this process: read at start (load_words: 1 s and 1.3 MB for 23,000 words of
+# 500,000 copies, 18 Oct), and added to as copies are stored here. A copy another process stores (core/reread_titles.py)
+# adds its words at the next start; until then a typo of only those words finds nothing, the words as stored at once
+vocabulary = Vocabulary()
+
+
+def stored_words(title: str, artists: list[str]) -> list[str]:
+    """What listings.words holds for a copy: its title's and artists' words (matching.words_of), in order. Written with
+    the title and artists, wherever they are written."""
+    return sorted(words_of([title, *artists]))
 
 
 class UnknownListing(Exception):
@@ -105,15 +116,20 @@ async def resolve_song(conn: AsyncConnection, listings: list[Listing]) -> UUID:
         )).fetchone()))
         same = [l for l in listings if same_recording(identity, l)]
         if same:
+            words = [stored_words(l.title, l.artists) for l in same]
             # executemany: every listing in one round trip (psycopg pipelines them), not one trip per listing
             async with conn.cursor() as cur:
                 await cur.executemany(
-                    """INSERT INTO listings (source, source_id, song_id, title, artists, album, duration, popularity, image, explicit)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """INSERT INTO listings (source, source_id, song_id, title, artists, album, duration, popularity, image,
+                                             explicit, words)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (source, source_id) DO UPDATE SET explicit = EXCLUDED.explicit
                        WHERE listings.explicit IS NULL AND EXCLUDED.explicit IS NOT NULL""",   # fill in an unknown flag
-                    [[l.source, l.id, song_id, l.title, l.artists, l.album, l.duration, l.popularity, l.image, l.explicit] for l in same],
+                    [[l.source, l.id, song_id, l.title, l.artists, l.album, l.duration, l.popularity, l.image, l.explicit, w]
+                     for l, w in zip(same, words)],
                 )
+            for w in words:
+                vocabulary.add(w)
     return song_id
 
 
@@ -248,6 +264,75 @@ async def stored_covers(conn: AsyncConnection, listings: list[Listing]) -> dict[
         [[l.source for l in listings], [l.id for l in listings]],
     )).fetchall()
     return {(r["source"], r["source_id"]): r["image"] for r in rows}
+
+
+# ---------- your own songs first in a search (#26) ----------
+
+# At most this many of the user's songs go first: one short word ("love") can match hundreds in a large library, and
+# the sources' results stay within reach below them
+LIBRARY_SONGS = 20
+
+
+async def matching_songs(conn: AsyncConnection, user_id: UUID, query: str, found: list[Song]) -> list[Song]:
+    """The songs of the user's library that match what was typed: liked, or in a playlist of theirs or one shared with
+    them, with a copy holding every typed word as found() takes it (typos allowed: matching.coverage's rule). Those the
+    sources also `found` come first, in their order, then the most recently liked or added; LIBRARY_SONGS at most.
+
+    One query through indexes, then the songs' copies. For each typed word, `vocabulary` gives the words found() would take, and the GIN
+    index on listings.words the copies holding one of them; the user's likes and playlist items, each read through its
+    own index, say which are theirs. Comparing every song of the library with what was typed instead (in the database,
+    the typo rule there too) cost 15–20 ms for 2,000 songs, 40–80 ms for 5,000 and 150 ms for 10,000. This adds 6–15 ms
+    to a search for 2,000 to 10,000 songs, about 3 ms of it finding each typed word's alike words among 23,000; 15–30 ms
+    for one common word 20 of yours have ("love"). Measured with 500,000 stored copies on a Windows PC (18 Oct, #26).
+    """
+    words = list(dict.fromkeys(normalise(query).split()))
+    if not words:
+        return []
+    alike = {f"w{i}": vocabulary.alike(word) for i, word in enumerate(words)}
+    keys = [(listing.source, listing.id) for song in found for listing in song.listings]
+    rows = await (await conn.execute(
+        f"""WITH found AS (SELECT l.song_id, min(k.place) AS place
+                             FROM unnest(%(sources)s::text[], %(ids)s::text[]) WITH ORDINALITY AS k(source, source_id, place)
+                             JOIN listings l ON (l.source, l.source_id) = (k.source, k.source_id)
+                            GROUP BY l.song_id)
+            SELECT m.song_id AS id, max(m.at) AS at, bool_or(m.liked) AS liked
+              FROM (SELECT song_id, liked_at AS at, true AS liked FROM likes WHERE user_id = %(user)s
+                    UNION ALL
+                    SELECT i.song_id, i.added_at, false FROM playlists p JOIN playlist_items i ON i.playlist_id = p.id
+                     WHERE p.user_id = %(user)s
+                    UNION ALL
+                    SELECT i.song_id, i.added_at, false FROM playlist_members s JOIN playlist_items i ON i.playlist_id = s.playlist_id
+                     WHERE s.user_id = %(user)s) m
+              LEFT JOIN found f ON f.song_id = m.song_id
+             WHERE m.song_id IN (SELECT song_id FROM listings WHERE {" AND ".join(f"words && %({k})s::text[]" for k in alike)})
+             GROUP BY m.song_id
+             ORDER BY min(f.place) NULLS LAST, max(m.at) DESC
+             LIMIT %(limit)s""",
+        {"user": user_id, "sources": [k[0] for k in keys], "ids": [k[1] for k in keys], "limit": LIBRARY_SONGS, **alike},
+    )).fetchall()
+    return [Song(title = s.title, artists = s.artists, duration = s.duration, best = s.best, listings = s.listings,
+                 image = s.image, score = 0) for s in await _with_listings(conn, rows)]
+
+
+async def load_words(conn: AsyncConnection) -> int:
+    """At start: give the copies stored before #26 their words (listings.words), then read every stored word into
+    `vocabulary`. Returns how many copies were given words (all of them the first time, then none)."""
+    rows = await (await conn.execute(
+        "SELECT source, source_id, title, artists FROM listings WHERE words IS NULL")).fetchall()
+    if rows:
+        # one COPY and one UPDATE, once: 150 s for 500,000 copies (18 Oct), most of it keeping the words index up to date
+        async with conn.transaction():
+            await conn.execute("SET LOCAL statement_timeout = 0")    # once, at start: may outlast a request's 10 s
+            await conn.execute("CREATE TEMP TABLE new_words (source text, source_id text, words text[]) ON COMMIT DROP")
+            async with conn.cursor().copy("COPY new_words FROM STDIN") as copy:
+                for r in rows:
+                    await copy.write_row((r["source"], r["source_id"], stored_words(r["title"], r["artists"])))
+            await conn.execute("""UPDATE listings l SET words = n.words FROM new_words n
+                                   WHERE (l.source, l.source_id) = (n.source, n.source_id)""")
+            await conn.execute("ANALYZE listings")       # the first searches are planned knowing the words
+    vocabulary.add([r["word"] for r in await (await conn.execute(
+        "SELECT DISTINCT unnest(words) AS word FROM listings")).fetchall()])
+    return len(rows)
 
 # ---------- playlists: who may do what ----------
 # Every playlist action starts with one question: what is this user's role on this playlist? The owner is

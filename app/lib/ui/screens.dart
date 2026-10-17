@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/download_store.dart';
+import '../core/models.dart';
 import '../core/search_model.dart';
 import 'browse_widgets.dart';
 import 'concept.dart';
@@ -29,7 +30,8 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final _field = TextEditingController();
-  final _model = SearchModel();
+  // with no server, the songs of yours this app holds (#26)
+  late final _model = SearchModel(held: () => Scope.of(context).library.held(DownloadStore.shared));
 
   @override
   void initState() {
@@ -90,12 +92,16 @@ class _SearchScreenState extends State<SearchScreen> {
                     const SizedBox(height: 10),
                     Text(didNotRespond(m.result.unavailable), style: theme.textTheme.bodySmall),
                   ],
+                  if (m.failed && m.songs.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text("Can't reach your server, so only your own songs are shown.", style: theme.textTheme.bodySmall),
+                  ],
                 ],
               ]),
             ),
           ),
           Expanded(
-            child: m.failed
+            child: m.failed && m.songs.isEmpty
                 ? const _Empty('Can\'t reach your server', 'Is the backend running?', FluentIcons.plug_disconnected_24_regular)
                 : m.showsNoResults
                     ? const _Empty('No results', 'Try another spelling.', FluentIcons.search_24_regular)
@@ -119,7 +125,16 @@ class _Results extends StatelessWidget {
     Widget heading(String text) => SliverToBoxAdapter(
         child: Padding(padding: EdgeInsets.fromLTRB(side, 10, side, 8), child: Text(text, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))));
     final gridPad = EdgeInsets.fromLTRB(side, 8, side, bottomClearance(context, extra: 20));
-    final songs = model.songs;
+    final songs = model.songs, yours = model.yours;
+    // the song alone: Autoplay brings the related songs, the other results are not queued
+    Widget rows(List<Track> songs, {double bottom = 0}) => SliverPadding(
+          padding: EdgeInsets.fromLTRB(rowGutter(context), 0, rowGutter(context), bottom),
+          sliver: SliverFixedExtentList.builder(
+            itemExtent: songRowExtent(context),
+            itemCount: songs.length,
+            itemBuilder: (_, i) => SongRow(queue: [songs[i]], index: 0),
+          ),
+        );
     return switch (model.filter) {
       SearchFilter.artists => CustomScrollView(slivers: [SliverPadding(padding: gridPad, sliver: ArtistGrid(artists: model.artists))]),
       SearchFilter.albums => CustomScrollView(slivers: [SliverPadding(padding: gridPad, sliver: AlbumGrid(albums: model.albums))]),
@@ -132,16 +147,10 @@ class _Results extends StatelessWidget {
             heading('Albums'),
             SliverToBoxAdapter(child: AlbumShelf(albums: model.albums)),
           ],
-          if (songs.isNotEmpty && (model.artists.isNotEmpty || model.albums.isNotEmpty)) heading('Songs'),
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(rowGutter(context), 0, rowGutter(context), bottomClearance(context, extra: 20)), // the last row clear of the player bar
-            sliver: SliverFixedExtentList.builder(
-              itemExtent: songRowExtent(context),
-              itemCount: songs.length,
-              // the song alone: Autoplay brings the related songs, the other results are not queued
-              itemBuilder: (_, i) => SongRow(queue: [songs[i]], index: 0),
-            ),
-          ),
+          // your own songs first, under their own heading (#26); the sources' under Songs
+          if (yours > 0) ...[heading('In Your Library'), rows(songs.sublist(0, yours))],
+          if (songs.length > yours && (yours > 0 || model.artists.isNotEmpty || model.albums.isNotEmpty)) heading('Songs'),
+          rows(songs.sublist(yours), bottom: bottomClearance(context, extra: 20)), // the last row clear of the player bar
         ]),
     };
   }

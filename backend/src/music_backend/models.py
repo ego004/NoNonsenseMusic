@@ -74,6 +74,9 @@ class LibrarySong(BaseSong):
 
 class Song(BaseSong):
     score: float
+    # a search's song from the user's own library (liked, or in one of their playlists): listed first (#26). Sent only
+    # when true, so every other reply that carries songs stays as it was
+    in_library: bool = Field(default = False, exclude_if = lambda in_library: not in_library)
 
 class SearchSourceInfo(BaseModel):
     source : SourceName

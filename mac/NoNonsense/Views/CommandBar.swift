@@ -75,6 +75,8 @@ final class CommandBarState {
     var query = "" { didSet { if query != oldValue { typed() } } }
     /// The songs found for what is typed, at most 5. They stay while newer words are looked for.
     private(set) var songs: [Track] = []
+    /// How many of `songs`, from the first, are your own (#26): listed under IN YOUR LIBRARY.
+    private(set) var yours = 0
     /// A song search is under way: "Searching…" until songs come.
     private(set) var searching = false
     /// The row ↑ ↓ and the pointer chose: Return runs it.
@@ -193,7 +195,7 @@ final class CommandBarState {
         if chosen != 0 { chosen = 0 }
         let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard words.count >= 2 else {
-            if !songs.isEmpty { songs = [] }
+            if !songs.isEmpty { songs = []; yours = 0 }
             if searching { searching = false }
             return
         }
@@ -202,10 +204,17 @@ final class CommandBarState {
         search = Task {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            // the server's search, as Search asks it (songs only): no server now gives no songs, and the commands still work
-            let found = (try? await API.search(words, filter: SearchFilter.songs.rawValue))?.songs.prefix(5).map(Track.init) ?? []
+            // the server's search, as Search asks it (songs only), your own first. No server now: the songs of yours this
+            // app holds that match, by the server's rule (#26); the commands still work
+            let response = try? await API.search(words, filter: SearchFilter.songs.rawValue)
             guard mine == asked else { return }
-            songs = found
+            if let response {
+                songs = response.songs.prefix(5).map(Track.init)
+                yours = min(5, response.songs.prefix { $0.inLibrary == true }.count)
+            } else {
+                songs = context.map { Array(Matching.songs(matching: words, in: $0.library.held($0.downloads)).prefix(5)) } ?? []
+                yours = songs.count
+            }
             searching = false
         }
     }
@@ -521,15 +530,16 @@ private struct CommandList: View {
         #endif
     }
 
-    /// SUGGESTED (nothing typed) or ACTIONS over the commands, SONGS over the songs, or SONGS and "Searching…" just
-    /// above every result while none have come.
+    /// SUGGESTED (nothing typed) or ACTIONS over the commands, IN YOUR LIBRARY over your own songs and SONGS over the
+    /// rest (#26), or SONGS and "Searching…" just above every result while none have come.
     private func lines(for entries: [CommandEntry]) -> [Line] {
         let typed = !bar.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         var lines: [Line] = []
         for (index, entry) in entries.enumerated() {
             switch entry {
             case .command where index == 0: lines.append(.heading(typed ? "ACTIONS" : "SUGGESTED"))
-            case .song(_, 0): lines.append(.heading("SONGS"))
+            case .song(_, 0): lines.append(.heading(bar.yours > 0 ? "IN YOUR LIBRARY" : "SONGS"))
+            case .song(_, let place) where place == bar.yours: lines.append(.heading("SONGS"))
             case .all where bar.searching && bar.songs.isEmpty: lines += [.heading("SONGS"), .searching]
             default: break
             }

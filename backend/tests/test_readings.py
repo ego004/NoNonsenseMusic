@@ -3,12 +3,13 @@ on 14 Oct, ids made up."""
 import asyncio
 import time
 
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
 from music_backend.core import db
 from music_backend.models import Listing
-from music_backend.services import readings
+from music_backend.services import library, readings
 from conftest import TEST_URL, sign_up
 
 
@@ -98,6 +99,10 @@ def test_liking_an_upload_answers_at_once_and_its_title_is_confirmed_after(monke
             time.sleep(0.1)
         assert stored() == [("until dawn", ["slipfunc"])]
         assert slow.asked == ["slipfunc until dawn"]
+        # a search finds it by what it now shows, a typo of it too (#26)
+        with psycopg.connect(TEST_URL) as conn:
+            assert conn.execute("SELECT words FROM listings WHERE source_id = 'vidUntilDawn'").fetchone()[0] == ["dawn", "slipfunc", "until"]
+        assert "slipfunc" in library.vocabulary.alike("slipfnc")
 
 
 @pytest.mark.usefixtures("trust_client_listings")

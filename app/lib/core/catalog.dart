@@ -78,8 +78,12 @@ class SearchResult {
   final List<SearchArtist> artists;
   final List<AlbumRef> albums;
   final List<({String source, bool healthy})> sources;
+
+  /// How many of [songs], from the first, are the user's own: liked, in their playlists or downloaded (#26). The server
+  /// lists them first and marks them in_library; a search without the server finds only these.
+  final int yours;
   const SearchResult(
-      {this.songs = const [], this.artists = const [], this.albums = const [], this.sources = const []});
+      {this.songs = const [], this.artists = const [], this.albums = const [], this.sources = const [], this.yours = 0});
 
   bool get isEmpty => songs.isEmpty && artists.isEmpty && albums.isEmpty;
 
@@ -88,6 +92,7 @@ class SearchResult {
 
   factory SearchResult.fromJson(Map<String, dynamic> j) => SearchResult(
         songs: [for (final s in (j['songs'] as List? ?? const [])) Track.fromSong(s as Map<String, dynamic>)],
+        yours: (j['songs'] as List? ?? const []).takeWhile((s) => (s as Map)['in_library'] == true).length,
         artists: [
           for (final a in (j['artists'] as List? ?? const [])) SearchArtist.fromJson(a as Map<String, dynamic>),
         ],
