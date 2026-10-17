@@ -300,7 +300,8 @@ class _SurfacesState extends State<_Surfaces> {
           padding: const EdgeInsets.only(top: 4),
           child: Text(text, style: Theme.of(context).textTheme.bodySmall),
         );
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    // stretched, as the page's own controls are (the Theme picker, Text size)
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       SegmentedButton<_Part>(
         showSelectedIcon: false,
         segments: [
@@ -322,10 +323,13 @@ class _SurfacesState extends State<_Surfaces> {
         _Part.bar => [
             _slider(context, 'Blur', look.barBlur, 0, 1, 'Clear', 'Frosted', (v) => set(look.copyWith(barBlur: v))),
             _slider(context, 'Transparency', look.barSolid, 0, 1, 'See-through', 'Solid', (v) => set(look.copyWith(barSolid: v))),
+            // measured 18 Oct, a profile build on a laptop (i5-12450HX), a list scrolled under the bar for 6 s: the median
+            // frame took 0.3 ms (a phone's two bars) to 0.6 ms (a computer's) longer to draw with the blur, about a third
             note(phone
-                ? 'The player bar and the tabs. Blur is drawn again with every frame the list under them moves: it costs '
-                    'battery while you scroll, so a phone starts without it.'
-                : 'A blur of what scrolls under the bar, drawn again with every frame the list under it moves.'),
+                ? 'The player bar and the tabs. Blur is drawn again with every frame the list under them moves, about a '
+                    'third more drawing while you scroll: a phone starts without it, for the battery.'
+                : 'Blur is drawn again with every frame the list under the bar moves: about a third more drawing while '
+                    'you scroll.'),
           ],
         _Part.nowPlaying => [
             _slider(context, 'Colour strength', look.nowPlayingColour, 0, 1, 'Soft', 'Vivid', (v) => set(look.copyWith(nowPlayingColour: v))),
