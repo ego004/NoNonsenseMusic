@@ -7,8 +7,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:nononsense/core/api.dart';
+import 'package:nononsense/core/auth.dart';
+import 'package:nononsense/core/library.dart';
+import 'package:nononsense/core/lyrics.dart';
+import 'package:nononsense/core/models.dart';
+import 'package:nononsense/core/player.dart';
+import 'package:nononsense/core/settings.dart';
 import 'package:nononsense/core/translation.dart';
 import 'package:nononsense/ui/lyrics_panel.dart';
+import 'package:nononsense/ui/scope.dart';
+import 'package:nononsense/ui/settings_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// The shape of a real reply (translate_a/single?client=gtx&dt=t) for three Spanish lines, one of them blank-padded:
 /// chunks of [translated, original, ...] that keep the line breaks, then the detected language at element 2.
@@ -133,6 +142,186 @@ void main() {
       answer((_) => ok('[[["x\\n","a\\n"],["y","b"]],null,"fr"]'));
       await t.translate('song', [line('a'), line('b')]);
       expect(t.linesOf('song'), ['x', 'y']);
+    });
+  });
+
+  group('the language chosen (Settings › Lyrics › Translate into, #19)', () {
+    late List<String> asked; // the language each request asked for
+    /// Made-up Spanish lyrics (the server's answer too), translated into Hindi or English by the language asked for;
+    /// [from] is the language Google detects.
+    void answerByLanguage({String from = 'es', int status = 200}) {
+      asked = [];
+      Api.client = MockClient((r) async {
+        if (r.url.path.endsWith('/lyrics')) {
+          return http.Response.bytes(utf8.encode(jsonEncode({'lyrics_source': 'lrclib', 'synced': false, 'lines': [{'text': 'Hola'}, {'text': 'Adiós'}]})), 200,
+              headers: {'content-type': 'application/json'});
+        }
+        final tl = r.url.queryParameters['tl']!;
+        asked.add(tl);
+        final (a, b) = tl == 'hi' ? ('नमस्ते', 'अलविदा') : ('Hello', 'Goodbye');
+        return http.Response.bytes(utf8.encode('[[["$a\\n","Hola\\n"],["$b","Adiós"]],null,"$from"]'), status);
+      });
+    }
+
+    final spanish = [line('Hola'), line('Adiós')];
+    tearDown(() => LyricsStore.translateInto = '');
+
+    test('a song translated is translated again in another language, and each answer is kept for its language', () async {
+      answerByLanguage();
+      var into = 'en';
+      final t = LyricsTranslations(language: () => into);
+      await t.translate('song', spanish);
+      expect(t.linesOf('song'), ['Hello', 'Goodbye']);
+      into = 'hi';
+      expect(t.linesOf('song'), isNull, reason: 'the English answer is not the Hindi one');
+      await t.translate('song', spanish);
+      expect(t.linesOf('song'), ['नमस्ते', 'अलविदा']);
+      into = 'en';
+      expect(t.linesOf('song'), ['Hello', 'Goodbye']);
+      await t.translate('song', spanish);
+      expect(asked, ['en', 'hi'], reason: 'one request per song and language: English again is not asked for');
+    });
+
+    test('"already in your language" and a failure each hold for their own language', () async {
+      answerByLanguage(from: 'en');
+      var into = 'en';
+      final t = LyricsTranslations(language: () => into);
+      await t.translate('song', spanish);
+      expect(t.inReadersLanguage('song'), isTrue);
+      into = 'hi';
+      expect(t.inReadersLanguage('song'), isFalse);
+      answerByLanguage(status: 503);
+      await t.translate('song', spanish);
+      expect(t.failed('song'), isTrue);
+      into = 'es';
+      expect(t.failed('song'), isFalse, reason: 'Hindi failed, Spanish has not been asked');
+      into = 'hi';
+      t.retry('song');
+      answerByLanguage();
+      await t.translate('song', spanish);
+      expect(t.linesOf('song'), ['नमस्ते', 'अलविदा']);
+    });
+
+    test('the uploader\'s translations are used only when they are in the chosen language\'s script', () async {
+      answerByLanguage();
+      var into = 'en';
+      final t = LyricsTranslations(language: () => into);
+      final inEnglish = [line('Hola', translation: 'Hi there'), line('Adiós', translation: 'Bye now')];
+      await t.translate('song', inEnglish);
+      expect(t.linesOf('song'), ['Hi there', 'Bye now']);
+      expect(asked, isEmpty);
+      into = 'hi';
+      await t.translate('song', inEnglish);
+      expect(asked, ['hi'], reason: 'English is not a Hindi reader\'s: Google is asked');
+      expect(t.linesOf('song'), ['नमस्ते', 'अलविदा']);
+      final inHindi = [line('Hola', translation: 'नमस्ते दोस्त'), line('Adiós', translation: 'फिर मिलेंगे')];
+      await t.translate('other', inHindi);
+      expect(t.linesOf('other'), ['नमस्ते दोस्त', 'फिर मिलेंगे']);
+      expect(asked, ['hi'], reason: 'in Devanagari: used as they are, no request');
+    });
+
+    test('the languages offered: each by its own name, in the order of those names, each told apart by its script', () {
+      final names = LyricsTranslations.languages.values.toList();
+      expect(names, [...names]..sort());
+      for (final MapEntry(key: code, value: name) in LyricsTranslations.languages.entries) {
+        expect(LyricsTranslations.inScript(name, code), isTrue, reason: '$name ($code) in its own script');
+      }
+    });
+
+    test('the setting: the device\'s language by default; a language chosen is kept, and the lyrics are asked in it', () async {
+      SharedPreferences.setMockInitialValues({});
+      final settings = Settings();
+      await settings.load();
+      expect(settings.translateInto, '');
+      final store = LyricsStore();
+      answerByLanguage();
+      await store.translations.translate('song', spanish);
+      expect(asked, [LyricsTranslations.deviceLanguage()]);
+      await settings.setTranslateInto('hi');
+      await store.translations.translate('song', spanish);
+      expect(asked.last, 'hi');
+      expect(store.translations.linesOf('song'), ['नमस्ते', 'अलविदा']);
+      final next = Settings(); // the next launch
+      await next.load();
+      expect(next.translateInto, 'hi');
+      await next.setTranslateInto('');
+      expect(store.translations.linesOf('song'), ['Hello', 'Goodbye'], reason: 'the device\'s language again, as first answered');
+      expect(asked, hasLength(2));
+    });
+
+    test('a saved language no longer offered is the device\'s again', () async {
+      SharedPreferences.setMockInitialValues({'translateInto': 'tlh'});
+      final settings = Settings();
+      await settings.load();
+      expect((settings.translateInto, LyricsStore.translateInto), ('', ''));
+    });
+
+    testWidgets('Settings › Lyrics › Translate into: System language first, then the languages; a choice is applied', (tester) async {
+      tester.view.physicalSize = const Size(1280, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      Api.client = MockClient((_) async => http.Response('{}', 200));
+      SharedPreferences.setMockInitialValues({});
+      final settings = Settings();
+      await settings.load();
+      await tester.pumpWidget(Scope(
+        player: Player(),
+        library: Library(),
+        lyrics: LyricsStore(),
+        settings: settings,
+        auth: Auth(store: MemoryTokenStore()),
+        child: const MaterialApp(home: Scaffold(body: SettingsScreen())),
+      ));
+      await tester.pump();
+      final row = find.ancestor(of: find.text('Translate into'), matching: find.byType(ListTile));
+      await tester.scrollUntilVisible(row, 300, scrollable: find.byType(Scrollable).first);
+      final menu = find.descendant(of: row, matching: find.byType(DropdownButton<String>));
+      expect(tester.widget<DropdownButton<String>>(menu).items!.map((i) => i.value),
+          ['', ...LyricsTranslations.languages.keys]);
+      expect(find.descendant(of: row, matching: find.text('System language')), findsOneWidget);
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('हिन्दी').last);
+      await tester.pumpAndSettle();
+      expect((settings.translateInto, LyricsStore.translateInto), ('hi', 'hi'));
+      expect(find.descendant(of: row, matching: find.text('हिन्दी')), findsOneWidget);
+    });
+
+    testWidgets('lyrics showing translated follow the setting: translated again on a change, the first answer kept', (tester) async {
+      SharedPreferences.setMockInitialValues({'lyricsTranslated': true, 'translateInto': 'en'});
+      final settings = Settings();
+      await settings.load();
+      answerByLanguage();
+      final song = Track(const Listing(source: 'jiosaavn', id: 'made-up', title: 'Made-Up Song', artists: ['Kai'], duration: 200), const []);
+      final player = Player();
+      addTearDown(player.dispose);
+      player.queue.load([song], 0, shuffled: false);
+      player.currentId.value = song.id;
+      await tester.pumpWidget(Scope(
+        player: player,
+        library: Library(),
+        lyrics: LyricsStore(),
+        settings: settings,
+        auth: Auth(store: MemoryTokenStore()),
+        child: const MaterialApp(home: Scaffold(body: LyricsPanel())),
+      ));
+      Future<void> settle() async {
+        for (var i = 0; i < 5; i++) {
+          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+          await tester.pump();
+        }
+      }
+
+      await settle();
+      expect(find.text('Hello'), findsOneWidget);
+      await settings.setTranslateInto('hi');
+      await settle();
+      expect(find.text('नमस्ते'), findsOneWidget);
+      expect(find.text('Hello'), findsNothing);
+      await settings.setTranslateInto('en');
+      await settle();
+      expect(find.text('Hello'), findsOneWidget);
+      expect(asked, ['en', 'hi'], reason: 'English came from the first answer');
     });
   });
 

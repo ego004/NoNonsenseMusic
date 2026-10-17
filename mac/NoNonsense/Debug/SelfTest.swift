@@ -1572,10 +1572,10 @@ enum SelfTest {
 
     /// A real picture of the app's window alone, as it is on screen (glass, materials and the toolbar included, which
     /// `snap` cannot draw), as `<folder>/<name>-window.png`. Needs `NN_SELFTEST_VISIBLE=1` (the window is otherwise
-    /// see-through) and Screen Recording; says so without them (15 Oct).
-    static func windowShot(_ name: String) {
+    /// see-through) and Screen Recording; says so without them (15 Oct). `of`: another window, such as Settings.
+    static func windowShot(_ name: String, of chosen: NSWindow? = nil) {
         guard let folder = ProcessInfo.processInfo.environment["NN_SELFTEST_SNAP"],
-              let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) else { return }
+              let window = chosen ?? NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) else { return }
         let file = URL(filePath: folder).appending(path: "\(name)-window.png")
         let shot = Process()
         shot.executableURL = URL(filePath: "/usr/sbin/screencapture")
