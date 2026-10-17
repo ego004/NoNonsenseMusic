@@ -60,12 +60,17 @@ class Accent extends ValueNotifier<Color?> {
     }
   }
 
+  /// The accent with no song's colour (Colours › Accent › System, or a grey cover): Windows 11's default blue.
+  static Color standard(Brightness b) => b == Brightness.dark ? const Color(0xFF60CDFF) : const Color(0xFF005FB8);
+
   /// Returns [c] adjusted so it reads on a background of brightness [b].
   ///
   /// Lightness and saturation are clamped to fixed ranges: a colour that suits a light background can disappear
-  /// against a dark one, and the reverse.
-  static Color readable(Color c, Brightness b) {
+  /// against a dark one, and the reverse. A song's colour is made at least a little [vivid]; a colour the user chose
+  /// (Colours › Custom) keeps its own saturation: a grey would have turned red.
+  static Color readable(Color c, Brightness b, {bool vivid = true}) {
     final hsl = HSLColor.fromColor(c);
-    return hsl.withLightness(b == Brightness.dark ? hsl.lightness.clamp(0.58, 0.72) : hsl.lightness.clamp(0.32, 0.45)).withSaturation(hsl.saturation.clamp(0.45, 0.85)).toColor();
+    final lit = hsl.withLightness(b == Brightness.dark ? hsl.lightness.clamp(0.58, 0.72) : hsl.lightness.clamp(0.32, 0.45));
+    return (vivid ? lit.withSaturation(hsl.saturation.clamp(0.45, 0.85)) : lit).toColor();
   }
 }

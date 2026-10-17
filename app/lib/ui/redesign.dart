@@ -1,5 +1,5 @@
 // UI v2 (15 Oct): the home-screen redesign on a computer. Floating glass panels over the window's own background
-// (Settings › Background, drawn by Windows: no blur of the app's own, so no CPU for it), lit by the playing cover (CoverGlow);
+// (Settings › Window, drawn by Windows: no blur of the app's own, so no CPU for it), lit by the playing cover (CoverGlow);
 // a sidebar with the logo, the places and the playlists; on Home a line of greeting, the song playing with Up Next,
 // shelves that scroll by a button, and the library as one grid. Search is the command bar at the top (command_bar.dart).
 // A phone keeps its own layout.
@@ -28,7 +28,7 @@ import 'song_row.dart';
 /// window no see-through at all), never so little that the text on it stops reading.
 Color panelFill(BuildContext context) {
   final dark = Theme.of(context).brightness == Brightness.dark;
-  return switch (Scope.of(context).settings.material) {
+  return switch (Look.of(context).material) {
     WindowMaterial.glass => dark ? const Color(0xFF1B1B20).withValues(alpha: 0.42) : Colors.white.withValues(alpha: 0.5),
     WindowMaterial.acrylic => dark ? Colors.white.withValues(alpha: 0.05) : Colors.white.withValues(alpha: 0.4),
     WindowMaterial.mica => dark ? Colors.white.withValues(alpha: 0.045) : Colors.white.withValues(alpha: 0.55),
@@ -39,10 +39,14 @@ Color panelFill(BuildContext context) {
 }
 
 /// The tint of glass that floats over the content (the player bar), with a blur under it: strong enough that what
-/// scrolls beneath shows only as a hint of colour (at 74% the bar read as too see-through, 15 Oct).
-Color floatingFill(BuildContext context) => Theme.of(context).brightness == Brightness.dark
-    ? const Color(0xFF1E1E23).withValues(alpha: 0.88)
-    : Colors.white.withValues(alpha: 0.88);
+/// scrolls beneath shows only as a hint of colour (at 74% the bar read as too see-through, 15 Oct). Settings ›
+/// Appearance › Surfaces › Player bar › Transparency fills in the rest of it, up to solid.
+Color floatingFill(BuildContext context) {
+  final fill = Look.of(context).solid(0.88);
+  return Theme.of(context).brightness == Brightness.dark
+      ? const Color(0xFF1E1E23).withValues(alpha: fill)
+      : Colors.white.withValues(alpha: fill);
+}
 
 /// A panel of the redesign: rounded glass with a hairline edge. Its fill only, no blur: the window's background is the
 /// glass behind it.
@@ -929,10 +933,12 @@ class _PlaylistTileState extends State<_PlaylistTile> {
   }
 }
 
-/// The window lit softly by the playing song's cover (15 Oct), on a computer: Now Playing's backdrop (blurred once per
-/// song into a still 64-pixel picture the GPU stretches), seen through a veil of the window's own colour, so the text
-/// reads as it does without it. It is drawn again only when the song changes, fading to the next over 0.6 s.
-/// Settings › Appearance › Cover glow turns it off.
+/// The window lit softly by Colours › Background (15 Oct), on a computer: the playing song's cover (Song, the default)
+/// or the user's colour (Custom), as Now Playing's backdrop (blurred once per song into a still 64-pixel picture the GPU
+/// stretches), seen through a veil of the window's own colour, so the text reads as it does without it. It is drawn
+/// again only when the song changes, fading to the next over 0.6 s. Background › System leaves it out; Surfaces › Main
+/// area › Colour strength makes it softer, never stronger: the window shows the cover as it is (#20 keeps only Now
+/// Playing's text readable on it), and the text on the window has only this veil over the cover.
 class CoverGlow extends StatelessWidget {
   const CoverGlow({super.key});
 
@@ -940,36 +946,33 @@ class CoverGlow extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = Scope.of(context);
     final theme = Theme.of(context);
+    final look = Look.of(context);
     final dark = theme.brightness == Brightness.dark;
     final veil = theme.colorScheme.surface;
-    return ListenableBuilder(
-      listenable: s.settings,
-      builder: (context, _) => !s.settings.coverGlow
-          ? const SizedBox.shrink()
-          : ValueListenableBuilder<String?>(
-              valueListenable: s.player.currentId,
-              builder: (context, _, _) {
-                final url = s.player.current?.image;
-                if (url == null) return const SizedBox.shrink();
-                return RepaintBoundary(
-                  child: IgnorePointer(
-                    child: Stack(fit: StackFit.expand, children: [
-                      Opacity(opacity: dark ? 0.55 : 0.4, child: CoverBackdrop(url: url)),
-                      // strongest at the top, where the eye starts; calmer under the lists
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [veil.withValues(alpha: 0), veil.withValues(alpha: dark ? 0.5 : 0.45)],
-                          ),
-                        ),
-                      ),
-                    ]),
+    if (look.background == ColourMode.system) return const SizedBox.shrink();
+    return ValueListenableBuilder<String?>(
+      valueListenable: s.player.currentId,
+      builder: (context, _, _) {
+        final backdrop = backdropFor(look, s.player.current?.image);
+        if (backdrop == null) return const SizedBox.shrink();
+        return RepaintBoundary(
+          child: IgnorePointer(
+            child: Stack(fit: StackFit.expand, children: [
+              Opacity(opacity: Look.strong(look.artStrength, dark ? 0.55 : 0.4), child: backdrop),
+              // strongest at the top, where the eye starts; calmer under the lists
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [veil.withValues(alpha: 0), veil.withValues(alpha: dark ? 0.5 : 0.45)],
                   ),
-                );
-              },
-            ),
+                ),
+              ),
+            ]),
+          ),
+        );
+      },
     );
   }
 }

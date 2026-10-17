@@ -1,4 +1,6 @@
-import 'package:flutter/material.dart' show ThemeMode;
+import 'dart:io';
+
+import 'package:flutter/material.dart' show BuildContext, Color, Theme, ThemeExtension, ThemeMode;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -27,11 +29,174 @@ enum WindowMaterial {
   ThemeMode? get theme => switch (this) { solidDark => ThemeMode.dark, solidLight => ThemeMode.light, _ => null };
 }
 
+/// Settings › Appearance › Colours: where a coloured part takes its colour, as on the Mac (ThemeStore.Mode).
+enum ColourMode {
+  system('System'),
+  song('Song'),
+  custom('Custom');
+
+  final String label;
+  const ColourMode(this.label);
+}
+
+/// "#5E5CE6" (the "#" optional) as a colour; null for anything else. The Mac's hex codes: a colour reads the same on both.
+Color? colourFromHex(String text) {
+  final hex = text.trim().replaceFirst('#', '');
+  return RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(hex) ? Color(0xFF000000 | int.parse(hex, radix: 16)) : null;
+}
+
+String hexOf(Color c) => '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+
+/// Settings › Appearance as one value (#29): the window's background, the colours, the bar's blur and fill, the
+/// background's colour strength, the card size. The theme carries it (buildTheme), so a change redraws what shows it, at
+/// once: a const widget deep in the tree included, which a value read from [Settings] left as it was until something
+/// else redrew it (the sidebar kept Glass's fill after a change to Mica until another page was opened). The defaults are
+/// the look from before these settings (15 Oct), but for a phone's blur ([phone]).
+@immutable
+class Look extends ThemeExtension<Look> {
+  /// Window: the window's background on Windows, drawn by Windows.
+  final WindowMaterial material;
+
+  /// Colours › Accent: buttons, selections and the playing song. System: the app's blue.
+  final ColourMode accent;
+
+  /// Colours › Background: the colours behind the lists and Now Playing. System: none.
+  final ColourMode background;
+
+  /// Custom's colours.
+  final Color accentColour, backgroundColour;
+
+  /// The playing cover's most vivid colour (Accent), what Song means; null for a grey cover or none. Set by buildTheme.
+  final Color? song;
+
+  /// Surfaces › Main area and Now Playing › Colour strength: how strong the background's colours are, 0 (none) up;
+  /// [defaultStrength] is the strength they had before they could be set.
+  final double artStrength, nowPlayingColour;
+
+  /// Surfaces › Player bar (a phone's bottom bar: the player bar and the tabs): its blur, 0 (none) to 1, and how much of
+  /// the see-through part of its tint is filled in, 0 (as before) to 1 (solid), as the Mac's barSolid.
+  final double barBlur, barSolid;
+
+  /// Sizes › Card size: the covers on Home, in the Library and in album grids, in points (the Mac's default and range).
+  final double cardSize;
+
+  const Look({
+    this.material = WindowMaterial.glass,
+    this.accent = ColourMode.song,
+    this.background = ColourMode.song,
+    this.accentColour = const Color(0xFF0A84FF), // the Mac's: the system blue
+    this.backgroundColour = const Color(0xFF5E5CE6), // the system indigo
+    this.song,
+    this.artStrength = defaultStrength,
+    this.nowPlayingColour = defaultStrength,
+    this.barBlur = 1,
+    this.barSolid = 0,
+    this.cardSize = 148,
+  });
+
+  /// A phone's: the bars without blur, as a blur is drawn again with every frame anything under it moves (battery,
+  /// #29).
+  static const phone = Look(barBlur: 0);
+
+  static final Look defaults = Platform.isAndroid ? phone : const Look();
+
+  /// The colour strengths' default: the cover's colours as strong as before they could be set (the Mac's artStrength).
+  static const defaultStrength = 0.7;
+
+  /// The opacity of the background's colours at [strength], [before] being theirs at the default.
+  static double strong(double strength, double before) => (before * strength / defaultStrength).clamp(0.0, 1.0);
+
+  /// The look the theme above [context] carries.
+  static Look of(BuildContext context) => Theme.of(context).extension<Look>() ?? const Look();
+
+  /// [side], a card's size at the default, at the chosen card size.
+  double card(double side) => side * cardSize / 148;
+
+  /// [fill], the opacity of a part of the bar's tint as it was, with [barSolid] of the rest filled in.
+  double solid(double fill) => fill + (1 - fill) * barSolid;
+
+  /// The look as it is kept, a key and a value each.
+  Map<String, Object> get _prefs => {
+        'material': material.name,
+        'accentMode': accent.name,
+        'accentHex': hexOf(accentColour),
+        'backgroundMode': background.name,
+        'backgroundHex': hexOf(backgroundColour),
+        'artStrength': artStrength,
+        'nowPlayingColour': nowPlayingColour,
+        'barBlur': barBlur,
+        'barSolid': barSolid,
+        'cardSize': cardSize,
+      };
+
+  static Look _read(SharedPreferences p) {
+    final d = defaults;
+    ColourMode mode(String key, ColourMode or) => ColourMode.values.asNameMap()[p.getString(key)] ?? or;
+    Color colour(String key, Color or) => colourFromHex(p.getString(key) ?? '') ?? or;
+    double number(String key, double or) => p.getDouble(key) ?? or;
+    // a saved 'solid' (before the six backgrounds, 15 Oct) is the dark one
+    final material = p.getString('material');
+    return Look(
+      material: material == 'solid' ? WindowMaterial.solidDark : WindowMaterial.values.asNameMap()[material] ?? d.material,
+      accent: mode('accentMode', d.accent),
+      // Cover glow (15 Oct) switched off is Background: System
+      background: mode('backgroundMode', p.getBool('coverGlow') == false ? ColourMode.system : d.background),
+      accentColour: colour('accentHex', d.accentColour),
+      backgroundColour: colour('backgroundHex', d.backgroundColour),
+      artStrength: number('artStrength', d.artStrength),
+      nowPlayingColour: number('nowPlayingColour', d.nowPlayingColour),
+      barBlur: number('barBlur', d.barBlur),
+      barSolid: number('barSolid', d.barSolid),
+      cardSize: number('cardSize', d.cardSize),
+    );
+  }
+
+  static const _same = Object();
+
+  @override
+  Look copyWith({
+    WindowMaterial? material,
+    ColourMode? accent,
+    ColourMode? background,
+    Color? accentColour,
+    Color? backgroundColour,
+    Object? song = _same, // a Color, or null for none
+    double? artStrength,
+    double? nowPlayingColour,
+    double? barBlur,
+    double? barSolid,
+    double? cardSize,
+  }) =>
+      Look(
+        material: material ?? this.material,
+        accent: accent ?? this.accent,
+        background: background ?? this.background,
+        accentColour: accentColour ?? this.accentColour,
+        backgroundColour: backgroundColour ?? this.backgroundColour,
+        song: identical(song, _same) ? this.song : song as Color?,
+        artStrength: artStrength ?? this.artStrength,
+        nowPlayingColour: nowPlayingColour ?? this.nowPlayingColour,
+        barBlur: barBlur ?? this.barBlur,
+        barSolid: barSolid ?? this.barSolid,
+        cardSize: cardSize ?? this.cardSize,
+      );
+
+  /// A change of look is shown whole, not blended: a blur or a fill between two settings would be drawn for nothing.
+  @override
+  Look lerp(Look? other, double t) => other == null || t < 0.5 ? this : other;
+
+  @override
+  bool operator ==(Object other) => other is Look && other.song == song && mapEquals(other._prefs, _prefs);
+
+  @override
+  int get hashCode => Object.hash(song, Object.hashAll(_prefs.values));
+}
+
 /// Holds every setting and keeps it between launches. A change applies at once.
 class Settings extends ChangeNotifier {
   late SharedPreferences _p;
   String server = Api.base;
-  WindowMaterial material = WindowMaterial.glass;
+  WindowMaterial get material => look.material;
 
   /// Whether to play a song's explicit version when one exists.
   bool explicit = true;
@@ -83,8 +248,8 @@ class Settings extends ChangeNotifier {
   /// Settings › Storage › Keep songs on this device: the audio cache's limit in MB, 0 is off.
   int audioCacheMB = AudioCache.defaultLimitMB;
 
-  /// Settings › Appearance › Cover glow: the window takes a soft light from the playing song's cover (UI v2, 15 Oct).
-  bool coverGlow = true;
+  /// Settings › Appearance's colours, surfaces and card size.
+  Look look = Look.defaults;
 
   /// Settings › Storage › Download location: the folder the user chose for downloads, null for the app's own.
   String? downloadFolder;
@@ -94,9 +259,6 @@ class Settings extends ChangeNotifier {
   Future<void> load() async {
     _p = await SharedPreferences.getInstance();
     server = _address(_p.getString('server') ?? Api.defaultServer); // also mends one saved with a trailing "/" or no scheme
-    // a saved 'solid' (before the six backgrounds, 15 Oct) is the dark one
-    final saved = _p.getString('material');
-    material = saved == 'solid' ? WindowMaterial.solidDark : WindowMaterial.values.asNameMap()[saved] ?? WindowMaterial.glass;
     explicit = _p.getBool('explicit') ?? true;
     preferredSource = _p.getString('preferredSource') ?? '';
     autoplay = _p.getBool('autoplay') ?? true;
@@ -116,7 +278,7 @@ class Settings extends ChangeNotifier {
     geniusNotes = _p.getBool('geniusNotes') ?? false;
     audioCacheMB = _p.getInt('audioCacheMB') ?? AudioCache.defaultLimitMB;
     downloadFolder = _p.getString('downloadFolder');
-    coverGlow = _p.getBool('coverGlow') ?? true;
+    look = Look._read(_p);
     _loaded = true;
     _apply();
   }
@@ -139,20 +301,24 @@ class Settings extends ChangeNotifier {
   /// storage under [key] once loaded, then the change is applied and listeners are notified.
   Future<void> _set(String key, Object value, void Function() assign) async {
     assign();
-    if (_loaded) {
-      switch (value) {
-        case final bool b:
-          await _p.setBool(key, b);
-        case final double d:
-          await _p.setDouble(key, d);
-        case final int i:
-          await _p.setInt(key, i);
-        case final String s:
-          await _p.setString(key, s);
-      }
-    }
+    await _write(key, value);
     _apply();
     notifyListeners();
+  }
+
+  /// Keep [value] under [key], once the stored settings are loaded (a widget test's Settings never is: nothing to keep).
+  Future<void> _write(String key, Object value) async {
+    if (!_loaded) return;
+    switch (value) {
+      case final bool b:
+        await _p.setBool(key, b);
+      case final double d:
+        await _p.setDouble(key, d);
+      case final int i:
+        await _p.setInt(key, i);
+      case final String s:
+        await _p.setString(key, s);
+    }
   }
 
   Future<void> setTheme(ThemeMode m) => _set('theme', m.name, () => theme = m);
@@ -176,7 +342,21 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setCoverGlow(bool on) => _set('coverGlow', on, () => coverGlow = on);
+  /// Settings › Appearance: [next] shown at once, and each of its values that changed kept.
+  Future<void> setLook(Look next) async {
+    final before = look._prefs;
+    look = next;
+    for (final e in next._prefs.entries) {
+      if (before[e.key] != e.value) await _write(e.key, e.value);
+    }
+    notifyListeners();
+  }
+
+  /// Settings › Appearance › Reset All: the colours, the surfaces and both sizes as they came.
+  Future<void> resetLook() async {
+    await setTextScale(1);
+    await setLook(Look.defaults);
+  }
 
   Future<void> setGeniusNotes(bool on) =>
       _set('geniusNotes', on, () => geniusNotes = on);
@@ -232,11 +412,7 @@ class Settings extends ChangeNotifier {
     }
   }
 
-  Future<void> setMaterial(WindowMaterial m) async {
-    material = m;
-    await _p.setString('material', m.name);
-    notifyListeners();
-  }
+  Future<void> setMaterial(WindowMaterial m) => setLook(look.copyWith(material: m));
 
   Future<void> setExplicit(bool on) async {
     explicit = on;

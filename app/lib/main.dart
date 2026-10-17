@@ -135,8 +135,9 @@ class NoNonsenseApp extends StatelessWidget {
           builder: (context, song, _) => ListenableBuilder(listenable: settings, builder: (context, _) => MaterialApp(
             title: 'NoNonsenseMusic',
             debugShowCheckedModeBanner: false,
-            theme: buildTheme(Brightness.light, song),
-            darkTheme: buildTheme(Brightness.dark, song),
+            // the rest of Settings › Appearance (colours, surfaces, card size) rides on the theme: what shows it redraws
+            theme: buildTheme(Brightness.light, song, look: settings.look),
+            darkTheme: buildTheme(Brightness.dark, song, look: settings.look),
             home: AuthGate(auth: auth, settings: settings, signedIn: (_) => const Shell()),
             // Settings › Appearance: light, dark or the system's theme, and the size of all the text.
             themeMode: settings.themeShown,

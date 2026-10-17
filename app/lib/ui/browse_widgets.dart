@@ -6,6 +6,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import '../core/catalog.dart';
 import '../core/models.dart';
 import '../core/search_model.dart';
+import '../core/settings.dart';
 import 'browse_nav.dart';
 import 'concept.dart';
 import 'cover.dart';
@@ -222,7 +223,8 @@ class AlbumGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SliverLayoutBuilder(
         builder: (context, box) {
-          const gap = 18.0, wish = 150.0;
+          const gap = 18.0;
+          final wish = Look.of(context).card(150); // Settings › Appearance › Card size
           final across = ((box.crossAxisExtent + gap) / (wish + gap)).floor().clamp(1, 12);
           final side = (box.crossAxisExtent - gap * (across - 1)) / across;
           return SliverGrid.builder(
@@ -262,7 +264,7 @@ class AlbumShelf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const side = 128.0;
+    final side = Look.of(context).card(128);
     return SizedBox(
       height: AlbumCard.heightFor(context, side) + 8,
       child: ListView.separated(

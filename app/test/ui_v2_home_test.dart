@@ -31,7 +31,7 @@ Future<Player> window(WidgetTester tester, Size size, {bool playing = true, bool
   SharedPreferences.setMockInitialValues({});
   final settings = Settings();
   await settings.load();
-  if (!glow) await settings.setCoverGlow(false);
+  if (!glow) await settings.setLook(settings.look.copyWith(background: ColourMode.system));
   final player = Player();
   addTearDown(player.dispose);
   if (playing) {
@@ -44,7 +44,7 @@ Future<Player> window(WidgetTester tester, Size size, {bool playing = true, bool
     lyrics: LyricsStore(),
     settings: settings,
     auth: Auth(store: MemoryTokenStore()),
-    child: MaterialApp(theme: buildTheme(Brightness.dark, null), home: const Shell()),
+    child: MaterialApp(theme: buildTheme(Brightness.dark, null, look: settings.look), home: const Shell()),
   ));
   await tester.pump(const Duration(seconds: 1));
   return player;

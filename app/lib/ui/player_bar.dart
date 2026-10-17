@@ -5,6 +5,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/models.dart';
 import '../core/play_queue.dart';
+import '../core/settings.dart';
 import 'browse_widgets.dart';
 import 'concept.dart';
 import 'cover.dart';
@@ -33,6 +34,8 @@ class PlayerBar extends StatelessWidget {
         final t = p.current;
         if (t == null) return const SizedBox.shrink();
         final phone = MediaQuery.sizeOf(context).width < 700;
+        // Settings › Appearance › Surfaces › Player bar (a phone's bottom bar)
+        final look = Look.of(context);
         // the concept (13 Oct): on a computer a pill that rises a little under the pointer
         final bar = Container(
           // taller as the text grows (Android's font size, Windows' text size): at 200% the song's title and artists
@@ -256,9 +259,10 @@ class PlayerBar extends StatelessWidget {
         );
         // UI v2 (15 Oct): a computer's bar floats over the lists, so it is frosted glass: a blur of what scrolls under
         // it below a strong tint (a see-through fill alone let the songs' text read through it). The blur is drawn when
-        // the bar is: once a second while a song plays
+        // the bar is: once a second while a song plays, and with every frame the list under it scrolls. Blur at 0 draws
+        // none (a phone's default: battery, #29)
         return phone
-            ? GlassSurface(radius: 22, child: bar)
+            ? GlassSurface(radius: 22, blur: 18 * look.barBlur, solid: look.barSolid, child: bar)
             : HoverLift(
                 builder: (_) => DecoratedBox(
                   decoration: BoxDecoration(
@@ -269,7 +273,9 @@ class PlayerBar extends StatelessWidget {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(26),
-                    child: BackdropFilter(filter: ui.ImageFilter.blur(sigmaX: 30, sigmaY: 30), child: bar),
+                    child: look.barBlur > 0
+                        ? BackdropFilter(filter: ui.ImageFilter.blur(sigmaX: 30 * look.barBlur, sigmaY: 30 * look.barBlur), child: bar)
+                        : bar,
                   ),
                 ),
               );

@@ -4,6 +4,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import '../core/api.dart';
 import '../core/download_store.dart';
 import '../core/models.dart';
+import '../core/settings.dart';
 import 'concept.dart';
 import 'cover.dart';
 import 'glass.dart';
@@ -56,9 +57,10 @@ class Home extends StatelessWidget {
           padding: EdgeInsets.symmetric(horizontal: side),
           child: child,
         );
-        // a tile's two lines of text under its cover, at the user's text size
+        // a tile's two lines of text under its cover, at the user's text size; the cover at the card size
         final scaler = MediaQuery.textScalerOf(context);
         final tileText = (scaler.scale(14) + scaler.scale(12)) * 1.45;
+        final tile = Look.of(context).cardSize;
         Widget title(String t) => Padding(
           padding: EdgeInsets.fromLTRB(side, 0, side, 10),
           child: Text(
@@ -139,7 +141,7 @@ class Home extends StatelessWidget {
             if (recent.isNotEmpty && !phone) section('recent', 1, [
               ShelfHeading('Jump back in', seeAll: openRecent, padding: EdgeInsets.fromLTRB(side, 0, side - 8, 8)),
               ArrowShelf(
-                height: 172 + tileText,
+                height: tile + 24 + tileText,
                 padding: EdgeInsets.symmetric(horizontal: side),
                 itemCount: recent.length,
                 itemBuilder: (_, i) => _CoverTile(
@@ -153,7 +155,7 @@ class Home extends StatelessWidget {
               title('Jump back in'),
               SizedBox(
                 // the cover and the gaps around it, then the text
-                height: 172 + tileText,
+                height: tile + 24 + tileText,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   clipBehavior: Clip.none, // a card's shadow falls below the shelf: cut off, it drew as a band
@@ -272,19 +274,20 @@ class _CoverTile extends StatelessWidget {
   final VoidCallback onPlay;
   const _CoverTile({required this.track, required this.onPlay});
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) {
+    final side = Look.of(context).cardSize;
+    return GestureDetector(
     onTap: onPlay,
     child: isPhone(context)
         ? GlassSurface(
-            blur: false,
             radius: 20,
             padding: const EdgeInsets.all(8),
             child: SizedBox(
-              width: 148,
+              width: side,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Cover(track.image, size: 148, radius: 14),
+                  Cover(track.image, size: side, radius: 14),
                   const SizedBox(height: 8),
                   Text(
                     track.title,
@@ -303,11 +306,11 @@ class _CoverTile extends StatelessWidget {
             ),
           )
         : SizedBox(
-            width: 148,
+            width: side,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _Hovering(track: track, size: 148, radius: 10, onPlay: onPlay),
+                _Hovering(track: track, size: side, radius: 10, onPlay: onPlay),
                 const SizedBox(height: 8),
                 Text(
                   track.title,
@@ -324,7 +327,8 @@ class _CoverTile extends StatelessWidget {
               ],
             ),
           ),
-  );
+    );
+  }
 }
 
 class _PlaylistCard extends StatefulWidget {
@@ -382,7 +386,6 @@ class _PlaylistCardState extends State<_PlaylistCard> {
       onTap: onOpen,
       child: isPhone(context)
           ? GlassSurface(
-              blur: false,
               radius: 20,
               padding: const EdgeInsets.all(8),
               child: SizedBox(
@@ -598,7 +601,7 @@ class LibraryScreen extends StatelessWidget {
               child: Text(t, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700, fontFamily: displayFont, letterSpacing: -0.3)),
             );
         Widget grid(Iterable<PlaylistSummary> playlists) => Wrap(spacing: 22, runSpacing: 22, children: [
-              for (final p in playlists) _PlaylistCard(playlist: p, size: 148, onOpen: () => openPlaylist(p.id)),
+              for (final p in playlists) _PlaylistCard(playlist: p, size: Look.of(context).cardSize, onOpen: () => openPlaylist(p.id)),
             ]);
         return ListView(padding: EdgeInsets.fromLTRB(side, 8, side, bottomClearance(context)), children: [
           Text('Library', style: TextStyle(fontFamily: displayFont, fontSize: 40, fontWeight: FontWeight.w700, letterSpacing: -1, color: theme.colorScheme.onSurface)),
@@ -625,16 +628,19 @@ class _CollectionCard extends StatelessWidget {
   final VoidCallback onOpen;
   const _CollectionCard({required this.kind, required this.count, required this.onOpen});
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onOpen,
-        child: SizedBox(
-          width: 148,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            HoverCover(size: 148, onTap: onOpen, child: CollectionTile(kind, size: 148)),
-            const SizedBox(height: 8),
-            Text(kind.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-            Text(songs(count), style: Theme.of(context).textTheme.bodySmall),
-          ]),
-        ),
-      );
+  Widget build(BuildContext context) {
+    final side = Look.of(context).cardSize;
+    return GestureDetector(
+      onTap: onOpen,
+      child: SizedBox(
+        width: side,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          HoverCover(size: side, onTap: onOpen, child: CollectionTile(kind, size: side)),
+          const SizedBox(height: 8),
+          Text(kind.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(songs(count), style: Theme.of(context).textTheme.bodySmall),
+        ]),
+      ),
+    );
+  }
 }

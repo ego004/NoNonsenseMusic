@@ -6,6 +6,7 @@ import 'browse_nav.dart';
 import 'browse_widgets.dart';
 import 'concept.dart';
 import '../core/models.dart';
+import '../core/settings.dart';
 import 'copy_menu.dart';
 import 'cover.dart';
 import 'glass.dart';
@@ -41,13 +42,16 @@ class NowPlaying extends StatelessWidget {
             if (t == null) return const SizedBox.shrink();
             final small = MediaQuery.sizeOf(context).width < 700 || MediaQuery.sizeOf(context).height < 600;
             final dark = theme.brightness == Brightness.dark;
-            // the cover's opacity, and the surface's veil over it from top to bottom: the text reads on the cover where
-            // the veil is thinnest (NowPlayingInk, #20)
-            final cover = small ? (dark ? 0.55 : 0.4) : (dark ? 0.78 : 0.55);
+            // the cover's opacity (Settings › Appearance › Surfaces › Now Playing › Colour strength), and the surface's
+            // veil over it from top to bottom: the text reads on the cover where the veil is thinnest, at any strength
+            // (NowPlayingInk, #20)
+            final look = Look.of(context);
+            final cover = Look.strong(look.nowPlayingColour, small ? (dark ? 0.55 : 0.4) : (dark ? 0.78 : 0.55));
             final veil = small ? const [0.35, 0.75] : const [0.5, 0.18, 0.82];
             final readable = NowPlayingInk(theme, share: cover * (1 - veil.reduce((a, b) => a < b ? a : b)));
+            final backdrop = backdropFor(look, t.image, ink: readable);
             // the accent's text (the artists, a noted lyric, a mode that is on) reads on the cover's colours too
-            final accent = readable.readable(theme.colorScheme.primary, t.image == null ? const [] : NowPlayingInk.behind.value);
+            final accent = readable.readable(theme.colorScheme.primary, backdrop == null ? const [] : NowPlayingInk.behind.value);
             return Theme(
               data: theme.copyWith(colorScheme: theme.colorScheme.copyWith(primary: accent)),
               child: Stack(
@@ -57,14 +61,11 @@ class NowPlaying extends StatelessWidget {
                   const PhoneBackdrop()
                 else
                   ColoredBox(color: theme.colorScheme.surface),
-                // The background takes the cover's colours, blurred once per song and stretched by the GPU (CoverBackdrop):
-                // a live blur would be redrawn with every frame; this stays one small texture. The concept (13 Oct): a
-                // computer's is stronger, strongest behind the song and deepening toward the edges
-                if (t.image != null)
-                  Opacity(
-                    opacity: cover,
-                    child: CoverBackdrop(url: t.image!, ink: readable),
-                  ),
+                // The background takes the cover's colours (or the user's, Colours › Background), blurred once per song
+                // and stretched by the GPU (CoverBackdrop): a live blur would be redrawn with every frame; this stays one
+                // small texture. The concept (13 Oct): a computer's is stronger, strongest behind the song and deepening
+                // toward the edges
+                if (backdrop != null) Opacity(opacity: cover, child: backdrop),
                 DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
