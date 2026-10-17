@@ -53,6 +53,14 @@ nonisolated struct SearchSong: Codable, Sendable {
     let listings: [Listing]
     /// The song's cover, the same whichever copy plays (the server's songs.image or pick_cover).
     let image: String?
+    /// A search's song from your own library (liked, or in one of your playlists): the server lists them first (#26).
+    /// Sent only when true; nil from a server before it.
+    var inLibrary: Bool? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case title, artists, duration, score, best, listings, image
+        case inLibrary = "in_library"
+    }
 }
 
 nonisolated struct SourceInfo: Codable, Sendable {

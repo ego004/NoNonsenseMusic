@@ -200,10 +200,15 @@ struct SearchView: View {
     /// ⌘K or ⌘F on the Search page, which has no command bar (RootView counts the presses): each focuses the search bar
     var focusRequests = 0
     @Environment(Player.self) private var player
+    @Environment(LibraryStore.self) private var library
+    @Environment(DownloadStore.self) private var downloads
     /// Searches that led to a song you played, newest first (RecentSearches): the idle screen offers them again.
     @AppStorage("recentSearches") private var recentRaw = ""
     @State private var query: String
     @State private var results: [Track] = []
+    /// How many of `results`, from the first, are your own (#26): the server marks them in_library; with no server,
+    /// all of them are
+    @State private var yours = 0
     @State private var artists: [SearchArtist] = []
     @State private var albums: [AlbumRef] = []
     @State private var filter = SearchFilter.all
@@ -231,6 +236,32 @@ struct SearchView: View {
     /// Nothing typed yet: the bar sits lower, as the screen's main element. Typing moves it to the top.
     private var isIdle: Bool { query.trimmingCharacters(in: .whitespaces).isEmpty }
 
+    /// A line of the songs: a heading, or a song.
+    enum SongLine: Identifiable {
+        case heading(String), song(Track)
+        var id: String {
+            switch self {
+            case .heading(let text): "heading:" + text
+            case .song(let track): track.id
+            }
+        }
+        var text: String {
+            switch self {
+            case .heading(let text): text
+            case .song(let track): track.title
+            }
+        }
+    }
+
+    /// The songs, top to bottom: your own first under In Your Library (#26), then the sources' under Songs (that
+    /// heading only when something stands above it).
+    private var songLines: [SongLine] {
+        var lines: [SongLine] = yours > 0 ? [.heading("In Your Library")] : []
+        lines += results.prefix(yours).map(SongLine.song)
+        if results.count > yours && (yours > 0 || !artists.isEmpty || !albums.isEmpty) { lines.append(.heading("Songs")) }
+        return lines + results.dropFirst(yours).map(SongLine.song)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 14) {
@@ -238,6 +269,11 @@ struct SearchView: View {
                 if !isIdle { FilterCapsules(selection: $filter) }
                 if !unhealthy.isEmpty {
                     Label(Self.didNotRespond(unhealthy.map { Listing.name(ofSource: $0.source) }), systemImage: "exclamationmark.triangle")
+                        .textStyle(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                if failed && !results.isEmpty {
+                    Label("Can't reach your server, so only your own songs are shown.", systemImage: "wifi.exclamationmark")
                         .textStyle(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -271,16 +307,18 @@ struct SearchView: View {
                         if !albums.isEmpty {
                             AlbumShelf(albums: albums) { filter = .albums }.browseRow(top: 6, bottom: 8, inset: 24)
                         }
-                        if !results.isEmpty && (!artists.isEmpty || !albums.isEmpty) {
-                            Text("Songs").textStyle(.title3, weight: .bold).browseRow(top: 6, bottom: 2, inset: 24)
-                        }
-                        // a search result plays alone; Autoplay then continues with songs like it, not with the rest
-                        // of the results
-                        ForEach(results) { track in
-                            SongRow(track: track, queue: [track], index: 0)
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
+                        ForEach(songLines) { line in
+                            switch line {
+                            case .heading(let text):
+                                Text(text).textStyle(.title3, weight: .bold).browseRow(top: 6, bottom: 2, inset: 24)
+                            case .song(let track):
+                                // a search result plays alone; Autoplay then continues with songs like it, not with the
+                                // rest of the results
+                                SongRow(track: track, queue: [track], index: 0)
+                                    .listRowSeparator(.hidden)
+                                    .listRowBackground(Color.clear)
+                                    .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
+                            }
                         }
                     }
                     .listStyle(.plain)
@@ -290,7 +328,7 @@ struct SearchView: View {
             }
             .frame(maxHeight: .infinity)
             .overlay {
-                if failed {
+                if failed && results.isEmpty {
                     ContentUnavailableView("Can't reach your server", systemImage: "wifi.exclamationmark",
                                            description: Text("Check that the server at \(API.baseURL.absoluteString) is running."))
                 } else if showsNoResults {
@@ -303,6 +341,8 @@ struct SearchView: View {
         #if DEBUG
         .onChange(of: showsNoResults, initial: true) { _, now in SelfTest.noResultsShowing = now }
         .onChange(of: results.count, initial: true) { _, n in SelfTest.searchResultCount = n; SelfTest.searchTop = results.first?.best }
+        .onChange(of: songLines.map(\.text), initial: true) { _, now in SelfTest.searchLines = now }
+        .onChange(of: failed, initial: true) { _, now in SelfTest.searchFailed = now }
         // a self-test plays the first result exactly as a double-click on its row does
         .onReceive(NotificationCenter.default.publisher(for: .selfTestSearch)) { note in
             if let text = note.object as? String { query = text }
@@ -333,7 +373,7 @@ struct SearchView: View {
     private func schedule(_ text: String, delay: Duration) {
         task?.cancel()
         let q = text.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { results = []; artists = []; albums = []; sources = []; failed = false; isLoading = false; Prefetcher.shared.searchChanged([]); return }
+        guard !q.isEmpty else { results = []; yours = 0; artists = []; albums = []; sources = []; failed = false; isLoading = false; Prefetcher.shared.searchChanged([]); return }
         // loading from the first keystroke, not after the 350 ms pause: "No Results" flashed in that gap (16 of 72
         // samples while typing "arijit", 6 Oct). Only the newest search turns it off: a cancelled one used to, as it died.
         isLoading = true
@@ -346,6 +386,7 @@ struct SearchView: View {
                 guard !Task.isCancelled else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
                     results = response.songs.map(Track.init)
+                    yours = response.songs.prefix { $0.inLibrary == true }.count
                     // All shows a shelf of each; a filter shows every one found
                     artists = Array((response.artists ?? []).prefix(filter == .all ? 8 : 60))
                     albums = Array((response.albums ?? []).prefix(filter == .all ? 12 : 60).map(\.best))
@@ -354,7 +395,15 @@ struct SearchView: View {
                 Prefetcher.shared.searchChanged(results.prefix(5).map(\.best))   // the top results (as many as Settings › Footprint says) start at once
                 failed = false
             } catch {
-                if !Task.isCancelled { failed = true }
+                guard !Task.isCancelled else { return }
+                // no server: the songs of yours this app holds that match, by the server's rule. Songs alone: artists and
+                // albums come only from it
+                withAnimation(.easeOut(duration: 0.2)) {
+                    results = filter == .all || filter == .songs ? Matching.songs(matching: q, in: library.held(downloads)) : []
+                    yours = results.count
+                    artists = []; albums = []; sources = []
+                }
+                failed = true
             }
         }
     }
