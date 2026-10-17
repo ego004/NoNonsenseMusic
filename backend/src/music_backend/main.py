@@ -13,7 +13,7 @@ from psycopg import errors
 from music_backend.core import db, ratelimit
 from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications, jam, readings, served, spotify_import
 from music_backend.services.matching import (rank_songs, merge_youtube, rank_albums, rank_artists, artists_by_name, by_relevance,
-                                             coverage, normalise, artists_match)
+                                             coverage, artists_match)
 from music_backend.models import (SpotifyImportRequest, SpotifyImportStatus, EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
@@ -486,7 +486,9 @@ async def station_video(seed: PrefetchListing, copies: list[dict]) -> str | None
     """A video of the seed song, to start YouTube Music's station from: the seed itself when it is a video (YouTube and
     YouTube Music share ids), else a stored copy's, else a YouTube Music result with the song's title and artist. A
     song not stored yet (the app asks before the song's first "play" is recorded) is looked up on JioSaavn by its id.
-    None when no video is the same song."""
+    None when no video is the same song. Titles are compared without labels like (From "Film"), which often only one
+    source writes. Compared whole, 36 of 82 JioSaavn songs found no video, 21 of them turned down for that label alone,
+    and got JioSaavn's station, a new random draw on every call; now 13 do, mostly covers YouTube Music lacks (17 Oct)."""
     if seed.source != "jiosaavn":
         return seed.source_id
     own = next((c["source_id"] for c in copies if c["source"] in ("youtube", "ytmusic")), None)
@@ -501,7 +503,8 @@ async def station_video(seed: PrefetchListing, copies: list[dict]) -> str | None
         found = await ytmusic.search(f"{title} {(artists or [''])[0]}")
     except (SongNotFound, SourceUnavailable):
         return None
-    return next((l.id for l in found if normalise(l.title) == normalise(title) and artists_match(l.artists, artists)), None)
+    core = spotify_import.core_title(title)
+    return next((l.id for l in found if spotify_import.core_title(l.title) == core and artists_match(l.artists, artists)), None)
 
 
 @app.post("/radio")

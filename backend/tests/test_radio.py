@@ -160,6 +160,16 @@ def test_radio_finds_the_video_of_a_song_not_stored_yet(client, monkeypatch):
     assert searched == ["Nanchaku Seedhe Maut"] and asked == ["nanchaku001"]
 
 
+def test_radio_finds_the_video_when_one_title_names_the_film(client, monkeypatch):
+    # JioSaavn's "Kesariya" is YouTube Music's "Kesariya (From "Brahmastra")": 21 of 82 JioSaavn songs missed so (17 Oct)
+    searching(monkeypatch, [ytmusic_copy("kesariya001", 'Kesariya (From "Brahmastra")', ["Arijit Singh"])])
+    asked = asking(monkeypatch, ytmusic, [listing("from-ytm")])
+    store(client, Listing(source="jiosaavn", id="jio-kesariya", title="Kesariya", artists=["Pritam", "Arijit Singh"],
+                          album=None, duration=268, popularity=None))
+    client.post("/radio", json=radio(seed_source="jiosaavn", seed_id="jio-kesariya"))
+    assert asked == ["kesariya001"]
+
+
 def test_radio_never_starts_from_another_songs_video(client, monkeypatch):
     # YouTube Music's first result for a title is not always the song ("Pasoori" gave "Jhol" first, 14 Oct)
     searching(monkeypatch, [ytmusic_copy("other000001", "Jhol", ["Maanu"])])
