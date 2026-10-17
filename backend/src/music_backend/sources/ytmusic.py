@@ -200,10 +200,12 @@ def count_or_none(text) -> int | None:
 
 
 async def radio(source_id: str, limit: int = 25) -> list[Listing]:
-    """Return the watch-playlist radio seeded from one video (ytmusicapi get_watch_playlist, in a thread).
+    """Return the watch-playlist radio seeded from one video (ytmusicapi get_watch_playlist, in a thread): every track
+    read, at least `limit` while the station has them, each video once.
 
-    The reply's first track is the seed itself; the caller drops it. Continuations add nothing:
-    re-fetching with the playlistId returns the same 50, so the app re-seeds from the queue tail.
+    The reply's first track is the seed itself; the caller drops it. The station goes on in pages of ~50, a request
+    each: ~150 distinct songs in its first 197, on the seed's language and genre to the end; the pages after the first
+    repeat a few of its songs, and past ~200 it repeats itself (17 Oct, four seeds).
     """
     return await asyncio.to_thread(radio_blocking, source_id, limit)
 
@@ -216,12 +218,12 @@ def radio_blocking(source_id: str, limit: int) -> list[Listing]:
         return []
     except Exception as e:
         raise SourceUnavailable(f"YouTube Music: {e}") from e
-    listings = []
-    # one extra track: the reply leads with the seed, which the endpoint drops
-    for row in (d.get("tracks") or [])[: limit + 1]:
+    listings, seen = [], set()
+    for row in d.get("tracks") or []:
         try:
-            if not row.get("videoId") or not row.get("length"):
+            if not row.get("videoId") or not row.get("length") or row["videoId"] in seen:
                 continue
+            seen.add(row["videoId"])
             title, artists = named(row)
             listings.append(Listing(
                 source = "ytmusic",

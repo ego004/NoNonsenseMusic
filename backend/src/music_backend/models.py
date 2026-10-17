@@ -256,9 +256,9 @@ class PrefetchRequest(BaseModel):
     listings : list[PrefetchListing] = Field(min_length = 1, max_length = MAX_LISTINGS)
 
 class RadioRequest(BaseModel):
-    """Body of POST /radio: more songs after the queue runs low, seeded from its last song.
+    """Body of POST /radio: more songs after the queue runs low, seeded from the last song the user chose.
 
-    exclude holds the ids already in the queue or recently played, so the station does not
+    exclude holds the ids already in the queue, played ones too, so the station does not
     repeat them. The server also excludes the account's last 50 played songs (a skipped song was
     played first), unless skip_recent is off (Settings › Playback › Autoplay).
     """

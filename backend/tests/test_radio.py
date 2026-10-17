@@ -186,6 +186,25 @@ def test_radio_drops_a_song_played_as_its_plain_youtube_copy(client, monkeypatch
     assert [s["best"]["id"] for s in r.json()["songs"]] == ["vidFresh001"]
 
 
+def test_radio_reads_the_station_past_what_it_drops(client, monkeypatch):
+    # the next refill asks for the same song's station: its next songs lie past the 30 already queued (17 Oct)
+    from music_backend.main import STATION_DEPTH
+    station = [ytmusic_copy("seed", "Seed")] + [Listing(source="ytmusic", id=f"v{i:02}", title=f"Song {i}", artists=[f"A{i}"],
+                                                        album=None, duration=200, popularity=None) for i in range(60)]
+    asked = []
+
+    async def deep(source_id, limit=25):
+        asked.append(limit)
+        return station[:limit]
+    monkeypatch.setattr(ytmusic, "radio", deep)
+    queued = [{"source": "ytmusic", "source_id": f"v{i:02}"} for i in range(30)]
+    r = client.post("/radio", json=radio(seed_source="ytmusic", seed_id="seed", exclude=queued, limit=20))
+    assert [s["best"]["id"] for s in r.json()["songs"]] == [f"v{i:02}" for i in range(30, 50)]
+    many = [{"source": "jiosaavn", "source_id": str(i)} for i in range(100)]
+    client.post("/radio", json=radio(seed_source="ytmusic", seed_id="seed", exclude=many, limit=50))
+    assert asked == [20 + 1 + 31, STATION_DEPTH]                     # the queued songs and the seed; then at most 150
+
+
 def test_radio_respects_the_limit(client, monkeypatch):
     # limit=3 counts the songs kept after the seed is dropped: 1 seed + 3 candidates -> 3 back
     set_radio(monkeypatch, jiosaavn, [listing("seed")] + [listing(f"s{i}") for i in range(4)])

@@ -479,6 +479,9 @@ async def prefetch_urls(body: PrefetchRequest, request: Request, user: Annotated
 
 # ---------- radio (MUS-3) ----------
 
+# songs into a station read at most: YouTube Music's first 197 (4 requests, ~2 s), where it starts to repeat itself
+STATION_DEPTH = 150
+
 async def station_video(seed: PrefetchListing, copies: list[dict]) -> str | None:
     """A video of the seed song, to start YouTube Music's station from: the seed itself when it is a video (YouTube and
     YouTube Music share ids), else a stored copy's, else a YouTube Music result with the song's title and artist. A
@@ -504,7 +507,7 @@ async def station_video(seed: PrefetchListing, copies: list[dict]) -> str | None
 @app.post("/radio")
 async def radio(body: RadioRequest, request: Request,
                 user: Annotated[User, Depends(per_account("radio"))]) -> RadioResponse:
-    """More songs to keep playing, seeded from the last song in the queue (MUS-3).
+    """More songs to keep playing, seeded from the last song the user chose (MUS-3).
 
     YouTube Music's station, started from a video of the song (station_video); JioSaavn's own station only for a song
     with no such video. YouTube's Mix was asked first on 13-14 Oct: it follows the uploader's channel (12-13
@@ -512,8 +515,11 @@ async def radio(body: RadioRequest, request: Request,
     (#24). YouTube Music's station spreads artists itself (14-20 in 25, measured on six seeds).
 
     Dropped: the seed, the app's exclude list and (skip_recent, on unless the app turned it off) the account's last 50
-    played songs. The reply keeps the station's order (rank_songs groups duplicates). 200 with fewer songs (possibly
-    none: the app stops asking) is a normal answer; 502 only when the station was unreachable.
+    played songs. The station is read as far past them as there are of them (STATION_DEPTH at most), so a station asked
+    again (the next refill, the song played another day) gives its next songs. Read only to its 22nd song, refills
+    shrank (20, 16.5, 15.3, 13.7 songs) and a song played again after an hour of Autoplay got 1 to 3 (17 Oct).
+    The reply keeps the station's order (rank_songs groups duplicates). 200 with fewer songs (possibly none: the app
+    stops asking) is a normal answer; 502 only when the station was unreachable.
     """
     async with request.app.state.pool.connection() as conn:
         copies = await library.copies_of(conn, body.seed.source, body.seed.source_id)
@@ -524,7 +530,7 @@ async def radio(body: RadioRequest, request: Request,
     exclude |= {(body.seed.source, body.seed.source_id), (source, seed_id)}
     try:
         # one extra listing: every station leads with its own seed
-        listings = await SOURCES[source].radio(seed_id, body.limit + 1)
+        listings = await SOURCES[source].radio(seed_id, min(body.limit + 1 + len(exclude), STATION_DEPTH))
     except SourceUnavailable as e:
         logger.warning("%s unavailable while seeding radio from %r: %s", source, seed_id, e)
         raise HTTPException(status_code=502, detail=f"{source} is unavailable right now")
