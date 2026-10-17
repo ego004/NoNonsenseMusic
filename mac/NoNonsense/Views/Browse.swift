@@ -82,30 +82,33 @@ struct ArtistView: View {
     private func page(_ artist: ArtistDetail) -> some View {
         let tracks = artist.songs.map(Track.init)
         return List {
-            HStack(alignment: .center, spacing: 22) {
-                ArtworkView(url: artist.image.flatMap(URL.init(string:)), size: 150, radius: 75)
+            // as the Windows app's (15 Oct): a bigger picture, and the kind of page over the name
+            HStack(alignment: .center, spacing: 26) {
+                ArtworkView(url: artist.image.flatMap(URL.init(string:)), size: 180, radius: 90)
                     .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(artist.name).textStyle(size: 34, weight: .bold).lineLimit(2)
+                    .selfTestFrame("artist.picture")
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Artist").tracking(1.4).textStyle(size: 11, weight: .bold).textCase(.uppercase).foregroundStyle(.secondary)
+                    Text(artist.name).tracking(-0.5).textStyle(size: 36, weight: .bold).lineLimit(2).padding(.top, 4)
                     if let listeners = artist.monthlyListeners ?? artist.followers {
                         Text("\(listeners.formatted(.number.notation(.compactName))) \(artist.monthlyListeners != nil ? "monthly listeners" : "followers")")
-                            .textStyle(.body).foregroundStyle(.secondary)
+                            .textStyle(.body).foregroundStyle(.secondary).padding(.top, 6)
                     }
-                    PlayShuffleButtons(tracks: tracks).padding(.top, 8)
+                    PlayShuffleButtons(tracks: tracks).padding(.top, 14)
                 }
                 Spacer(minLength: 0)
             }
-            .browseRow(top: 20, bottom: 18)
+            .pageRow(top: 20, bottom: 18)
 
             if !tracks.isEmpty {
-                Text("Top Songs").textStyle(.title2, weight: .bold).browseRow(top: 8, bottom: 4)
+                Text("Top Songs").textStyle(.title2, weight: .bold).pageRow(top: 8, bottom: 4)
                 ForEach(Array(tracks.prefix(10).enumerated()), id: \.element.id) { i, track in
-                    SongRow(track: track, queue: tracks, index: i).browseRow(top: 1, bottom: 1, inset: 16)
+                    SongRow(track: track, queue: tracks, index: i).pageRow(top: 1, bottom: 1, inset: 24)
                 }
             }
             if !artist.albums.isEmpty {
-                Text("Albums").textStyle(.title2, weight: .bold).browseRow(top: 22, bottom: 4)
-                AlbumGrid(albums: artist.albums).browseRow(top: 4, bottom: 24)
+                Text("Albums").textStyle(.title2, weight: .bold).pageRow(top: 22, bottom: 4)
+                AlbumGrid(albums: artist.albums).pageRow(top: 4, bottom: 24)
             }
         }
         .listStyle(.plain)
@@ -141,7 +144,7 @@ struct ArtistView: View {
 
 // MARK: - Album
 
-/// An album's page: the cover, title and artists, Play, Shuffle and Pin to Home, then the songs in order.
+/// An album's page: the cover, title and artists, Play, Shuffle and Pin to Home, then the songs in order, numbered.
 struct AlbumView: View {
     let route: Route
     @Environment(LibraryStore.self) private var library
@@ -169,15 +172,18 @@ struct AlbumView: View {
         let pinned = library.pinned(ref)
         let minutes = tracks.reduce(0) { $0 + $1.duration } / 60
         return List {
-            HStack(alignment: .bottom, spacing: 22) {
-                ArtworkView(url: album.image.flatMap(URL.init(string:)) ?? tracks.first?.image, size: 180, radius: 12)
-                    .shadow(color: .black.opacity(0.2), radius: 14, y: 8)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(album.title).textStyle(size: 30, weight: .bold).lineLimit(2)
-                    ArtistLinks(artists: album.artists).textStyle(.title3, weight: .medium)
-                    Text(([album.year.map(String.init), tracks.count == 1 ? "1 song" : "\(tracks.count) songs", minutes > 0 ? "\(minutes) min" : nil] as [String?])
-                        .compactMap { $0 }.joined(separator: " · "))
-                        .textStyle(.callout).foregroundStyle(.secondary)
+            // as the Windows app's (15 Oct), after Apple Music's album page: a big cover, and the text standing on its
+            // bottom edge, the artists in the buttons' colour and the facts in capitals
+            HStack(alignment: .bottom, spacing: 28) {
+                ArtworkView(url: album.image.flatMap(URL.init(string:)) ?? tracks.first?.image, size: 230, radius: 14)
+                    .shadow(color: .black.opacity(0.25), radius: 18, y: 10)
+                    .selfTestFrame("album.cover")
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Album").tracking(1.4).textStyle(size: 11, weight: .bold).textCase(.uppercase).foregroundStyle(.secondary)
+                    Text(album.title).tracking(-0.5).textStyle(size: 34, weight: .bold).lineLimit(2).padding(.top, 4)
+                    ArtistLinks(artists: album.artists).textStyle(size: 20, weight: .medium).foregroundStyle(.tint).padding(.top, 4)
+                    Text(Self.facts(year: album.year, songs: tracks.count, minutes: minutes))
+                        .tracking(0.6).textStyle(size: 11.5, weight: .semibold).foregroundStyle(.secondary).padding(.top, 6)
                     HStack(spacing: 10) {
                         PlayShuffleButtons(tracks: tracks)
                         Button {
@@ -190,19 +196,23 @@ struct AlbumView: View {
                             Label(pinned == nil ? "Pin to Home" : "Pinned", systemImage: pinned == nil ? "pin" : "pin.fill")
                                 .contentTransition(.symbolEffect(.replace))
                         }
+                        .labelStyle(.iconOnly)                         // a round button beside Play and Shuffle; the tooltip says what it does
+                        .buttonBorderShape(.circle)
                         .compatGlassButton()
                         .controlSize(.large)
                         .disabled(pinning)
                         .help(pinned == nil ? "Keep this album on Home" : "Remove this album from Home")
+                        .selfTestFrame("album.pin")
                     }
-                    .padding(.top, 8)
+                    .padding(.top, 18)
                 }
+                .selfTestFrame("album.text")
                 Spacer(minLength: 0)
             }
-            .browseRow(top: 20, bottom: 18)
+            .pageRow(top: 24, bottom: 22)
 
             ForEach(Array(tracks.enumerated()), id: \.element.id) { i, track in
-                SongRow(track: track, queue: tracks, index: i).browseRow(top: 1, bottom: 1, inset: 16)
+                SongRow(track: track, queue: tracks, index: i, number: i + 1).pageRow(top: 1, bottom: 1, inset: 24)
             }
         }
         .listStyle(.plain)
@@ -232,6 +242,13 @@ struct AlbumView: View {
         } catch {
             problem = error.localizedDescription
         }
+    }
+
+    /// The line under the artists, in capitals (15 Oct, as in the Windows app): "2024 · 12 SONGS · 37 MIN"; an
+    /// unknown year or length is left out.
+    static func facts(year: Int?, songs: Int, minutes: Int) -> String {
+        ([year.map(String.init), SongListView.count(songs), minutes > 0 ? "\(minutes) min" : nil] as [String?])
+            .compactMap { $0 }.joined(separator: " · ").uppercased()
     }
 }
 
@@ -432,4 +449,21 @@ extension View {
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: top, leading: inset, bottom: bottom, trailing: inset))
     }
+
+    /// A row of an artist, album or playlist page or a song list (15 Oct, as in the Windows app): drawn 32 pt from the
+    /// page's edges (song rows 24: their own 8 pt padding brings the cover to the same line), inside the page column.
+    /// Each row keeps to the column, not the List: a List narrower than the window would not scroll from its sides, and
+    /// its scroller would stand in the middle of a wide window. The row reaches into the List's own margin, so both
+    /// the inset and the column measure from the page's edges.
+    func pageRow(top: CGFloat, bottom: CGFloat, inset: CGFloat = 32) -> some View {
+        frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, inset)
+            .pageColumn()
+            .padding(.horizontal, -listOwnMargin)
+            .browseRow(top: top, bottom: bottom, inset: 0)
+    }
 }
+
+/// What a List keeps on each side of every row on its own, whatever the row's insets: rows inset 32 were drawn 40 pt
+/// from the List's edge (measured on macOS 26, 15 Oct). So browseRow's 24 draws at 32.
+private let listOwnMargin: CGFloat = 8

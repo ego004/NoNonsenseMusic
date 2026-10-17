@@ -95,19 +95,21 @@ struct Backdrop: View {
     }
 
     var body: some View {
+        // the nine colours as drawn: worked out when the body runs (a new song, light or dark, another strength), not
+        // in the timeline below, which runs 10 times a second while the mesh moves
+        let colours = mesh.map { Self.colours(of: $0.colors, dark: scheme == .dark, strength: strength, readable: inNowPlaying) }
         ZStack {
             if let base { Rectangle().fill(base) }
             if !animate && !pictureFailed {
                 StillPicture(image: picture.image, fade: picture.fade)
-            } else if let mesh {
+            } else if let mesh, let colours {
                 // 10 frames a second is plenty for a drift that takes ~30 s per cycle (the screen may run at 120):
                 // a step moves a colour ~3 pt; each frame costs ~0.5% of a core (measured 7 Oct)
                 TimelineView(DriftSchedule(interval: 1.0 / 10, paused: !moving)) { context in
                     MeshGradient(width: 3, height: 3,
                                  points: Self.points(at: moving ? context.date.timeIntervalSinceReferenceDate : 0),
-                                 colors: mesh.colors.map { $0.mix(with: scheme == .dark ? .black : .white, by: 0.3 * (1 - strength)) })
+                                 colors: colours.map(\.color))
                 }
-                .saturation(1 + 0.35 * strength)                // vivid: unmixed and a little richer, not only more opaque
                 .id(mesh.key)                                   // identity = the source: changing it crossfades
                 .transition(.opacity)
                 .opacity(strength)
@@ -133,13 +135,15 @@ struct Backdrop: View {
             guard let colors = await ArtworkCache.shared.colorGrid(for: url), !Task.isCancelled else { return }   // a newer song's mesh wins
             show((key, colors), fading: 1.1)
         }
-        // the still picture: drawn again for new colours, light or dark, or another strength (those change at once)
+        // new colours, light or dark, or another strength (those change at once): Now Playing's text learns what it is
+        // on, and the still picture is drawn again
         .task(id: [mesh?.key ?? "", scheme == .dark ? "dark" : "light", String(strength), animate ? "moving" : "still"]) {
+            if inNowPlaying { NowPlayingInk.shared.show(colours ?? [], dark: scheme == .dark, strength: strength) }
             guard !animate else { return }
             let fade = mesh?.key != pictureKey ? pictureFade : 0
             pictureKey = mesh?.key
-            guard let mesh else { picture = (nil, fade); return }
-            if let drawn = Self.drawPicture(of: mesh.colors, dark: scheme == .dark, strength: strength, key: mesh.key) {
+            guard let mesh, let colours else { picture = (nil, fade); return }
+            if let drawn = Self.drawPicture(of: colours, strength: strength, id: "\(mesh.key)|\(scheme == .dark)|\(strength)|\(inNowPlaying)") {
                 picture = (drawn, fade)
             } else {
                 pictureFailed = true                         // never seen: then the SwiftUI mesh draws it, as before
@@ -147,19 +151,26 @@ struct Backdrop: View {
         }
     }
 
-    /// The still mesh as a picture: exactly what the SwiftUI mesh draws (the same points, mix, saturation and strength),
-    /// drawn once. A mesh is smooth, so 240 × 150 pixels stretched to the window look the same. nil if it came out empty.
-    static func drawPicture(of colors: [Color], dark: Bool, strength: Double, key: String) -> CGImage? {
-        let id = "\(key)|\(dark)|\(strength)"
+    /// The nine colours the mesh is drawn in: the source's, mixed toward black (dark) or white (light) as the strength
+    /// falls and a third more colourful at full strength. That richness was `.saturation` on the drawn mesh; it is the
+    /// same sum on the nine colours here (the mesh only blends them), so what is drawn is known exactly. In Now Playing
+    /// (`readable`) each is then kept where its text reads (NowPlayingInk, #20).
+    static func colours(of source: [Color], dark: Bool, strength: Double, readable: Bool) -> [RGB] {
+        var environment = EnvironmentValues()
+        environment.colorScheme = dark ? .dark : .light
+        let ground = readable ? NowPlayingInk.Ground(dark: dark) : nil
+        return source.map { colour in
+            let mixed = colour.mix(with: dark ? .black : .white, by: 0.3 * (1 - strength)).resolve(in: environment)
+            let rich = RGB(mixed).saturated(1 + 0.35 * strength)
+            return ground?.kept(rich, strength: strength) ?? rich
+        }
+    }
+
+    /// The still mesh as a picture, kept by `id`: exactly what the SwiftUI mesh draws, drawn once. A mesh is smooth, so
+    /// 240 × 150 pixels stretched to the window look the same. nil if it came out empty.
+    static func drawPicture(of colours: [RGB], strength: Double, id: String) -> CGImage? {
         if let kept = pictures[id] { return kept }                  // opening Now Playing on this song again: none drawn
-        let mesh = MeshGradient(width: 3, height: 3, points: points(at: 0),
-                                colors: colors.map { $0.mix(with: dark ? .black : .white, by: 0.3 * (1 - strength)) })
-            .saturation(1 + 0.35 * strength)
-            .opacity(strength)
-            .frame(width: 240, height: 150)
-        let renderer = ImageRenderer(content: mesh)
-        renderer.scale = 1
-        guard let image = renderer.cgImage else { return nil }
+        guard let image = picture(of: colours, strength: strength) else { return nil }
         // one pixel from the middle: fully clear means the renderer could not draw the mesh
         var pixel = [UInt8](repeating: 0, count: 4)
         pixel.withUnsafeMutableBytes { buffer in
@@ -174,7 +185,17 @@ struct Backdrop: View {
         return image
     }
 
-    /// Pictures drawn this session, by mesh, light or dark, and strength.
+    /// The mesh as a picture `at` a moment of its drift (0: still). The self-test measures the moving one with it too.
+    static func picture(of colours: [RGB], strength: Double, at time: Double = 0, size: CGSize = CGSize(width: 240, height: 150)) -> CGImage? {
+        let mesh = MeshGradient(width: 3, height: 3, points: points(at: time), colors: colours.map(\.color))
+            .opacity(strength)
+            .frame(width: size.width, height: size.height)
+        let renderer = ImageRenderer(content: mesh)
+        renderer.scale = 1
+        return renderer.cgImage
+    }
+
+    /// Pictures drawn this session, by mesh, light or dark, strength, and whether Now Playing's (kept readable).
     private static var pictures: [String: CGImage] = [:]
 
     /// Nine shades of one colour, darker at the edges and lighter near the middle, so a single colour still has depth.
@@ -224,6 +245,197 @@ struct IsolatedBackdrop: NSViewRepresentable {
     private var content: AnyView {
         AnyView(Backdrop(track: track, strength: strength, underNowPlaying: underNowPlaying, inNowPlaying: inNowPlaying, visible: visible)
             .environment(player).environment(theme))
+    }
+}
+
+// MARK: - Text that reads on the backdrop (#20)
+
+/// A colour as three sRGB numbers from 0 to 1, as the window blends them: what the contrast sums work on.
+nonisolated struct RGB: Equatable, Sendable {
+    var r: Double
+    var g: Double
+    var b: Double
+
+    static let black = RGB(r: 0, g: 0, b: 0)
+    static let white = RGB(r: 1, g: 1, b: 1)
+
+    init(r: Double, g: Double, b: Double) {
+        self.r = min(1, max(0, r))
+        self.g = min(1, max(0, g))
+        self.b = min(1, max(0, b))
+    }
+
+    /// A SwiftUI colour as resolved in light or dark (one wider than sRGB is brought inside it).
+    init(_ resolved: Color.Resolved) { self.init(r: Double(resolved.red), g: Double(resolved.green), b: Double(resolved.blue)) }
+
+    /// WCAG 2's relative luminance: 0 for black, 1 for white.
+    var luminance: Double {
+        func linear(_ c: Double) -> Double { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+    }
+
+    /// WCAG 2's contrast ratio: 1 (the same colour) to 21 (black on white).
+    func contrast(with other: RGB) -> Double {
+        let (x, y) = (luminance, other.luminance)
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+    }
+
+    /// `t` of the way to `other`.
+    func mixed(with other: RGB, by t: Double) -> RGB {
+        RGB(r: r + (other.r - r) * t, g: g + (other.g - g) * t, b: b + (other.b - b) * t)
+    }
+
+    /// This colour drawn at `alpha` over `under`, as the window shows it.
+    func over(_ under: RGB, alpha: Double) -> RGB { under.mixed(with: self, by: alpha) }
+
+    /// Further from its grey by `amount` (1: as it is), its luma kept: what `.saturation` does.
+    func saturated(_ amount: Double) -> RGB {
+        let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return RGB(r: luma + (r - luma) * amount, g: luma + (g - luma) * amount, b: luma + (b - luma) * amount)
+    }
+
+    var color: Color { Color(.sRGB, red: r, green: g, blue: b) }
+}
+
+/// Now Playing's text, readable on its backdrop whatever the cover: light or dark mode, any colour strength (Settings ›
+/// Appearance › Surfaces › Now Playing), the backdrop still or moving (#20).
+///
+/// The text took the system's colours, which follow only light or dark; the backdrop took the cover's. A bright cover
+/// in dark mode put light text on a light background, a dark cover in light mode the opposite: the title at 1.04:1 on
+/// a white cover in dark mode, 1.03:1 on a black one in light, at the default strength (NN_SELFTEST_READABLE, 16 Oct).
+/// Choosing dark or light text per song would have turned Now Playing's glass, menus and controls the other way with
+/// it, and still failed on a cover half bright and half dark, where neither reads everywhere. So the text keeps its colours and the backdrop is kept where they read: each of the mesh's nine
+/// colours, before it is drawn, is mixed toward black (dark mode) or white (light) just far enough that every kind of
+/// text reaches WCAG's AA contrast on it, as it shows (at the colour strength, over the window's colour). A colour that
+/// reads already is left as it is: the cover's hue stays, only deeper or paler. The accent's text (the artists, a noted
+/// lyric) is then mixed toward the text's colour until it reads on all nine. A few sums on nine colours, once per song,
+/// light or dark and strength (Backdrop.colours); nothing per frame.
+///
+/// The levels: the system's label colour, then 70% and 50% of it where the system's are 55% and 25% (50% and 26% in
+/// light mode, whose secondary text reaches 3.9:1 at best, on white), and unlit lyrics at 60% of the label where they
+/// were 38% (2.7:1 on a black cover in dark mode).
+@Observable
+final class NowPlayingInk {
+    static let shared = NowPlayingInk()
+
+    /// Now Playing's secondary and tertiary text (RootView's NowPlayingRoot sets them for all of it).
+    static let secondary = level(0.7)
+    static let tertiary = level(0.5)
+
+    /// The text's colour, white in dark mode and black in light (the label colour's own), at `alpha`, following light or
+    /// dark as the system's colours do. `labelColor.withAlphaComponent` kept the mode it was made in: in dark mode it
+    /// drew black text on a black cover (the self-test's pictures, 16 Oct).
+    private nonisolated static func level(_ alpha: Double) -> NSColor {
+        NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor.white : NSColor.black).withAlphaComponent(alpha)
+        }
+    }
+    /// WCAG 2, AA: 4.5:1 for text; 3:1 for large text (the lyrics, 24 pt extra bold) and symbols.
+    static let text = 4.5
+    static let large = 3.0
+    /// The mesh blends its nine colours smoothly (cubically), which can overshoot them a little between the points: the
+    /// nine aim this much higher, and the self-test measures every pixel against the plain targets.
+    static let headroom = 1.1
+
+    /// A kind of text: its colour, how opaque it is, and the contrast it needs.
+    struct Role {
+        let name: String
+        let colour: RGB
+        let alpha: Double
+        let target: Double
+
+        func contrast(on backdrop: RGB) -> Double { colour.over(backdrop, alpha: alpha).contrast(with: backdrop) }
+    }
+
+    /// The window's colour and every kind of text, as light or dark mode draws them.
+    struct Ground {
+        let dark: Bool
+        let window: RGB
+        let label: RGB                       // the text's colour, opaque: white in dark mode, black in light
+        let roles: [Role]
+
+        init(dark: Bool) {
+            self.dark = dark
+            window = Self.resolved(.windowBackgroundColor, dark: dark).colour
+            let (label, alpha) = Self.resolved(.labelColor, dark: dark)
+            self.label = label
+            roles = [
+                Role(name: "text", colour: label, alpha: alpha, target: NowPlayingInk.text),
+                Role(name: "secondary text", colour: label, alpha: Self.resolved(NowPlayingInk.secondary, dark: dark).alpha,
+                     target: NowPlayingInk.text),
+                Role(name: "tertiary symbols", colour: label, alpha: Self.resolved(NowPlayingInk.tertiary, dark: dark).alpha,
+                     target: NowPlayingInk.large),
+                Role(name: "unlit lyrics", colour: label, alpha: alpha * Double(LyricLinesView.unlit), target: NowPlayingInk.large),
+            ]
+        }
+
+        /// A system colour (it differs in light and dark) as light or dark mode draws it.
+        static func resolved(_ colour: NSColor, dark: Bool) -> (colour: RGB, alpha: Double) {
+            var out = NSColor.black
+            NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance { out = colour.usingColorSpace(.sRGB) ?? .black }
+            return (RGB(r: out.redComponent, g: out.greenComponent, b: out.blueComponent), out.alphaComponent)
+        }
+
+        /// Every kind of text reads on `backdrop`, `headroom` times over.
+        func reads(on backdrop: RGB, headroom: Double = 1) -> Bool {
+            roles.allSatisfy { $0.contrast(on: backdrop) >= $0.target * headroom }
+        }
+
+        /// `colour`, drawn at `strength` over the window, mixed toward black (dark) or white (light) just far enough
+        /// that every kind of text reads on it; as it is when it reads already.
+        func kept(_ colour: RGB, strength: Double) -> RGB {
+            let away = dark ? RGB.black : RGB.white
+            let t = Self.least { reads(on: colour.mixed(with: away, by: $0).over(window, alpha: strength), headroom: NowPlayingInk.headroom) }
+            return colour.mixed(with: away, by: t)
+        }
+
+        /// `accent` mixed toward the text's colour just far enough that it reads on each of `behind` (the window's
+        /// colour when none): as text, and as faint as an unlit noted lyric.
+        func readable(_ accent: RGB, on behind: [RGB]) -> RGB {
+            let behind = behind.isEmpty ? [window] : behind
+            let t = Self.least { amount in
+                let colour = accent.mixed(with: label, by: amount)
+                return behind.allSatisfy { backdrop in
+                    colour.contrast(with: backdrop) >= NowPlayingInk.text * NowPlayingInk.headroom
+                        && colour.over(backdrop, alpha: Double(LyricLinesView.unlit)).contrast(with: backdrop)
+                            >= NowPlayingInk.large * NowPlayingInk.headroom
+                }
+            }
+            return accent.mixed(with: label, by: t)
+        }
+
+        /// The least `t` from 0 to 1 at which `reads` holds (it holds from there on): 0 if it holds at once, else found
+        /// by halving to 1/16,000.
+        private static func least(_ reads: (Double) -> Bool) -> Double {
+            if reads(0) { return 0 }
+            var low = 0.0, high = 1.0
+            for _ in 0..<14 {
+                let middle = (low + high) / 2
+                if reads(middle) { high = middle } else { low = middle }
+            }
+            return high
+        }
+    }
+
+    /// The backdrop behind the text now, its nine colours as they show (none: the window's colour alone), and whether
+    /// in dark mode. Now Playing's backdrop tells it (Backdrop).
+    private(set) var behind: [RGB] = []
+    private(set) var dark = false
+
+    func show(_ colours: [RGB], dark: Bool, strength: Double) {
+        let window = Ground(dark: dark).window
+        let shown = colours.map { $0.over(window, alpha: strength) }
+        if shown != behind { behind = shown }               // only what changed: everything tinted by it draws again
+        if dark != self.dark { self.dark = dark }
+    }
+
+    /// The accent (nil: the Mac's own) as Now Playing's text draws it: readable on the backdrop showing now.
+    func readable(_ accent: Color?, dark: Bool) -> Color {
+        var environment = EnvironmentValues()
+        environment.colorScheme = dark ? .dark : .light
+        let colour = RGB((accent ?? .accentColor).resolve(in: environment))
+        let made = Ground(dark: dark).readable(colour, on: dark == self.dark ? behind : [])
+        return made == colour ? (accent ?? .accentColor) : made.color
     }
 }
 
@@ -286,6 +498,9 @@ struct LiveArtwork: NSViewRepresentable {
     var song = ""
     /// Now Playing: a new song's cover grows from 94% with a soft spring (SwiftUI's transition did this before).
     var pop = false
+    /// Now Playing: whether the song plays (or loads): full size with a deep shadow, else 86% with a closer one,
+    /// springing between the two (`rest`). nil: always full size, no shadow (the bar's).
+    var playing: Bool? = nil
     /// Asked when a new cover is ready: false swaps it at once (the bar's, while Now Playing covers it: an unseen fade
     /// still made Now Playing's blur re-blur the whole window on every frame of it).
     var fades: () -> Bool = { true }
@@ -295,10 +510,12 @@ struct LiveArtwork: NSViewRepresentable {
     func updateNSView(_ view: LiveArtworkView, context: Context) {
         view.radius = radius
         view.show(url, size: size, song: song, pop: pop, fades: fades)
+        if let playing { view.rest(playing: playing) }
     }
 }
 
 final class LiveArtworkView: NSView {
+    private let stage = CALayer()                      // Now Playing: 86% while paused, and the shadow (`rest`)
     private let base = CALayer()                       // scaled by the pop
     private let cover = CALayer()                      // the picture: rounded, clipped, a hairline edge
     private let note = CALayer()                       // the music note, before a cover loads or for a song without one
@@ -307,6 +524,7 @@ final class LiveArtworkView: NSView {
     private var shown: CGImage?
     private var loading: Task<Void, Never>?
     private var noteSide: CGFloat = 0
+    private var playing: Bool?                         // nil: no rest set (the bar's cover)
     var radius: CGFloat = 8 { didSet { if radius != oldValue { needsLayout = true } } }
 
     override init(frame: NSRect) {
@@ -317,9 +535,12 @@ final class LiveArtworkView: NSView {
         cover.contentsGravity = .resizeAspectFill
         cover.borderWidth = 0.5
         note.contentsGravity = .center
+        stage.cornerCurve = .continuous
+        stage.shadowColor = NSColor.black.cgColor
         base.addSublayer(cover)
         cover.addSublayer(note)
-        layer?.addSublayer(base)
+        stage.addSublayer(base)
+        layer?.addSublayer(stage)
         colours()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -330,14 +551,76 @@ final class LiveArtworkView: NSView {
     override func layout() {
         super.layout()
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        stage.bounds = bounds
+        stage.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        stage.cornerRadius = radius
         base.bounds = bounds
         base.position = CGPoint(x: bounds.midX, y: bounds.midY)
         cover.frame = base.bounds
         cover.cornerRadius = radius
         note.frame = base.bounds
+        if let playing { stage.shadowPath = shadowPath(playing) }
         CATransaction.commit()
         if !note.isHidden, abs(bounds.width - noteSide) > 1 { drawNote() }   // the note's size follows the cover's
     }
+
+    /// Now Playing: the cover's size and shadow for a playing song (full size; a deep, wide shadow) or a paused one
+    /// (86%; a closer, fainter one), sprung to from wherever they are: one Core Animation spring for the size and one
+    /// eased change for the shadow, played by the render server (15 Oct, as in the Windows app). The first one is set
+    /// at once: Now Playing opens with the cover already at rest.
+    func rest(playing: Bool) {
+        guard playing != self.playing else { return }
+        let first = self.playing == nil
+        self.playing = playing
+        if first { colours() }                                          // the window's colour under the cover
+        let scale: CGFloat = playing ? 1 : 0.86
+        let shadow = (opacity: Float(playing ? 0.45 : 0.3), radius: CGFloat(playing ? 16 : 9),
+                      offset: CGSize(width: 0, height: playing ? -18 : -8))       // y up: a shadow below the cover
+        let path = shadowPath(playing)
+        let now = stage.presentation() ?? stage
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if !first {
+            let spring = CASpringAnimation(perceptualDuration: 0.52, bounce: 0.3)
+            spring.keyPath = "transform.scale"
+            spring.fromValue = now.value(forKeyPath: "transform.scale")
+            spring.toValue = scale
+            spring.duration = spring.settlingDuration
+            stage.add(spring, forKey: "rest")
+            let changes: [(String, Any?, Any?)] = [("shadowOpacity", now.shadowOpacity, shadow.opacity),
+                                                  ("shadowRadius", now.shadowRadius, shadow.radius),
+                                                  ("shadowOffset", NSValue(size: now.shadowOffset), NSValue(size: shadow.offset)),
+                                                  ("shadowPath", now.shadowPath, path)]
+            for (keyPath, from, to) in changes {
+                let change = CABasicAnimation(keyPath: keyPath)
+                change.fromValue = from
+                change.toValue = to
+                change.duration = 0.52
+                change.timingFunction = CAMediaTimingFunction(controlPoints: 0.215, 0.61, 0.355, 1)   // ease out (cubic)
+                stage.add(change, forKey: keyPath)
+            }
+        }
+        stage.transform = CATransform3DMakeScale(scale, scale, 1)
+        stage.shadowOpacity = shadow.opacity
+        stage.shadowRadius = shadow.radius
+        stage.shadowOffset = shadow.offset
+        stage.shadowPath = path
+        CATransaction.commit()
+    }
+
+    /// The shadow's shape: the cover's, drawn in by 2 pt playing and 6 pt paused, so its edge shows below the cover only.
+    private func shadowPath(_ playing: Bool) -> CGPath {
+        let inset: CGFloat = playing ? 2 : 6
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        let corner = min(max(0, radius - inset), rect.width / 2, rect.height / 2)
+        return CGPath(roundedRect: rect.width > 0 ? rect : .zero, cornerWidth: corner, cornerHeight: corner, transform: nil)
+    }
+
+    #if DEBUG
+    /// The cover's resting size and shadow (the values it ends at), and whether any of it is still moving: for self-tests.
+    var restState: (scale: CGFloat, shadowRadius: CGFloat, moving: Bool) {
+        (stage.transform.m11, stage.shadowRadius, [stage, base, cover].contains { !($0.animationKeys() ?? []).isEmpty })
+    }
+    #endif
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -398,6 +681,9 @@ final class LiveArtworkView: NSView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         cover.backgroundColor = resolved(NSColor.labelColor.withAlphaComponent(0.07)).cgColor   // before a cover loads
         cover.borderColor = resolved(NSColor.labelColor.withAlphaComponent(0.08)).cgColor
+        // Now Playing: the window's colour under the cover, so its shadow never shows through the see-through
+        // placeholder (it did: a dark blur inside the square, CI picture, 15 Oct)
+        stage.backgroundColor = playing == nil ? nil : resolved(.windowBackgroundColor).cgColor
         CATransaction.commit()
     }
 
@@ -745,7 +1031,16 @@ extension View {
             .clipShape(SidewaysClip())
             .padding(.horizontal, -margin)
     }
+
+    /// A page's column (15 Oct, as in the Windows app): at most `maxPageWidth` wide, centred in a wider window, so
+    /// lines and shelves never stretch across a large display.
+    func pageColumn() -> some View {
+        frame(maxWidth: maxPageWidth).frame(maxWidth: .infinity)
+    }
 }
+
+/// The widest a page grows: 1440 inside its 32 pt margins.
+let maxPageWidth: CGFloat = 1504
 
 /// Whether the visible screen has scrolled content under the title bar. Set by ScrollTitle when it flips, read by
 /// TitleBarStrip. One screen is visible at a time, so one value serves the window.
@@ -836,10 +1131,9 @@ struct ClearWindow: NSViewRepresentable {
     }
 }
 
-/// Mute button and slider. The speaker's waves follow the level (an SF Symbols "variable value").
+/// The player bar's mute button and slider. The speaker's waves follow the level (an SF Symbols "variable value").
+/// A narrow bar gives up the whole control, not only the slider (PlayerBar).
 struct VolumeControl: View {
-    var width: CGFloat = 84
-    var slider = true                          // false: the speaker alone (a narrow player bar)
     @Environment(Player.self) private var player
     @Environment(ThemeStore.self) private var theme
     @AppStorage("haptics") private var haptics = true
@@ -857,15 +1151,13 @@ struct VolumeControl: View {
             .help(player.isMuted ? "Unmute" : "Mute")
             .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
 
-            if slider {
             Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }), in: 0...1)
                 .controlSize(.small)
                 .tint(theme.color(.volume))                    // Settings › Colours › Volume
-                .frame(width: width)
+                .frame(width: 84)
                 .sensoryFeedback(.levelChange, trigger: Int((player.volume * 10).rounded())) { _, _ in haptics }   // a tick every 10%
                 .help("Volume (⌘↑ / ⌘↓)")
                 .accessibilityLabel("Volume")
-            }
         }
     }
 }

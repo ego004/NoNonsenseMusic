@@ -1,13 +1,13 @@
 import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case home, search, liked, recent, downloads, friends
+    case home, library, search, liked, recent, downloads, friends
     var id: String { rawValue }
     var title: String {
-        switch self { case .home: "Home"; case .search: "Search"; case .liked: "Liked Songs"; case .recent: "Recently Played"; case .downloads: "Downloads"; case .friends: "Friends" }
+        switch self { case .home: "Home"; case .library: "Library"; case .search: "Search"; case .liked: "Liked Songs"; case .recent: "Recently Played"; case .downloads: "Downloads"; case .friends: "Friends" }
     }
     var symbol: String {
-        switch self { case .home: "house"; case .search: "magnifyingglass"; case .liked: "heart"; case .recent: "clock"; case .downloads: "arrow.down.circle"; case .friends: "person.2" }
+        switch self { case .home: "house"; case .library: "books.vertical"; case .search: "magnifyingglass"; case .liked: "heart"; case .recent: "clock"; case .downloads: "arrow.down.circle"; case .friends: "person.2" }
     }
 }
 
@@ -17,13 +17,20 @@ enum Destination: Hashable {
     case playlist(UUID)
 }
 
+/// The sidebar (15 Oct, as in the Windows app): the logo, the places, then Playlists: Liked Songs, Recently Played and
+/// Downloads, your playlists and those shared with you, each a picture with its name and how many songs. Who is signed
+/// in, and Settings, at the bottom. Search is not here: it is the command bar's, at the top of the page.
 struct SidebarView: View {
     @Binding var selection: Destination?
     @Environment(LibraryStore.self) private var library
     @Environment(DownloadStore.self) private var downloads
     @Environment(Player.self) private var player
+    @Environment(Account.self) private var account
     @AppStorage("sidebarBlur") private var sidebarBlur = Look.sidebarBlur      // Settings › Appearance › Surfaces › Sidebar
     @AppStorage("sidebarSolid") private var sidebarSolid = Look.sidebarSolid
+
+    /// The places at the top. Liked Songs, Recently Played and Downloads are pictures under Playlists now.
+    private static let places: [SidebarItem] = [.home, .library, .friends]
 
     var body: some View {
         // While an artist or album page is open, no row is selected: you are on that page. A click on any row,
@@ -31,28 +38,40 @@ struct SidebarView: View {
         // rows did this before, but it competed with the list's own click and ate clicks on a row's text (11 Oct)
         List(selection: Binding(get: { Navigator.shared.path.isEmpty ? selection : nil },
                                 set: { if let picked = $0 { selection = picked; Navigator.shared.path = [] } })) {
-            ForEach(SidebarItem.allCases) { item in
-                Label { Text(item.title).selfTestFrame("sidebar.title:\(item.title)") } icon: { Image(systemName: item.symbol).selfTestFrame("sidebar.icon:\(item.title)") }
-                    .badge(item == .liked ? library.liked.count : item == .downloads ? downloads.items.count
-                           : item == .friends ? Social.shared.incoming.count : 0)
-                    // .tag must come last: placed before .badge, the list could not see it and no row was selectable (5 Oct)
-                    .tag(Destination.section(item))
+            brand                                                   // no tag: not a place, never selected
+            ForEach(Self.places) { item in
+                Label {
+                    Text(item.title).selfTestFrame("sidebar.title:\(item.title)").selfTestFrame("sidebar.place:\(item.title)")
+                } icon: {
+                    Image(systemName: item.symbol).selfTestFrame("sidebar.icon:\(item.title)")
+                }
+                .badge(item == .friends ? Social.shared.incoming.count : 0)
+                // .tag must come last: placed before .badge, the list could not see it and no row was selectable (5 Oct)
+                .tag(Destination.section(item))
             }
             Section {
+                ForEach(SidebarItem.collections(downloads)) { item in
+                    PictureRow(name: item.title, count: item.songCount(library: library, downloads: downloads)) {
+                        CollectionTile(item: item, size: 40)
+                    }
+                    .tag(Destination.section(item))                 // last, as above
+                }
                 ForEach(library.ownPlaylists) { playlistRow($0) }
                     // only your own: shared ones keep their owner's order (LibraryStore.movePlaylists)
                     .onMove { from, to in Task { await library.movePlaylists(from: from, to: to) } }
                     .animation(.snappy(duration: 0.3), value: library.ownPlaylists.map(\.id))   // new and deleted playlists slide
-                // a row, not a + in the header: the header is wider than the rows, so a + there sat outside the
-                // rows' column, against the sidebar's edge (6 Oct). As a row it lines up by construction
-                Button { library.newPlaylistRequest = .init(track: nil) } label: {
-                    Label { Text("New Playlist").selfTestFrame("sidebar.title:New Playlist") } icon: { Image(systemName: "plus").selfTestFrame("sidebar.icon:New Playlist") }
-                }
-                .buttonStyle(.quiet)
-                .foregroundStyle(.secondary)
-                .help("New Playlist (⌘N)")
             } header: {
-                Text("Playlists")
+                HStack {
+                    Text("Playlists")
+                    Spacer()
+                    Button { library.newPlaylistRequest = .init(track: nil) } label: { Image(systemName: "plus").font(.body) }
+                        .buttonStyle(.quiet)
+                        .help("New Playlist (⌘N)")
+                        .accessibilityLabel("New Playlist")
+                        .selfTestFrame("sidebar.newPlaylist")
+                        // the header runs wider than the rows (6 Oct): this brings the + back over the rows' right edge
+                        .padding(.trailing, 8)
+                }
             }
             // under your own, as Shared with You in Apple's apps (AUTH-3)
             if !library.sharedPlaylists.isEmpty {
@@ -65,24 +84,54 @@ struct SidebarView: View {
             }
         }
         .selfTestFrame("sidebar.list")
-        .safeAreaInset(edge: .bottom) {
-            SettingsLink { Label("Settings", systemImage: "gearshape") }
-                .buttonStyle(.quiet)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16).padding(.bottom, 14)
-        }
+        .safeAreaInset(edge: .bottom) { accountRow }
         // macOS draws the sidebar as a floating glass panel, and SwiftUI cannot change that glass (probed 6 Oct:
         // NSContainerConcentricGlassEffectView). This frosts and fills over it, inside the panel; 0 / 0 draws nothing.
         .background { SurfaceLayer(blur: sidebarBlur, solid: sidebarSolid, blending: .behindWindow).ignoresSafeArea() }
     }
 
-    private func playlistRow(_ playlist: PlaylistSummary) -> some View {
-        Label { Text(playlist.name).selfTestFrame("sidebar.title:\(playlist.name)") } icon: {
-            Image(systemName: playlist.isAlbum ? "square.stack" : playlist.isOwner ? "music.note.list" : "person.2")
-                .selfTestFrame("sidebar.icon:\(playlist.name)")
+    /// The logo's mark in the colour of the text, and the app's name.
+    private var brand: some View {
+        HStack(spacing: 10) {
+            Image("Mark")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(height: 20)
+                .accessibilityHidden(true)
+            Text("NoNonsenseMusic").tracking(-0.2).textStyle(size: 14.5, weight: .bold).lineLimit(1)
         }
-            .symbolEffect(.bounce, value: playlist.songCount)     // a song just went in here: the icon hops
+        .foregroundStyle(.primary)
+        .padding(.bottom, 10)
+        .selfTestFrame("sidebar.brand")
+    }
+
+    /// Who is signed in, and the gear that opens Settings (it replaced the Settings row).
+    @ViewBuilder private var accountRow: some View {
+        let name = account.user?.username ?? ""
+        VStack(spacing: 10) {
+            Divider()
+            HStack(spacing: 10) {
+                Avatar(name: name, size: 34)
+                Text(name).textStyle(size: 14, weight: .semibold).lineLimit(1)
+                Spacer(minLength: 4)
+                SettingsLink { Image(systemName: "gearshape").font(.title3) }
+                    .buttonStyle(.quiet)
+                    .foregroundStyle(.secondary)
+                    .help("Settings (⌘,)")
+                    .accessibilityLabel("Settings")
+                    .selfTestFrame("sidebar.settings")
+            }
+            .selfTestFrame("sidebar.account")
+        }
+        .padding(.horizontal, 16).padding(.bottom, 14)
+        #if DEBUG
+        .onChange(of: name, initial: true) { _, now in SelfTest.shownText["sidebar.account"] = now }
+        #endif
+    }
+
+    private func playlistRow(_ playlist: PlaylistSummary) -> some View {
+        PictureRow(name: playlist.name, count: playlist.songCount) { SidebarPlaylistCover(playlist: playlist) }
             .contextMenu {
                 Button("Play") { Task { await play(playlist, shuffled: false) } }
                 Button("Shuffle") { Task { await play(playlist, shuffled: true) } }
@@ -100,6 +149,46 @@ struct SidebarView: View {
     }
 }
 
+/// A collection or a playlist under Playlists: a 40 pt picture, the name, and "12 songs" under it.
+private struct PictureRow<Picture: View>: View {
+    let name: String
+    let count: Int
+    @ViewBuilder let picture: () -> Picture
+
+    var body: some View {
+        let detail = SongListView.count(count)
+        HStack(spacing: 12) {
+            picture()
+                .frame(width: 40, height: 40)
+                .clipShape(.rect(cornerRadius: 8, style: .continuous))
+                .selfTestFrame("sidebar.icon:\(name)")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name).textStyle(size: 13.5, weight: .semibold).lineLimit(1).selfTestFrame("sidebar.title:\(name)")
+                Text(detail).textStyle(size: 12).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .selfTestFrame("sidebar.row:\(name)")
+        #if DEBUG
+        .onChange(of: detail, initial: true) { _, now in SelfTest.shownText["sidebar.detail:\(name)"] = now }
+        #endif
+    }
+}
+
+/// A playlist's 2×2 cover in the sidebar, from the songs already loaded (Home's cards and the playlist itself load
+/// them; the sidebar does not): the name's gradient until then. Its own view, so a playlist loading redraws only this.
+private struct SidebarPlaylistCover: View {
+    let playlist: PlaylistSummary
+    @Environment(LibraryStore.self) private var library
+
+    var body: some View {
+        PlaylistCover(images: PlaylistCover.images(of: (library.details[playlist.id]?.items ?? []).lazy.map {
+            Track.coverURL(image: $0.song.image, listings: [$0.song.best] + $0.song.listings)
+        }), size: 40, seed: playlist.name)
+    }
+}
+
 /// What Search shows: everything, or songs, artists or albums alone (the server then asks the sources for less).
 enum SearchFilter: String, CaseIterable, Identifiable {
     case all, songs, artists, albums
@@ -108,13 +197,18 @@ enum SearchFilter: String, CaseIterable, Identifiable {
 }
 
 struct SearchView: View {
-    /// ⌘F, from anywhere in the window (RootView counts the presses): each one focuses the search bar
+    /// ⌘K or ⌘F on the Search page, which has no command bar (RootView counts the presses): each focuses the search bar
     var focusRequests = 0
     @Environment(Player.self) private var player
+    @Environment(LibraryStore.self) private var library
+    @Environment(DownloadStore.self) private var downloads
     /// Searches that led to a song you played, newest first (RecentSearches): the idle screen offers them again.
     @AppStorage("recentSearches") private var recentRaw = ""
-    @State private var query = ""
+    @State private var query: String
     @State private var results: [Track] = []
+    /// How many of `results`, from the first, are your own (#26): the server marks them in_library; with no server,
+    /// all of them are
+    @State private var yours = 0
     @State private var artists: [SearchArtist] = []
     @State private var albums: [AlbumRef] = []
     @State private var filter = SearchFilter.all
@@ -123,6 +217,12 @@ struct SearchView: View {
     @State private var failed = false
     @State private var task: Task<Void, Never>?
     @FocusState private var fieldFocused: Bool
+
+    /// `initialQuery`: words searched at once, as the command bar's "All results for “…”" opens Search.
+    init(focusRequests: Int = 0, initialQuery: String = "") {
+        self.focusRequests = focusRequests
+        _query = State(initialValue: initialQuery)
+    }
 
     private var unhealthy: [SourceInfo] { sources.filter { !$0.healthy } }
 
@@ -136,6 +236,32 @@ struct SearchView: View {
     /// Nothing typed yet: the bar sits lower, as the screen's main element. Typing moves it to the top.
     private var isIdle: Bool { query.trimmingCharacters(in: .whitespaces).isEmpty }
 
+    /// A line of the songs: a heading, or a song.
+    enum SongLine: Identifiable {
+        case heading(String), song(Track)
+        var id: String {
+            switch self {
+            case .heading(let text): "heading:" + text
+            case .song(let track): track.id
+            }
+        }
+        var text: String {
+            switch self {
+            case .heading(let text): text
+            case .song(let track): track.title
+            }
+        }
+    }
+
+    /// The songs, top to bottom: your own first under In Your Library (#26), then the sources' under Songs (that
+    /// heading only when something stands above it).
+    private var songLines: [SongLine] {
+        var lines: [SongLine] = yours > 0 ? [.heading("In Your Library")] : []
+        lines += results.prefix(yours).map(SongLine.song)
+        if results.count > yours && (yours > 0 || !artists.isEmpty || !albums.isEmpty) { lines.append(.heading("Songs")) }
+        return lines + results.dropFirst(yours).map(SongLine.song)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 14) {
@@ -143,6 +269,11 @@ struct SearchView: View {
                 if !isIdle { FilterCapsules(selection: $filter) }
                 if !unhealthy.isEmpty {
                     Label(Self.didNotRespond(unhealthy.map { Listing.name(ofSource: $0.source) }), systemImage: "exclamationmark.triangle")
+                        .textStyle(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                if failed && !results.isEmpty {
+                    Label("Can't reach your server, so only your own songs are shown.", systemImage: "wifi.exclamationmark")
                         .textStyle(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -176,16 +307,18 @@ struct SearchView: View {
                         if !albums.isEmpty {
                             AlbumShelf(albums: albums) { filter = .albums }.browseRow(top: 6, bottom: 8, inset: 24)
                         }
-                        if !results.isEmpty && (!artists.isEmpty || !albums.isEmpty) {
-                            Text("Songs").textStyle(.title3, weight: .bold).browseRow(top: 6, bottom: 2, inset: 24)
-                        }
-                        // a search result plays alone; Autoplay then continues with songs like it, not with the rest
-                        // of the results
-                        ForEach(results) { track in
-                            SongRow(track: track, queue: [track], index: 0)
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
+                        ForEach(songLines) { line in
+                            switch line {
+                            case .heading(let text):
+                                Text(text).textStyle(.title3, weight: .bold).browseRow(top: 6, bottom: 2, inset: 24)
+                            case .song(let track):
+                                // a search result plays alone; Autoplay then continues with songs like it, not with the
+                                // rest of the results
+                                SongRow(track: track, queue: [track], index: 0)
+                                    .listRowSeparator(.hidden)
+                                    .listRowBackground(Color.clear)
+                                    .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
+                            }
                         }
                     }
                     .listStyle(.plain)
@@ -195,7 +328,7 @@ struct SearchView: View {
             }
             .frame(maxHeight: .infinity)
             .overlay {
-                if failed {
+                if failed && results.isEmpty {
                     ContentUnavailableView("Can't reach your server", systemImage: "wifi.exclamationmark",
                                            description: Text("Check that the server at \(API.baseURL.absoluteString) is running."))
                 } else if showsNoResults {
@@ -208,6 +341,8 @@ struct SearchView: View {
         #if DEBUG
         .onChange(of: showsNoResults, initial: true) { _, now in SelfTest.noResultsShowing = now }
         .onChange(of: results.count, initial: true) { _, n in SelfTest.searchResultCount = n; SelfTest.searchTop = results.first?.best }
+        .onChange(of: songLines.map(\.text), initial: true) { _, now in SelfTest.searchLines = now }
+        .onChange(of: failed, initial: true) { _, now in SelfTest.searchFailed = now }
         // a self-test plays the first result exactly as a double-click on its row does
         .onReceive(NotificationCenter.default.publisher(for: .selfTestSearch)) { note in
             if let text = note.object as? String { query = text }
@@ -223,10 +358,13 @@ struct SearchView: View {
             guard let id, !isIdle, results.contains(where: { $0.id == id }) else { return }
             recentRaw = RecentSearches.adding(query, to: recentRaw)
         }
-        .onAppear { fieldFocused = true }
+        .onAppear {
+            fieldFocused = true
+            if !isIdle, task == nil { schedule(query, delay: .zero) }   // opened with words (All results): searched at once
+        }
         // a search still on its way would land after this and hand its results to the Prefetcher again
         .onDisappear { task?.cancel(); Prefetcher.shared.searchChanged([]) }
-        // ⌘F while Search is already open: RootView holds the shortcut, so it works from every screen (it lived
+        // ⌘K or ⌘F while Search is open: RootView holds the shortcuts, so they work from every screen (⌘F lived
         // here, so it worked only on Search: audit, 7 Oct)
         .onChange(of: focusRequests) { fieldFocused = true }
     }
@@ -235,7 +373,7 @@ struct SearchView: View {
     private func schedule(_ text: String, delay: Duration) {
         task?.cancel()
         let q = text.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { results = []; artists = []; albums = []; sources = []; failed = false; isLoading = false; Prefetcher.shared.searchChanged([]); return }
+        guard !q.isEmpty else { results = []; yours = 0; artists = []; albums = []; sources = []; failed = false; isLoading = false; Prefetcher.shared.searchChanged([]); return }
         // loading from the first keystroke, not after the 350 ms pause: "No Results" flashed in that gap (16 of 72
         // samples while typing "arijit", 6 Oct). Only the newest search turns it off: a cancelled one used to, as it died.
         isLoading = true
@@ -248,6 +386,7 @@ struct SearchView: View {
                 guard !Task.isCancelled else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
                     results = response.songs.map(Track.init)
+                    yours = response.songs.prefix { $0.inLibrary == true }.count
                     // All shows a shelf of each; a filter shows every one found
                     artists = Array((response.artists ?? []).prefix(filter == .all ? 8 : 60))
                     albums = Array((response.albums ?? []).prefix(filter == .all ? 12 : 60).map(\.best))
@@ -256,7 +395,15 @@ struct SearchView: View {
                 Prefetcher.shared.searchChanged(results.prefix(5).map(\.best))   // the top results (as many as Settings › Footprint says) start at once
                 failed = false
             } catch {
-                if !Task.isCancelled { failed = true }
+                guard !Task.isCancelled else { return }
+                // no server: the songs of yours this app holds that match, by the server's rule. Songs alone: artists and
+                // albums come only from it
+                withAnimation(.easeOut(duration: 0.2)) {
+                    results = filter == .all || filter == .songs ? Matching.songs(matching: q, in: library.held(downloads)) : []
+                    yours = results.count
+                    artists = []; albums = []; sources = []
+                }
+                failed = true
             }
         }
     }
@@ -288,15 +435,9 @@ struct SongListView: View {
         // Search narrows the rows; playing one plays what is shown, in that order
         let shown = filter.isEmpty ? tracks : tracks.filter { songMatches($0, filter) }
         List {
-            header(tracks)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 20, leading: 24, bottom: 16, trailing: 24))
+            header(tracks).pageRow(top: 20, bottom: 16)
             ForEach(Array(shown.enumerated()), id: \.element.id) { i, track in
-                SongRow(track: track, queue: shown, index: i)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 1, leading: 24, bottom: 1, trailing: 24))
+                SongRow(track: track, queue: shown, index: i).pageRow(top: 1, bottom: 1, inset: 24)
             }
         }
         .listStyle(.plain)
@@ -315,7 +456,7 @@ struct SongListView: View {
                     ContentUnavailableView("No liked songs yet", systemImage: item.symbol, description: Text("Click ♥ on any song to keep it here."))
                 case .downloads:
                     ContentUnavailableView("Nothing downloaded yet", systemImage: item.symbol,
-                                           description: Text("Right-click a song › Download, or a playlist's ⋯ › Download Playlist. Downloads play without the server or the internet."))
+                                           description: Text("Right-click a song › Download, or click Download at the top of a playlist. Downloads play without the server or the internet."))
                 default:
                     ContentUnavailableView("Nothing played yet", systemImage: item.symbol, description: Text("Songs you play show up here."))
                 }
@@ -336,7 +477,7 @@ struct SongListView: View {
     private func header(_ tracks: [Track]) -> some View {
         HStack(alignment: .bottom, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.title).textStyle(.largeTitle, weight: .bold)
+                Text(item.title).tracking(-0.6).textStyle(size: 32, weight: .bold)         // as the Windows app's (15 Oct)
                 Text(item == .downloads ? "\(Self.count(tracks.count)) · \(formatBytes(downloads.totalBytes)) on this Mac" : Self.count(tracks.count))
                     .textStyle(.body).foregroundStyle(.secondary)
             }
@@ -415,7 +556,7 @@ struct DownloadAllButton: View {
                 .contentTransition(.numericText())
         }
         .compatGlassButton()
-        .disabled(all || working || tracks.isEmpty)
+        .disabled(all || working || tracks.isEmpty || !downloads.available)     // the downloads folder is not there
         .help(all ? "Every song here plays without the internet" : "Download every song, to play without the internet")
     }
 }

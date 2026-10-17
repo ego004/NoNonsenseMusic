@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
+import 'concept.dart';
+
 /// A sidebar entry styled after the Windows 11 navigation rail.
 ///
 /// The row is transparent until the pointer enters it, when it takes a faint fill. The selected row takes a stronger
@@ -30,23 +32,29 @@ class _SideItemState extends State<SideItem> {
       onExit: (_) => setState(() => hover = false),
       child: GestureDetector(
         onTap: widget.onTap,
-        child: Container(
+        // the concept (13 Oct): the fill fades, and the accent bar springs up beside the chosen entry
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
           height: 36,
           margin: const EdgeInsets.symmetric(vertical: 1),
           decoration: BoxDecoration(
             // Selected fill outweighs hover fill so the current entry stays visible while the pointer moves.
             color: widget.selected ? ink.withValues(alpha: 0.075) : hover ? ink.withValues(alpha: 0.04) : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(8),
           ),
           child: Row(children: [
-            // The bar is laid out even when transparent so the label does not shift between states.
-            Container(
+            // The bar is laid out even when hidden so the label does not shift between states.
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 340),
+              // the spring overshoots its end: on the way down to nothing it would ask for a height below zero
+              curve: widget.selected ? spring : Curves.easeOutCubic,
               width: 3,
-              height: 16,
-              decoration: BoxDecoration(color: widget.selected ? theme.colorScheme.primary : Colors.transparent, borderRadius: BorderRadius.circular(2)),
+              height: widget.selected ? 16 : 0,
+              decoration: BoxDecoration(color: theme.colorScheme.primary, borderRadius: BorderRadius.circular(2)),
             ),
             const SizedBox(width: 10),
-            Icon(widget.icon, size: 18, color: widget.selected ? ink : ink.withValues(alpha: 0.7)),
+            Icon(widget.icon, size: 18, color: widget.selected ? theme.colorScheme.primary : ink.withValues(alpha: 0.7)),
             const SizedBox(width: 12),
             Expanded(
               child: Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis,

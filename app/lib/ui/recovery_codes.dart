@@ -5,6 +5,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import '../core/account_api.dart';
 import '../core/api.dart';
 import '../core/auth.dart';
+import 'glass_menu.dart';
 
 /// Shows the dialog with the account's recovery codes once, when [Auth.codesToShow] has some (a new account). It sits
 /// above the signed-in app and cannot be dismissed until the codes are copied.
@@ -48,7 +49,7 @@ class _RecoveryCodesHostState extends State<RecoveryCodesHost> {
 /// The ten recovery codes, shown once: after sign-up, and after Settings › Account makes a new set. The server keeps
 /// only their hashes, so this dialog is the only place they can be read. It cannot be dismissed, and Done is enabled
 /// once the codes are copied, so it is not closed before they are kept somewhere.
-Future<void> showRecoveryCodes(BuildContext context, List<String> codes, String username) => showDialog<void>(
+Future<void> showRecoveryCodes(BuildContext context, List<String> codes, String username) => showGlassDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => RecoveryCodesDialog(codes: codes, username: username),
@@ -75,7 +76,7 @@ class _RecoveryCodesDialogState extends State<RecoveryCodesDialog> {
     const mono = TextStyle(fontFamily: 'monospace', fontSize: 13);
     return PopScope(
       canPop: false,
-      child: AlertDialog(
+      child: GlassDialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
         icon: Icon(FluentIcons.key_24_regular, color: theme.colorScheme.primary),
         title: const Text('Save Your Recovery Codes', textAlign: TextAlign.center),
@@ -132,7 +133,7 @@ class _RecoveryCodesDialogState extends State<RecoveryCodesDialog> {
 
 /// Settings › Account › New Recovery Codes: the password again, then the new set. Returns the new codes, or null when
 /// cancelled.
-Future<List<String>?> askNewRecoveryCodes(BuildContext context) => showDialog<List<String>>(
+Future<List<String>?> askNewRecoveryCodes(BuildContext context) => showGlassDialog<List<String>>(
       context: context,
       builder: (_) => const _NewCodesDialog(),
     );
@@ -168,7 +169,7 @@ class _NewCodesDialogState extends State<_NewCodesDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => GlassDialog(
         title: const Text('New Recovery Codes'),
         content: SizedBox(
           width: 320,

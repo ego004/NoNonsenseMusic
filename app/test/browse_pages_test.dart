@@ -50,8 +50,9 @@ void main() {
         expect(find.textContaining('Made-Up Album With'), findsOneWidget);
         expect(find.text('Play'), findsOneWidget);
         expect(find.text('Shuffle'), findsOneWidget);
-        expect(find.text('Pin to Home'), findsOneWidget);
-        expect(find.text('2024 · 12 songs · 37 min'), findsOneWidget);
+        expect(find.byTooltip('Keep this album on Home'), findsOneWidget);
+        expect(find.text('2024 · 12 SONGS · 37 MIN'), findsOneWidget);
+        expect(find.text('1'), findsOneWidget, reason: 'album songs are numbered');
         expect(find.textContaining('Alex, Sam', findRichText: true), findsWidgets, reason: 'the artists are links under the title');
         expect(find.textContaining('number 0'), findsOneWidget);
       });

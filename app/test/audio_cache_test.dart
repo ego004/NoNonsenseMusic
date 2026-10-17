@@ -168,6 +168,34 @@ void main() {
     expect(cache.peek('jiosaavn:b'), isNotNull);
   });
 
+  test('a finished fetch whose file is gone is fetched again, not handed back (#30)', () async {
+    host.files['/g.mp4'] = blob(3000);
+    final fetches = AudioDownloads(cache: cache, fetcher: quick(host));
+    final link = Uri.parse('http://audio.test/g.mp4');
+    final first = fetches.fetch('ytmusic:g', link);
+    await first.whole();
+    expect(identical(fetches.fetch('ytmusic:g', link), first), isTrue, reason: 'its file is there: the same fetch');
+    cache.path('ytmusic:g').deleteSync(); // the player's: a file that would not play
+    host.asked.clear();
+    final again = fetches.fetch('ytmusic:g', link);
+    await again.whole();
+    expect(identical(again, first), isFalse);
+    expect(host.asked, isNotEmpty);
+    expect(cache.peek('ytmusic:g'), isNotNull);
+  });
+
+  test('with the cache off, the song just fetched stays until the next one is fetched', () async {
+    cache.limitMB = 0; // Windows still fetches a YouTube copy whole to play it
+    host.files['/a.mp4'] = blob(3000);
+    host.files['/b.mp4'] = blob(3000);
+    final fetches = AudioDownloads(cache: cache, fetcher: quick(host));
+    await fetches.fetch('youtube:a', Uri.parse('http://audio.test/a.mp4')).whole();
+    expect(cache.path('youtube:a').existsSync(), isTrue);
+    await fetches.fetch('youtube:b', Uri.parse('http://audio.test/b.mp4')).whole();
+    expect((cache.path('youtube:a').existsSync(), cache.path('youtube:b').existsSync()), (false, true));
+    expect(cache.file('youtube:b'), isNull, reason: 'off: never played from the cache');
+  });
+
   test('a fetch whose song is no longer playing or next is cancelled and leaves no file', () async {
     host.files['/c.mp4'] = blob(3000);
     final release = Completer<void>();
@@ -192,7 +220,7 @@ void main() {
       linkFor: (l) async => Uri.parse('http://audio.test/${l.id == 'bad' ? 'missing' : 'second'}.mp4'),
       client: MockClient((r) async => r.url.host == 'img.test' ? http.Response.bytes(blob(700), 200) : http.Response('', 404)),
     );
-    await store.load(Directory('${dir.path}/Downloads'));
+    await store.load(at: Directory('${dir.path}/Downloads'), data: Directory('${dir.path}/DownloadData'));
     expect(await store.download(track), isTrue);
     expect(store.keptCover('http://img.test/cover.jpg')?.readAsBytesSync(), blob(700), reason: 'the cover is kept: it shows offline');
     await store.keepLyrics(track, Lyrics('lrclib', true, [LyricLine(1000, 'a line', translation: 'una línea')]));
@@ -204,7 +232,7 @@ void main() {
     expect(store.items.single.track.image, 'http://img.test/cover.jpg');
     // the list survives a restart with no server
     final again = DownloadStore(cache: cache);
-    await again.load(Directory('${dir.path}/Downloads'));
+    await again.load(at: Directory('${dir.path}/Downloads'), data: Directory('${dir.path}/DownloadData'));
     expect(again.items.single.track.title, 'Song bad', reason: 'the song as shown, not the copy that was fetched');
     final kept = again.keptCover('http://img.test/cover.jpg');
     expect(kept, isNotNull, reason: 'a restart finds the kept cover');
@@ -217,7 +245,7 @@ void main() {
     put('jiosaavn:hit', 4000, DateTime(2020));
     final l = song('jiosaavn', 'hit');
     final store = DownloadStore(cache: cache, fetches: AudioDownloads(cache: cache, fetcher: quick(host)), fetcher: quick(host));
-    await store.load(Directory('${dir.path}/Downloads'));
+    await store.load(at: Directory('${dir.path}/Downloads'), data: Directory('${dir.path}/DownloadData'));
     expect(await store.download(Track(l, [l], choosingVersion: false)), isTrue);
     expect(host.asked, isEmpty);
   });

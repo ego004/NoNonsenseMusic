@@ -13,9 +13,11 @@ xcuserdata/
 *.trace/
 mac/tp_*.xml
 
-# kept on this Mac, not published (11 Oct): raw API dumps, the docs being rewritten, tool scratch
+# kept on this Mac, not published (11 Oct): raw API dumps, the docs being rewritten, tool scratch. The jam's spec is
+# published: its three implementations build to it (#32)
 backend/samples/
-docs/
+docs/*
+!docs/jam.md
 .playwright-mcp/
 
 # working notes, kept out of the repository

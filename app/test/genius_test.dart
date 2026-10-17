@@ -56,15 +56,19 @@ void main() {
     expect(store.notesOf(other)!.notes.length, 3);
   });
 
-  testWidgets('a line with a note is underlined; a click opens the note instead of playing; Play from here plays', (tester) async {
+  testWidgets('a line with a note is in the accent colour; a click opens the note instead of playing; Play from here plays', (tester) async {
     var tapped = 0, played = 0;
     const note = GeniusNote('first made-up line', 'A made-up note.', verified: true);
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: Column(children: [
       NotedLyricLine(text: 'First made-up line', note: note, url: 'https://genius.example', onTap: () => tapped++, onPlay: () => played++),
       NotedLyricLine(text: 'A line with no note', onTap: () => tapped++),
     ]))));
-    expect(tester.widget<Text>(find.text('First made-up line')).style?.decoration, TextDecoration.underline);
-    expect(tester.widget<Text>(find.text('A line with no note')).style?.decoration, isNot(TextDecoration.underline));
+    // coloured rather than underlined (15 Oct)
+    final noted = tester.widget<Text>(find.text('First made-up line')).style;
+    final accent = Theme.of(tester.element(find.text('First made-up line'))).colorScheme.primary;
+    expect(noted?.decoration, isNot(TextDecoration.underline));
+    expect(noted?.color?.toARGB32(), accent.toARGB32());
+    expect(tester.widget<Text>(find.text('A line with no note')).style?.color, isNull);
 
     await tester.tap(find.text('First made-up line'));
     await tester.pumpAndSettle();

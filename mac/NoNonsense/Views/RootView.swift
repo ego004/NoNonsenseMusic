@@ -9,8 +9,12 @@ struct RootView: View {
     @Environment(LyricsStore.self) private var lyrics
     @Environment(Account.self) private var account
     @AppStorage("lyricsFetch") private var lyricsFetch = LyricsFetch.songStart     // Settings › Lyrics
+    @Environment(DownloadStore.self) private var downloads
+    @Environment(\.openSettings) private var openSettings
     @State private var selection: Destination? = .section(.home)
-    @State private var searchRequests = 0                 // ⌘F presses: Search focuses its bar on each
+    @State private var searchRequests = 0                 // ⌘K and ⌘F on the Search page: it focuses its own bar on each
+    @State private var searchQuery = ""                   // the command bar's "All results for …": Search opens searching it
+    @State private var searchAsks = 0                     // …a new Search each time, also for the same words
     @AppStorage("artStrength") private var artStrength = Look.artStrength         // how strongly the cover colours the window
     @Environment(\.colorScheme) private var scheme
     @Environment(ThemeStore.self) private var theme
@@ -35,7 +39,8 @@ struct RootView: View {
                     Group {
                         switch selection ?? .section(.home) {
                         case .section(.home): HomeView { selection = $0 }
-                        case .section(.search): SearchView(focusRequests: searchRequests)
+                        case .section(.library): LibraryView { selection = $0 }
+                        case .section(.search): SearchView(focusRequests: searchRequests, initialQuery: searchQuery).id(searchAsks)
                         case .section(.liked): SongListView(item: .liked)
                         case .section(.recent): SongListView(item: .recent)
                         case .section(.downloads): SongListView(item: .downloads)
@@ -59,12 +64,27 @@ struct RootView: View {
                     }
                 }
                 .background(TitleBarTitle())
-                .onChange(of: selection) { Navigator.shared.path = [] }
-                .toolbar {
-                    ToolbarItem(placement: .navigation) { BackButton() }
-                    ToolbarItem(placement: .primaryAction) { JamButton() }
-                    ToolbarItem(placement: .primaryAction) { NotificationsButton() }
+                .onChange(of: selection) { _, now in
+                    Navigator.shared.path = []
+                    if now != .section(.search), !searchQuery.isEmpty { searchQuery = "" }   // Search from the sidebar starts empty
                 }
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        JamButton()
+                            #if DEBUG
+                            .selfTestToolbarItem("toolbar.jam")
+                            #endif
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        NotificationsButton()
+                            #if DEBUG
+                            .selfTestToolbarItem("toolbar.bell")
+                            #endif
+                    }
+                }
+                .modifier(LeadingToolbarItems(commandBar: !onSearchPage))
+                // the command bar's field is as wide as the toolbar can spare beside Back, Jam and the bell
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { CommandBarState.shared.columnResized($0) }
                 .onChange(of: Navigator.shared.playlistRequest) { _, id in
                     guard let id else { return }
                     Navigator.shared.playlistRequest = nil
@@ -136,6 +156,8 @@ struct RootView: View {
             .compatTopEdgeEffectHidden()
             .animation(.spring(response: 0.45, dampingFraction: 0.86), value: player.current == nil)
         }
+        // the command bar's list, under its field in the toolbar: drawn in the window, so the field keeps the keyboard
+        .overlay { CommandListLayer().ignoresSafeArea() }
         // Now Playing in its own host, faded in and out by Core Animation: see NowPlayingLayer
         .overlay { NowPlayingLayer(shown: player.showNowPlaying && player.current != nil).ignoresSafeArea() }
         // no internet, or no server: said once, at the top, for as long as it lasts (not a message per failed song).
@@ -191,15 +213,13 @@ struct RootView: View {
         } message: {
             Text("You have \(UpdateCheck.current). The release page has the download and what is new.")
         }
-        // ⌘F from any screen: Search, with the bar focused (an invisible button that only holds the shortcut)
+        // ⌘K, and ⌘F (find), from any screen and while typing: the command bar takes the keyboard (invisible buttons
+        // that only hold the shortcuts). ⌘F opened Search before the bar (15 Oct)
         .background {
-            Button("") {
-                player.showNowPlaying = false
-                Navigator.shared.path = []                // Search itself, not a page opened over it
-                selection = .section(.search)
-                searchRequests += 1                      // already on Search: SearchView focuses the bar on this
+            Group {
+                Button("") { summonCommandBar() }.keyboardShortcut("k", modifiers: .command)
+                Button("") { summonCommandBar() }.keyboardShortcut("f", modifiers: .command)
             }
-            .keyboardShortcut("f", modifiers: .command)
             .hidden()
         }
         .environment(\.textScale, textScale)              // every textStyle in the window, Now Playing included
@@ -218,6 +238,20 @@ struct RootView: View {
         }
         #endif
         .task {
+            // what the command bar's commands reach: this window's screens, its Search page, and Settings
+            CommandBarState.shared.context = CommandContext(
+                player: player, library: library, downloads: downloads,
+                open: { destination in
+                    Navigator.shared.path = []
+                    selection = destination
+                },
+                search: { words in
+                    Navigator.shared.path = []
+                    searchQuery = words
+                    searchAsks += 1
+                    selection = .section(.search)
+                },
+                settings: { openSettings() })
             Task { await YouTubeLookup.shared.prepare() }   // the visitor id now, not at the first YouTube song
             #if DEBUG
             if !SelfTest.isRunning { Task { await UpdateCheck.shared.check() } }   // never in a self-test
@@ -230,6 +264,7 @@ struct RootView: View {
             JamSession.shared.me = account.user?.id
             await server.ensureRunning()     // starts the backend if nothing answers (Services/ServerLauncher.swift)
             await Connectivity.shared.checkServer()
+            await JamSession.shared.resume()                 // back in the jam this Mac was in when the app last ran
             await library.refresh()
         }
         // Settings › Lyrics › when a song starts: this song's lyrics, and the next one's, so Lyrics opens ready.
@@ -239,6 +274,41 @@ struct RootView: View {
             lyrics.fetch(current)
             if let next = player.nextTrack { lyrics.fetch(next) }
         }
+    }
+
+    /// The Search page itself, no page over it: it has its own field, so the command bar is not shown there.
+    private var onSearchPage: Bool { selection == .section(.search) && Navigator.shared.path.isEmpty }
+
+    /// ⌘K and ⌘F: the command bar takes the keyboard, what is in it selected; on the Search page, Search's own field.
+    /// Now Playing closes first: the toolbar, and the bar with it, is hidden under it.
+    private func summonCommandBar() {
+        if player.showNowPlaying { player.showNowPlaying = false }
+        if onSearchPage { searchRequests += 1 } else { CommandBarState.shared.summon() }
+    }
+}
+
+/// The toolbar's leading items: Back while a page is open, then the command bar's field (not on the Search page). On
+/// macOS 26 the field is its own glass capsule: the toolbar's shared glass around it would have been a second one.
+private struct LeadingToolbarItems: ViewModifier {
+    let commandBar: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content.toolbar {
+                ToolbarItem(placement: .navigation) { BackButton() }
+                ToolbarItem(placement: .navigation) { field }
+                    .sharedBackgroundVisibility(.hidden)
+            }
+        } else {
+            content.toolbar {
+                ToolbarItem(placement: .navigation) { BackButton() }
+                ToolbarItem(placement: .navigation) { field }
+            }
+        }
+    }
+
+    @ViewBuilder private var field: some View {
+        if commandBar { CommandField() }
     }
 }
 
@@ -274,14 +344,18 @@ private struct NowPlayingLayer: NSViewRepresentable {
     }
 }
 
-/// What RootView gives every screen, given again inside Now Playing's own host: the tint and the text size.
+/// What RootView gives every screen, given again inside Now Playing's own host: the tint and the text size. Over the
+/// cover's colours the tint is made readable on them, and secondary and tertiary text are Now Playing's own, which
+/// read where the system's do not (NowPlayingInk, #20).
 private struct NowPlayingRoot: View {
     @Environment(ThemeStore.self) private var theme
+    @Environment(\.colorScheme) private var scheme
     @AppStorage("textScale") private var textScale = Look.textScale
 
     var body: some View {
         NowPlayingView()
-            .tint(theme.color(.buttons))
+            .tint(NowPlayingInk.shared.readable(theme.color(.buttons), dark: scheme == .dark))
+            .foregroundStyle(Color(nsColor: .labelColor), Color(nsColor: NowPlayingInk.secondary), Color(nsColor: NowPlayingInk.tertiary))
             .environment(\.textScale, textScale)
     }
 }

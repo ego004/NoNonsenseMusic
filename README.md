@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="app/assets/icon/logo.svg" alt="" width="128" height="128">
+
 # NoNonsenseMusic
 
 A native macOS music player, designed with care.

@@ -1,14 +1,18 @@
-import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/models.dart';
 import '../core/play_queue.dart';
+import '../core/settings.dart';
 import 'browse_widgets.dart';
+import 'concept.dart';
 import 'cover.dart';
 import 'glass.dart';
 import 'in_front.dart';
+import 'layout.dart';
+import 'redesign.dart';
 import 'scope.dart';
 import 'song_row.dart';
 import 'waiting.dart';
@@ -30,29 +34,22 @@ class PlayerBar extends StatelessWidget {
         final t = p.current;
         if (t == null) return const SizedBox.shrink();
         final phone = MediaQuery.sizeOf(context).width < 700;
+        // Settings › Appearance › Surfaces › Player bar (a phone's bottom bar)
+        final look = Look.of(context);
+        // the concept (13 Oct): on a computer a pill that rises a little under the pointer
         final bar = Container(
-          height: phone ? 64 : 76,
+          // taller as the text grows (Android's font size, Windows' text size): at 200% the song's title and artists
+          // overflowed the bar by 34 points (#20)
+          height: (phone ? 64 : 74) + textGrowth(context, 14 + 12.5),
           constraints: const BoxConstraints(maxWidth: 940),
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: phone
               ? null
               : BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(
-                    alpha: 0.96,
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: ink.withValues(alpha: 0.08)),
-                  boxShadow: [
-                    BoxShadow(
-                      blurRadius: 30,
-                      offset: const Offset(0, 10),
-                      color: Colors.black.withValues(
-                        alpha: theme.brightness == Brightness.dark
-                            ? 0.45
-                            : 0.14,
-                      ),
-                    ),
-                  ],
+                  // UI v2 (15 Oct): the frosted glass's tint (the blur is under it, below; the shadow outside it)
+                  color: floatingFill(context),
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: ink.withValues(alpha: 0.1)),
                 ),
           child: phone
               // the phone's bar: swipe sideways for the next or previous song, swipe down to close it (the song stops;
@@ -137,13 +134,14 @@ class PlayerBar extends StatelessWidget {
               : Row(
                   children: [
                     Expanded(
+                      flex: 4,
                       child: MouseRegion(
                         cursor: SystemMouseCursors.click,
                         child: GestureDetector(
                           onTap: () => p.setShowNowPlaying(true),
                           child: Row(
                             children: [
-                              Cover(t.image, size: 52, radius: 8),
+                              Cover(t.image, size: 52, radius: 14),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
@@ -188,58 +186,99 @@ class PlayerBar extends StatelessWidget {
                     ),
                     const SizedBox(width: 16),
                     SizedBox(
-                      width: 380,
+                      width: 320,
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Transport(size: 18, play: 34),
+                          const ConceptTransport(play: 38, compact: true),
                           const SizedBox(height: 2),
-                          Progress(key: ValueKey(t.id), inBar: true),
+                          AppleScrubber(key: ValueKey('bar${t.id}'), inBar: true, compact: true),
                         ],
                       ),
                     ),
                     const SizedBox(width: 16),
                     // In a narrow window the volume folds away before the panels, as on the Mac.
                     Expanded(
+                      flex: 7,
                       child: LayoutBuilder(
-                        builder: (context, box) => Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            LikeButton(track: t),
-                            SongMoreButton(track: t),
-                            _Toggle(
-                              icon: FluentIcons.comment_quote_24_regular,
-                              tip: 'Lyrics',
-                              onTap: () {
-                                p.panel = 'lyrics';
-                                p.setShowNowPlaying(true);
-                              },
-                            ),
-                            _Toggle(
-                              icon: FluentIcons.text_bullet_list_ltr_24_regular,
-                              tip: 'Up Next',
-                              onTap: () {
-                                p.panel = 'upNext';
-                                p.setShowNowPlaying(true);
-                              },
-                            ),
-                            // Space beyond the four buttons (160), the gap (6) and the speaker (40): below 64 px more the slider is dropped.
-                            if (box.maxWidth >= 206 + 64) ...[
-                              const SizedBox(width: 6),
-                              Volume(
-                                width: (box.maxWidth - 206)
-                                    .clamp(64, 110)
-                                    .toDouble(),
-                              ),
+                        // The controls the room has, kept in order of need: like, the volume, Up Next, Lyrics, then the
+                        // full-screen button (the cover opens Now Playing too).
+                        // Measured: like and each button 48, the volume 122 after a gap of 6. The volume used to fold
+                        // away first, at a guessed 245 when the four take 272: between the two the row overflowed (15 Oct)
+                        builder: (context, box) {
+                          var room = box.maxWidth;
+                          bool fits(double width) {
+                            if (width > room) return false;
+                            room -= width;
+                            return true;
+                          }
+                          final like = fits(48), volume = fits(6 + 122), upNext = fits(48), lyrics = fits(48), full = fits(48);
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              if (like) LikeButton(track: t),
+                              if (lyrics)
+                                _Toggle(
+                                  icon: FluentIcons.comment_quote_24_regular,
+                                  tip: 'Lyrics',
+                                  onTap: () {
+                                    p.panel = 'lyrics';
+                                    p.setShowNowPlaying(true);
+                                  },
+                                ),
+                              if (upNext)
+                                _Toggle(
+                                  icon: FluentIcons.text_bullet_list_ltr_24_regular,
+                                  tip: 'Up Next',
+                                  onTap: () {
+                                    p.panel = 'upNext';
+                                    p.setShowNowPlaying(true);
+                                  },
+                                ),
+                              if (volume) ...[
+                                const SizedBox(width: 6),
+                                const AppleVolume(compact: true),
+                              ],
+                              // Now Playing over the whole window, as the design's full-screen button
+                              if (full)
+                                _Toggle(
+                                  icon: FluentIcons.arrow_maximize_24_regular,
+                                  tip: 'Now Playing',
+                                  onTap: () {
+                                    p.panel = 'none';
+                                    p.setShowNowPlaying(true);
+                                  },
+                                ),
                             ],
-                          ],
-                        ),
+                          );
+                        },
                       ),
                     ),
                   ],
                 ),
         );
-        return phone ? GlassSurface(radius: 22, child: bar) : bar;
+        // UI v2 (15 Oct): a computer's bar floats over the lists, so it is frosted glass: a blur of what scrolls under
+        // it below a strong tint (a see-through fill alone let the songs' text read through it). The blur is drawn when
+        // the bar is: once a second while a song plays, and with every frame the list under it scrolls. Blur at 0 draws
+        // none (a phone's default: battery, #29)
+        return phone
+            ? GlassSurface(radius: 22, blur: 18 * look.barBlur, solid: look.barSolid, child: bar)
+            : HoverLift(
+                builder: (_) => DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(26),
+                    boxShadow: [
+                      BoxShadow(blurRadius: 30, offset: const Offset(0, 10), color: Colors.black.withValues(alpha: theme.brightness == Brightness.dark ? 0.45 : 0.14)),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(26),
+                    child: look.barBlur > 0
+                        ? BackdropFilter(filter: ui.ImageFilter.blur(sigmaX: 30 * look.barBlur, sigmaY: 30 * look.barBlur), child: bar)
+                        : bar,
+                  ),
+                ),
+              );
       },
     );
   }
@@ -442,46 +481,36 @@ class Progress extends StatefulWidget {
 }
 
 class _ProgressState extends State<Progress> {
-  Timer? _tick;
   double? _dragged;
 
   @override
   void initState() {
     super.initState();
     inFront.addListener(_frontChanged);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _schedule();
+    secondTick.addListener(_ticked);
   }
 
   void _frontChanged() {
-    _schedule();
     if (inFront.value && mounted) {
       setState(() {}); // Show the correct time at once, not on the next tick.
     }
   }
 
-  void _schedule() {
-    _tick?.cancel();
-    // Ticks serve no purpose while the window is behind others; returning to the front restarts them at once.
-    if (!inFront.value) return;
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      final p = Scope.of(context).player;
-      // Under Now Playing the bar's line is hidden, but its tick still drew a frame each second, besides Now Playing's
-      // own: two frames a second instead of one (about 8 ms each, see in_front.dart)
-      if (widget.inBar && p.showNowPlaying) return;
-      if (p.isPlaying && _dragged == null) setState(() {});
-    });
+  /// The app's one tick a second (in_front.dart): it stops while the window is behind others, and every time line on
+  /// screen is drawn in the same frame.
+  void _ticked() {
+    if (!mounted) return;
+    final p = Scope.of(context).player;
+    // Under Now Playing the bar's line is hidden, but its tick still drew a frame each second, besides Now Playing's
+    // own: two frames a second instead of one (about 8 ms each, see in_front.dart)
+    if (widget.inBar && p.showNowPlaying) return;
+    if (p.isPlaying && _dragged == null) setState(() {});
   }
 
   @override
   void dispose() {
     inFront.removeListener(_frontChanged);
-    _tick?.cancel();
+    secondTick.removeListener(_ticked);
     super.dispose();
   }
 
@@ -500,9 +529,10 @@ class _ProgressState extends State<Progress> {
       child: Row(
         children: [
           SizedBox(
-            width: 38,
+            width: textWidth(context, 38, 11),
             child: Text(
               formatTime(pos),
+              maxLines: 1,
               textAlign: TextAlign.right,
               style: small,
             ),
@@ -524,8 +554,8 @@ class _ProgressState extends State<Progress> {
           ),
           const SizedBox(width: 8),
           SizedBox(
-            width: 42,
-            child: Text('-${formatTime(dur - pos)}', style: small),
+            width: textWidth(context, 42, 11),
+            child: Text('-${formatTime(dur - pos)}', maxLines: 1, style: small),
           ),
         ],
       ),

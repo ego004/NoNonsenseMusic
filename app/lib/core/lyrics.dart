@@ -17,8 +17,11 @@ class LyricsStore extends ChangeNotifier {
 
   Lyrics? of(Track t) => _found[t.id];
 
-  /// The translations of the lyrics, made on request and kept for the session.
-  final translations = LyricsTranslations();
+  /// The translations of the lyrics, made on request and kept for the session, into [translateInto].
+  final translations = LyricsTranslations(language: () => translateInto.isEmpty ? LyricsTranslations.deviceLanguage() : translateInto);
+
+  /// Settings › Lyrics › Translate into: one of [LyricsTranslations.languages], or '' for the device's language.
+  static String translateInto = '';
 
   /// Settings › Lyrics › Genius notes: whether the notes are fetched (experimental, off by default).
   static bool genius = false;

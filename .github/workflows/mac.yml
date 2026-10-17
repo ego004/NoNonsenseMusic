@@ -114,6 +114,163 @@ jobs:
                         f"{bool(about and about.description)}, {len(about.produced_by) if about else 0} producers, "
                         f"{len(about.samples) if about else 0} samples, {time.monotonic() - start:.1f} s")
           asyncio.run(main())'
+      - name: Self-test, the queue's rules (NN_SELFTEST_QUEUE), on made-up songs
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true
+          env NN_SELFTEST_QUEUE=1 DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 120 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > queue.log 2>&1 || true
+          grep SELFTEST queue.log
+          grep -q "queue: all rules pass" queue.log
+      # The redesign (15 Oct, as in the Windows app): each part's checks, with pictures of the window as it is on screen
+      - name: Self-test, sidebar, Library and Jam (NN_SELFTEST_SHELL)
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          env NN_SELFTEST_SHELL=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > shell.log 2>&1 || true
+          grep SELFTEST shell.log
+          grep -q "shell: all checks pass" shell.log
+      - name: Self-test, downloads as files and their folder (NN_SELFTEST_DOWNLOADFILES)
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          env NN_SELFTEST_DOWNLOADFILES=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 180 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > downloadfiles.log 2>&1 || true
+          grep SELFTEST downloadfiles.log
+          grep -q "downloadfiles: all checks pass" downloadfiles.log
+      - name: Self-test, album, artist and playlist pages (NN_SELFTEST_PAGES)
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          env NN_SELFTEST_PAGES=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > pages.log 2>&1 || true
+          grep SELFTEST pages.log
+          grep -q "pages: all checks pass" pages.log
+      - name: Self-test, player bar and Now Playing (NN_SELFTEST_BAR2)
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          env NN_SELFTEST_BAR2=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 180 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > bar2.log 2>&1 || true
+          grep SELFTEST bar2.log
+          grep -q "bar2: all checks pass" bar2.log
+      - name: Self-test, Home (NN_SELFTEST_HOMEHERO)
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          env NN_SELFTEST_HOMEHERO=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > homehero.log 2>&1 || true
+          grep SELFTEST homehero.log
+          grep -q "homehero: all checks pass" homehero.log
+      - name: Self-test, the command bar and its keys (NN_SELFTEST_COMMANDBAR)
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          env NN_SELFTEST_COMMANDBAR=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > commandbar.log 2>&1 || true
+          grep SELFTEST commandbar.log
+          grep -q "commandbar: all checks pass" commandbar.log
+      - name: Self-test, your songs first in a search, and with no server (NN_SELFTEST_LIBRARYSEARCH)
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          # a song on the test server, as one a search once returned: the test likes it and searches with a typo of it
+          (cd backend && DATABASE_URL=postgresql:///music_test uv run python -c '
+          import asyncio
+          from music_backend.core import db
+          from music_backend.models import Listing
+          from music_backend.services import library
+          async def main():
+              pool = db.make_pool("postgresql:///music_test")
+              await pool.open()
+              await db.migrate(pool)
+              async with pool.connection() as conn:
+                  await library.resolve_song(conn, [Listing(source="jiosaavn", id="selftest-library-zanzibar", title="Zanzibar Lanterns",
+                                                            artists=["Selftest Band"], album=None, duration=201, popularity=None)])
+              await pool.close()
+          asyncio.run(main())')
+          env NN_SELFTEST_LIBRARYSEARCH=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > librarysearch.log 2>&1 || true
+          grep SELFTEST librarysearch.log
+          grep -q "librarysearch: all checks pass" librarysearch.log
+      - name: Self-test, jam (NN_SELFTEST_JAM), the scenarios of docs/jam.md with two accounts and songs made here
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          env NN_SELFTEST_JAM=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > jam.log 2>&1 || true
+          grep SELFTEST jam.log
+          grep -q "jam: all checks pass" jam.log
+      - name: Self-test, Autoplay (NN_SELFTEST_AUTOPLAY) on real songs, if YouTube Music and JioSaavn answer this runner
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true
+          env NN_SELFTEST_AUTOPLAY=1 DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 120 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > autoplay.log 2>&1 || true
+          grep SELFTEST autoplay.log
+          grep -q "autoplay: all checks pass" autoplay.log
+      - name: Self-test, Now Playing's text on any cover (NN_SELFTEST_READABLE)
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          env NN_SELFTEST_READABLE=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 300 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > readable.log 2>&1 || true
+          grep SELFTEST readable.log
+          grep -q "readable: all checks pass" readable.log
+      - name: Self-test, Settings › Lyrics › Translate into (NN_SELFTEST_TRANSLATEINTO), on made-up songs
+        if: ${{ !cancelled() }}
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true      # a server left by a run the alarm stopped: never this app's
+          env NN_SELFTEST_TRANSLATEINTO=1 NN_SELFTEST_VISIBLE=1 NN_SELFTEST_SNAP="$RUNNER_TEMP/snaps" DATABASE_URL=postgresql:///music_test \
+            perl -e 'alarm shift; exec @ARGV' 240 mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > translateinto.log 2>&1 || true
+          grep SELFTEST translateinto.log
+          grep -q "translateinto: all checks pass" translateinto.log
+      - name: CPU at rest on Home (NN_SELFTEST_IDLE; the Debug build, so above what you would see; a number, not a check)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          lsof -ti tcp:8765 | xargs kill 2>/dev/null || true
+          env NN_SELFTEST_IDLE=40 NN_SELFTEST_VISIBLE=1 DATABASE_URL=postgresql:///music_test \
+            mac/build/Build/Products/Debug/NoNonsenseMusic.app/Contents/MacOS/NoNonsenseMusic \
+            -serverURL http://127.0.0.1:8765 -backendFolder "$GITHUB_WORKSPACE/backend" \
+            -discordEnabled NO -ApplePersistenceIgnoreState YES > idle.log 2>&1 &
+          app=$!
+          for i in $(seq 1 60); do grep -q "idle: on Home now" idle.log && break; sleep 1; done
+          sleep 8                                                  # Home settles: covers, the entrance
+          # top's first sample has no interval behind it: the 20 after it are the measurement
+          top -l 21 -s 1 -pid $app -stats cpu > cpu.txt || true
+          awk 'NF == 1 && $1 ~ /^[0-9]+([.][0-9]+)?$/ { n++; if (n > 1) { s += $1; c++ } }
+            END { if (c) printf "CPU at rest on Home: %.1f%% of one core, %d one-second samples\n", s / c, c;
+                  else print "CPU at rest on Home: no samples; top ended with:" }' cpu.txt
+          tail -4 cpu.txt
+          grep SELFTEST idle.log || true
+          wait $app || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

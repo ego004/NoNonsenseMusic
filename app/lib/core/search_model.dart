@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import 'api.dart';
 import 'catalog.dart';
+import 'matching.dart';
 import 'models.dart';
 
 /// What Search asks the server for: everything, or one kind alone (the server's `filter` parameter).
@@ -23,15 +24,19 @@ enum SearchFilter {
 /// The state of the Search screen: what was typed, the chosen filter, and the newest answer.
 ///
 /// A query runs [delay] after typing stops (350 ms, as on the Mac). Choosing another filter asks again at once with
-/// that filter. Only the newest question's answer is kept, so a slow older one never replaces a newer one.
+/// that filter. Only the newest question's answer is kept, so a slow older one never replaces a newer one. When the
+/// server cannot be asked, the answer is the songs of yours among those [held] gives (Library.held), by the server's
+/// rule (#26).
 class SearchModel extends ChangeNotifier {
   SearchModel({Future<SearchResult> Function(String query, String filter)? ask, this.delay = const Duration(milliseconds: 350),
-      void Function(List<Track> top)? onSongs})
+      void Function(List<Track> top)? onSongs, Iterable<Track> Function()? held})
       : _ask = ask ?? ((q, f) => Catalog.search(q, filter: f)),
-        _onSongs = onSongs ?? _warmTop;
+        _onSongs = onSongs ?? _warmTop,
+        _held = held ?? (() => const []);
 
   final Future<SearchResult> Function(String, String) _ask;
   final void Function(List<Track>) _onSongs;
+  final Iterable<Track> Function() _held;
   final Duration delay;
 
   /// How many of each kind "All" shows in its shelves, and a single kind in its grid.
@@ -49,6 +54,9 @@ class SearchModel extends ChangeNotifier {
 
   /// The "No results" screen: only for a finished search that found nothing.
   bool get showsNoResults => !failed && !isIdle && result.isEmpty && !loading;
+
+  /// How many of [songs], from the first, are yours (SearchResult.yours).
+  int get yours => result.yours;
 
   List<SearchArtist> get artists => result.artists.take(filter == SearchFilter.all ? shelfArtists : gridLimit).toList();
   List<AlbumRef> get albums => result.albums.take(filter == SearchFilter.all ? shelfAlbums : gridLimit).toList();
@@ -94,6 +102,9 @@ class SearchModel extends ChangeNotifier {
         _onSongs(found.songs);
       } catch (_) {
         if (mine != _asked) return;
+        // no server: the songs of yours this app holds that match. Songs alone: artists and albums come only from it
+        final own = asking == SearchFilter.songs || asking == SearchFilter.all ? matchingSongs(q, _held()) : <Track>[];
+        result = SearchResult(songs: own, yours: own.length);
         loading = false;
         failed = true;
       }

@@ -3,95 +3,139 @@ import SwiftUI
 import Translation
 
 /// Lyrics translated on this Mac by Apple's Translation framework: no server and no third party sees them. A song is
-/// translated once, when asked, and kept until the app quits. macOS offers to download a language the first time it
-/// is needed.
+/// translated once per language, when asked, and kept until the app quits. macOS offers to download a language the
+/// first time it is needed.
 @MainActor
 @Observable
 final class LyricsTranslations {
     static let shared = LyricsTranslations()
-    /// Song id → one translated line per lyric line ("" for a gap).
-    private(set) var lines: [String: [String]] = [:]
-    private(set) var failed: Set<String> = []
-    /// Song id → who translated it, shown under the translation.
-    private(set) var credits: [String: String] = [:]
 
-    /// Song id → the lyrics' language when it is not the reader's (nil inside: the reader's own or unclear).
+    /// A song in one target language. Translations are kept by it, so another language in Settings › Lyrics ›
+    /// Translate into translates the song again, and the first one chosen back shows without asking (#19: kept by
+    /// song alone, the first language's translation stayed).
+    nonisolated struct Key: Hashable, Sendable {
+        let song: String
+        let target: Locale.Language
+    }
+    /// One translated line per lyric line ("" for a gap).
+    private(set) var lines: [Key: [String]] = [:]
+    private(set) var failed: Set<Key> = []
+    /// Who translated it, shown under the translation.
+    private(set) var credits: [Key: String] = [:]
+
+    /// Song id → the language its lyrics are written in (nil inside: unclear), worked out once per song.
     @ObservationIgnored private var languages: [String: Locale.Language?] = [:]
 
-    /// The song's foreign language, worked out once per song.
-    func language(of song: String, lines: [LyricLine]) -> Locale.Language? {
-        if let known = languages[song] { return known }
-        let found = Self.foreignLanguage(of: lines)
-        languages[song] = found
-        return found
+    /// The song's language when it is not `target`; nil when it is, or when it is unclear.
+    func foreignLanguage(of song: String, lines: [LyricLine], to target: Locale.Language) -> Locale.Language? {
+        let language: Locale.Language?
+        if let known = languages[song] {
+            language = known
+        } else {
+            language = Self.language(of: lines.map(\.text))
+            languages[song] = language
+        }
+        return language.flatMap { Self.same($0, target) ? nil : $0 }
     }
 
-    func store(_ translated: [String], for song: String, credit: String) {
-        lines[song] = translated
-        credits[song] = credit
+    func store(_ translated: [String], for key: Key, credit: String) {
+        lines[key] = translated
+        credits[key] = credit
     }
-    func fail(_ song: String) { failed.insert(song) }
+    func fail(_ key: Key) { failed.insert(key) }
     /// Try Again: the next showing asks once more.
-    func retry(_ song: String) { failed.remove(song) }
+    func retry(_ key: Key) { failed.remove(key) }
 
-    /// The language the lyrics are written in, when it is not the reader's own; nil when they match or it is unclear.
-    static func foreignLanguage(of lines: [LyricLine]) -> Locale.Language? {
+    /// The language `texts` are written in; nil when it is unclear.
+    static func language(of texts: [String]) -> Locale.Language? {
         let recognizer = NLLanguageRecognizer()
-        recognizer.processString(lines.prefix(40).map(\.text).joined(separator: "\n"))
+        recognizer.processString(texts.prefix(40).joined(separator: "\n"))
         guard let found = recognizer.dominantLanguage, found != .undetermined else { return nil }
-        let language = Locale.Language(identifier: found.rawValue)
-        let mine = Locale.current.language
-        return language.languageCode == mine.languageCode ? nil : language
+        return Locale.Language(identifier: found.rawValue)
     }
+
+    /// The same language, whatever the script or region: simplified and traditional Chinese are one.
+    static func same(_ language: Locale.Language, _ other: Locale.Language) -> Bool { language.languageCode == other.languageCode }
+
+    /// The uploader's own translation of each line (the server splits it off the line) when it is written in `target`;
+    /// nil otherwise. On this Mac the language itself is recognised, so English is told apart from Spanish too (the
+    /// Windows app can tell only scripts apart).
+    static func provided(_ lyrics: [LyricLine], in target: Locale.Language) -> [String]? {
+        let given = lyrics.map { $0.translation ?? "" }
+        guard given.contains(where: { !$0.isEmpty }), let language = Self.language(of: given), Self.same(language, target) else { return nil }
+        return given
+    }
+
+    /// Settings › Lyrics › Translate into (`translateInto`): one of `choices`, or "" for the Mac's own language. A
+    /// language no longer offered is the Mac's own again.
+    static func target(_ chosen: String) -> Locale.Language {
+        choices.contains { $0.id == chosen } ? Locale.Language(identifier: chosen) : Locale.current.language
+    }
+
+    /// The languages offered in Settings › Lyrics › Translate into besides the Mac's own, with their own names, in the
+    /// order of those names: those Apple's framework translates (NN_SELFTEST_TRANSLATEINTO checks each one) and Google's
+    /// endpoint takes too, by the codes Google takes. The Windows and Android app offers the same list (#19).
+    static let choices: [(id: String, name: String)] = [
+        ("id", "Bahasa Indonesia"), ("de", "Deutsch"), ("en", "English"), ("es", "Español"), ("fr", "Français"),
+        ("it", "Italiano"), ("nl", "Nederlands"), ("pl", "Polski"), ("pt", "Português"), ("vi", "Tiếng Việt"),
+        ("tr", "Türkçe"), ("ru", "Русский"), ("uk", "Українська"), ("ar", "العربية"), ("hi", "हिन्दी"), ("th", "ไทย"),
+        ("ja", "日本語"), ("zh-CN", "简体中文"), ("zh-TW", "繁體中文"), ("ko", "한국어"),
+    ]
 }
 
-/// The lyrics with each line's translation under it. Asks for the translation the first time it shows for a song:
-/// straight from the installed language pack when there is one (no view involved), otherwise through the system's
-/// prompt to download the language.
+/// The lyrics with each line's translation under it. Asks for the translation the first time it shows for a song in
+/// a language: straight from the installed language pack when there is one (no view involved), otherwise through the
+/// system's prompt to download the language. One view per song and language (its configuration is per pair).
 struct TranslatedLyricsView: View {
     let songID: String
     let lyrics: [LyricLine]
+    /// The lyrics' language, and the one to translate them into (Settings › Lyrics › Translate into).
     let language: Locale.Language
+    let target: Locale.Language
     @State private var configuration: TranslationSession.Configuration?
     private var store: LyricsTranslations { .shared }
+    private var key: LyricsTranslations.Key { .init(song: songID, target: target) }
 
     var body: some View {
         Group {
-            if let translated = store.lines[songID] {
+            if let translated = store.lines[key] {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
                         ForEach(Array(zip(lyrics.indices, translated)), id: \.0) { i, line in
                             if !lyrics[i].text.isEmpty {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(lyrics[i].text).textStyle(.callout).foregroundStyle(.secondary)
-                                    Text(line).textStyle(.title3, weight: .semibold)
+                                    Text(line).lyricsStyle()
                                 }
                                 .textSelection(.enabled)
                             }
                         }
+                        // the stack's last row: below the stack, it went where the stack's estimated height ended and
+                        // was drawn over the second line of four (CI's pictures, 17 Oct)
+                        if let credit = store.credits[key] {
+                            Text(credit).textStyle(.caption).foregroundStyle(.secondary)     // text: tertiary is for symbols (#20)
+                        }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
-                    if let credit = store.credits[songID] {
-                        Text(credit).textStyle(.caption).foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16).padding(.bottom, 14)
-                    }
                 }
                 .selfTestFrame("lyrics.translation")
-            } else if store.failed.contains(songID) {
+                .selfTestShown("translation")
+            } else if store.failed.contains(key) {
                 VStack(spacing: 10) {
                     Image(systemName: "character.bubble").font(.system(size: 34)).foregroundStyle(.secondary)
                     Text("Couldn't translate these lyrics").textStyle(.callout).foregroundStyle(.secondary)
-                    Button("Try Again") { store.retry(songID) }
+                    Button("Try Again") { store.retry(key) }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .selfTestShown("translation failed")
             } else {
                 VStack(spacing: 10) {
                     ProgressView().controlSize(.small)
                     Text("Translating…").textStyle(.callout).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .task(id: songID) { await translate() }
+                .selfTestShown("translating")
+                .task(id: key) { await translate() }
             }
         }
         // only when the language still has to be downloaded: the system shows its prompt, then hands over a session
@@ -105,16 +149,13 @@ struct TranslatedLyricsView: View {
     private static let onDevice = "Translated on this Mac"
 
     private func translate() async {
-        // the uploader's own translation, when it is in the reader's language: nothing to compute
-        let provided = lyrics.map { $0.translation ?? "" }
-        if provided.contains(where: { !$0.isEmpty }),
-           LyricsTranslations.foreignLanguage(of: provided.map { LyricLine(startMs: nil, text: $0) }) == nil {
-            store.store(provided, for: songID, credit: "Translation from the lyrics")
+        // the uploader's own translation, when it is in the chosen language: nothing to compute
+        if let provided = LyricsTranslations.provided(lyrics, in: target) {
+            store.store(provided, for: key, credit: "Translation from the lyrics")
             return
         }
-        // on this Mac when it has the language (or can download it: the system asks); otherwise, for languages Apple's
-        // framework does not translate (Punjabi, among others), Google's public translation service
-        let target = Locale.current.language
+        // on this Mac when it has the pair of languages (or can download it: the system asks); otherwise, for pairs
+        // Apple's framework does not translate (from Punjabi, among others), Google's public translation service
         switch await LanguageAvailability().status(from: language, to: target) {
         case .installed:
             if #available(macOS 26, *) {
@@ -133,10 +174,10 @@ struct TranslatedLyricsView: View {
     }
 
     private func finish(_ answers: [(Int, String)]?, credit: String) async {
-        guard let answers, !answers.isEmpty else { store.fail(songID); return }
+        guard let answers, !answers.isEmpty else { store.fail(key); return }
         var translated = Array(repeating: "", count: lyrics.count)
         for (i, text) in answers where translated.indices.contains(i) { translated[i] = text }
-        store.store(translated, for: songID, credit: credit)
+        store.store(translated, for: key, credit: credit)
     }
 }
 
@@ -160,7 +201,7 @@ enum OnlineTranslation {
     private static let session = URLSession(configuration: .ephemeral)
 
     nonisolated static func translate(_ texts: [(Int, String)], to target: Locale.Language) async throws -> [(Int, String)] {
-        guard let code = target.languageCode?.identifier,
+        guard let code = Self.code(for: target),
               var parts = URLComponents(string: "https://translate.googleapis.com/translate_a/single") else { return [] }
         parts.queryItems = [URLQueryItem(name: "client", value: "gtx"), URLQueryItem(name: "sl", value: "auto"),
                             URLQueryItem(name: "tl", value: code), URLQueryItem(name: "dt", value: "t")]
@@ -179,5 +220,13 @@ enum OnlineTranslation {
         let lines = joined.components(separatedBy: "\n")
         guard lines.count == texts.count else { throw URLError(.cannotParseResponse) }   // lines that no longer line up
         return zip(texts, lines).map { ($0.0, $1.trimmingCharacters(in: .whitespaces)) }
+    }
+
+    /// `language` as Google's endpoint takes it: "es", "hi"; Chinese as "zh-CN" or "zh-TW" by its script. Google reads a
+    /// plain "zh" as simplified, so traditional Chinese (a Mac in Taiwan, or 繁體中文 chosen) needs its own code (#19).
+    nonisolated static func code(for language: Locale.Language) -> String? {
+        guard let code = language.languageCode?.identifier else { return nil }
+        guard code == "zh" else { return code }
+        return language.maximalIdentifier.contains("-Hant") ? "zh-TW" : "zh-CN"
     }
 }

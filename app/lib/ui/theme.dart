@@ -3,21 +3,23 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../core/accent.dart';
+import '../core/settings.dart';
 
-/// Builds the application theme for the given brightness and playing cover colour.
+/// Builds the application theme for the given brightness and playing cover colour, in the [look] chosen in Settings ›
+/// Appearance, which the theme carries to the parts that show it.
 ///
-/// Surfaces are neutral greys with no tint. The accent is read from the cover when [song] is provided and falls
-/// back to Windows 11's default blue otherwise. Ripples are removed because a desktop app answers a click rather
-/// than splashing, and hovers stay quiet. The font is the system's, which is Segoe UI Variable Text on Windows.
-/// Type leans on weight and size rather than colour.
-ThemeData buildTheme(Brightness b, Color? song) {
+/// Surfaces are neutral greys with no tint. The accent is Colours › Accent: read from the cover when [song] is
+/// provided (Song, the default), the user's own (Custom), else Windows 11's default blue. Ripples are removed because a
+/// desktop app answers a click rather than splashing, and hovers stay quiet. The font is the system's, which is Segoe UI
+/// Variable Text on Windows. Type leans on weight and size rather than colour.
+ThemeData buildTheme(Brightness b, Color? song, {Look look = const Look()}) {
   final dark = b == Brightness.dark;
   final mobile = Platform.isAndroid || Platform.isIOS;
-  final accent = song != null
-      ? Accent.readable(song, b)
-      : (dark
-            ? const Color(0xFF60CDFF)
-            : const Color(0xFF005FB8)); // Windows 11's default accent
+  final accent = switch (look.accent) {
+    ColourMode.song when song != null => Accent.readable(song, b),
+    ColourMode.custom => Accent.readable(look.accentColour, b, vivid: false),
+    _ => Accent.standard(b),
+  };
   final surface = mobile
       ? (dark ? const Color(0xFF111722) : const Color(0xFFF5F7FC))
       : (dark ? const Color(0xFF1B1B1D) : const Color(0xFFF7F7F8));
@@ -53,6 +55,7 @@ ThemeData buildTheme(Brightness b, Color? song) {
   );
   final t = base.textTheme;
   return base.copyWith(
+    extensions: [look.copyWith(song: song)],
     textTheme: t.copyWith(
       headlineLarge: t.headlineLarge?.copyWith(
         fontWeight: FontWeight.w700,
@@ -126,12 +129,19 @@ ThemeData buildTheme(Brightness b, Color? song) {
       overlayShape: SliderComponentShape.noOverlay,
       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
     ),
+    // A tooltip as Windows 11 draws one: a dark bubble with white text in the dark theme, a white one with dark text in
+    // the light. Its text colour is set here: left to the scheme's inverse colours, the dark theme's text was as dark as
+    // its bubble (unreadable everywhere, #20). An edge and a shadow keep it apart from any backdrop, a cover's included.
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 600),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: dark ? const Color(0xFF2C2C2E) : const Color(0xFF16161A),
-        borderRadius: BorderRadius.circular(4),
+        color: dark ? const Color(0xFF2B2B2E) : Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: dark ? Colors.white.withValues(alpha: 0.14) : Colors.black.withValues(alpha: 0.1)),
+        boxShadow: [BoxShadow(blurRadius: 12, offset: const Offset(0, 4), color: Colors.black.withValues(alpha: dark ? 0.4 : 0.14))],
       ),
+      textStyle: TextStyle(color: dark ? Colors.white : const Color(0xFF1B1B1F), fontSize: 12.5, fontWeight: FontWeight.w500),
     ),
     navigationBarTheme: NavigationBarThemeData(
       height: mobile ? 64 : 64,

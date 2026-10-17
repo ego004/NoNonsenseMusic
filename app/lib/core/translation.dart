@@ -40,47 +40,57 @@ class TranslateReply {
   }
 }
 
-/// Translates the lyrics of a song once per session, from the app itself, with Google's public endpoint.
+/// A song in one target language: what [LyricsTranslations] keeps its answers by.
+typedef _SongIn = (String songId, String language);
+
+/// Translates the lyrics of a song once per session and language, from the app itself, with Google's public endpoint.
 ///
-/// A song's lyrics go in one request: every non-empty line joined by line breaks. The answer is kept per song and the
-/// song is never asked about again, so the cost is one request per song a person chooses to translate. Nothing is sent
+/// A song's lyrics go in one request: every non-empty line joined by line breaks. The answer is kept per song and target
+/// language and never asked for again, so the cost is one request per song and language a person chooses to translate.
+/// Another language in Settings › Lyrics › Translate into translates the song again, and the first one chosen back
+/// shows its answer without a request (#19: kept per song only, the first language's answer stayed). Nothing is sent
 /// until the Translate button is pressed.
 class LyricsTranslations extends ChangeNotifier {
+  /// [language] gives the target as Google takes it (one of [languages], or [deviceLanguage]); it is read at each use,
+  /// so a change in Settings applies the next time the lyrics show.
   LyricsTranslations({String Function()? language}) : _language = language ?? deviceLanguage;
 
   final String Function() _language;
-  final Map<String, List<String>> _lines = {};
-  final Set<String> _sameLanguage = {}, _failed = {}, _asking = {};
+  final Map<_SongIn, List<String>> _lines = {};
+  final Set<_SongIn> _sameLanguage = {}, _failed = {}, _asking = {};
+
+  _SongIn _key(String songId) => (songId, _language());
 
   /// The translation of each lyric line of the song ('' for a gap), or null when not translated (yet).
-  List<String>? linesOf(String songId) => _lines[songId];
+  List<String>? linesOf(String songId) => _lines[_key(songId)];
 
   /// The song's lyrics are already in the reader's language: there is nothing to translate.
-  bool inReadersLanguage(String songId) => _sameLanguage.contains(songId);
-  bool failed(String songId) => _failed.contains(songId);
-  bool isTranslating(String songId) => _asking.contains(songId);
+  bool inReadersLanguage(String songId) => _sameLanguage.contains(_key(songId));
+  bool failed(String songId) => _failed.contains(_key(songId));
+  bool isTranslating(String songId) => _asking.contains(_key(songId));
 
-  /// Translates [lines] of [songId] into the device's language. Returns at once when the song was answered or is
-  /// being asked; a failure is kept until [retry], so showing the panel again does not ask again.
+  /// Translates [lines] of [songId] into the reader's language. Returns at once when the song was answered or is
+  /// being asked in that language; a failure is kept until [retry], so showing the panel again does not ask again.
   Future<void> translate(String songId, List<LyricLine> lines, {Future<TranslateReply> Function(String, String)? ask}) async {
-    if (_lines.containsKey(songId) || _sameLanguage.contains(songId) || _failed.contains(songId) || _asking.contains(songId)) {
+    final key = _key(songId);
+    if (_lines.containsKey(key) || _sameLanguage.contains(key) || _failed.contains(key) || _asking.contains(key)) {
       return;
     }
-    final target = _language();
+    final target = key.$2;
     final own = providedTranslations(lines, target);
     if (own != null) {
-      _lines[songId] = own;
+      _lines[key] = own;
       notifyListeners();
       return;
     }
     final spoken = [for (final (i, l) in lines.indexed) if (l.text.trim().isNotEmpty) i];
     if (spoken.isEmpty) return;
-    _asking.add(songId);
+    _asking.add(key);
     notifyListeners();
     try {
       final reply = await (ask ?? GoogleTranslate.ask)([for (final i in spoken) lines[i].text.trim()].join('\n'), target);
       if (sameLanguage(reply.language, target)) {
-        _sameLanguage.add(songId);
+        _sameLanguage.add(key);
       } else {
         final each = reply.splitInto(spoken.length);
         if (each == null) throw const FormatException('the lines did not match');
@@ -88,21 +98,22 @@ class LyricsTranslations extends ChangeNotifier {
         for (final (k, i) in spoken.indexed) {
           all[i] = each[k].trim();
         }
-        _lines[songId] = all;
+        _lines[key] = all;
       }
     } catch (_) {
-      _failed.add(songId);
+      _failed.add(key);
     }
-    _asking.remove(songId);
+    _asking.remove(key);
     notifyListeners();
   }
 
   /// Lets a failed song be asked once more, on the person's request.
   void retry(String songId) {
-    if (_failed.remove(songId)) notifyListeners();
+    if (_failed.remove(_key(songId))) notifyListeners();
   }
 
-  /// The lyrics' own translations (the uploader included them) when they are in the reader's language, else null.
+  /// The lyrics' own translations (the uploader included them) when they are in the reader's language, the one chosen
+  /// in Settings › Lyrics › Translate into or else the device's; null otherwise.
   ///
   /// The device cannot tell languages apart, only scripts: the translations count as the reader's when most of their
   /// letters are in the script of [target] (an English or Spanish reader with translations written in Hindi gets a
@@ -155,6 +166,32 @@ class LyricsTranslations extends ChangeNotifier {
 
     return detected != null && base(detected) == base(target);
   }
+
+  /// Settings › Lyrics › Translate into: the languages offered besides the device's own, by Google's code, with their
+  /// own names, in the order of those names. Those Apple's on-device translation also takes, so the Mac app offers the
+  /// same list (#19); not all of Google's 240.
+  static const languages = {
+    'id': 'Bahasa Indonesia',
+    'de': 'Deutsch',
+    'en': 'English',
+    'es': 'Español',
+    'fr': 'Français',
+    'it': 'Italiano',
+    'nl': 'Nederlands',
+    'pl': 'Polski',
+    'pt': 'Português',
+    'vi': 'Tiếng Việt',
+    'tr': 'Türkçe',
+    'ru': 'Русский',
+    'uk': 'Українська',
+    'ar': 'العربية',
+    'hi': 'हिन्दी',
+    'th': 'ไทย',
+    'ja': '日本語',
+    'zh-CN': '简体中文',
+    'zh-TW': '繁體中文',
+    'ko': '한국어',
+  };
 
   /// The device's language as Google's translate takes it: "en", "hi", "zh-CN" or "zh-TW".
   static String deviceLanguage() {

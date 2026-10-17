@@ -1,23 +1,45 @@
 import SwiftUI
 
-/// The jam's button in the toolbar: filled while you are in one. Its popover starts or joins a jam, and in one shows
-/// the room: its code, who plays, the song, Up Next and the people.
+/// Jam in the toolbar, beside the bell (15 Oct, as in the Windows app): the people and the word, in the accent colour
+/// with LIVE while you are in a jam. Its popover starts or joins a jam, and in one shows the room: its code, who plays,
+/// the song, Up Next and the people.
 struct JamButton: View {
-    @State private var open = false
     private var jam: JamSession { .shared }
+    private var panel: JamPanelState { .shared }
 
     var body: some View {
-        Button { open.toggle() } label: {
-            Image(systemName: jam.inJam ? "person.2.wave.2.fill" : "person.2.wave.2")
-                .foregroundStyle(jam.inJam ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                .contentTransition(.symbolEffect(.replace))
+        Button { panel.shown.toggle() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: jam.inJam ? "person.2.wave.2.fill" : "person.2.wave.2")
+                    .contentTransition(.symbolEffect(.replace))
+                Text("Jam").selfTestFrame("jam.title")
+                if jam.inJam {
+                    Text("LIVE")
+                        .tracking(0.8)
+                        .textStyle(size: 10.5, weight: .heavy)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(.tint.opacity(0.2), in: .capsule)
+                        #if DEBUG
+                        .onAppear { SelfTest.jamLive = true }
+                        .onDisappear { SelfTest.jamLive = false }
+                        #endif
+                }
+            }
+            .textStyle(size: 14, weight: .semibold)
+            .foregroundStyle(jam.inJam ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
         }
         .help(jam.inJam ? "Jam" : "Start or Join a Jam")
         .accessibilityLabel("Jam")
-        .popover(isPresented: $open, arrowEdge: .bottom) {
+        .popover(isPresented: Binding(get: { panel.shown }, set: { panel.shown = $0 }), arrowEdge: .bottom) {
             JamPanel().frame(width: 340)
         }
     }
+}
+
+/// Whether the Jam panel is open: the toolbar's Jam opens it, and so does the command bar's "Start or Join a Jam".
+@Observable final class JamPanelState {
+    static let shared = JamPanelState()
+    var shown = false
 }
 
 private struct JamPanel: View {
@@ -184,7 +206,7 @@ private struct RoomView: View {
                     Text(entry.listing.artists.joined(separator: ", ")).textStyle(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 6)
-                Button { jam.togglePlay() } label: {
+                Button { jam.setPlaying(!room.isPlaying) } label: {     // what this button shows: the room
                     Image(systemName: room.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 28, height: 28)
                 }
                 .buttonStyle(.quiet)

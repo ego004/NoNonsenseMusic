@@ -456,6 +456,14 @@ enum SelfTest {
         check("drag: a song of yours dragged under the heading is Autoplay's", names(q) == "abPQ"
               && q.upcoming.map(\.autoplay) == [false, true, true], names(q))
 
+        // Autoplay's station is the last song you chose, never one Autoplay added: seeded from its own last song, each
+        // refill drifted further off (Do I Wanna Know? to Fifth Harmony in three, 17 Oct)
+        q = PlayQueue(); q.load(Array(abcde.prefix(2)), startAt: 1, shuffled: false)
+        q.appendAutoplay([song("P"), song("Q")])
+        check("Autoplay's station: the last song you chose, not Autoplay's last", q.autoplaySeed?.title == "b", q.autoplaySeed?.title ?? "none")
+        q.append(song("Y"))
+        check("…a song you add is the station from then on", q.autoplaySeed?.title == "Y", q.autoplaySeed?.title ?? "none")
+
         // Add to Queue: the end of Up Next, kept by a playlist sync, still last once shuffle is off again
         q = PlayQueue(); q.load(abcde, startAt: 1, keys: keys, source: "playlist:5", shuffled: false)
         q.append(song("Y"))
@@ -569,7 +577,8 @@ enum SelfTest {
     }
 
     /// With `NN_SELFTEST_HOME="<search>"` (test server only): fills the test library (a playlist of 4 songs, 3 liked
-    /// songs), waits on Home, reports what Home holds and snapshots it, then cleans up (unlikes, deletes the playlist).
+    /// songs), waits on Home, reports what Home holds and pictures it, checks the playlist is in Your Library after
+    /// Liked Songs, then cleans up (unlikes, deletes the playlist). Home's top: NN_SELFTEST_HOMEHERO.
     static func runHomeCheckIfAsked(library: LibraryStore, player: Player) {
         guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_HOME"] else { return }
         Task {
@@ -588,13 +597,18 @@ enum SelfTest {
             report("home: recent \(library.recent.count), liked \(library.liked.count), playlists \(library.playlists.count)")
             try? await Task.sleep(for: .seconds(4))              // covers download, sections fade in
             snap("home")
+            windowShot("home")
             report("home: on screen: \(appeared.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", "))")
-            // window pictures cannot draw scroll views: draw the cards themselves, off screen, to see their design
+            // Your Library (15 Oct): one grid of tiles, Liked Songs first, the playlists after it
+            if let liked = frames["home.tile:Liked Songs"], let mix = frames["home.tile:\(name)"] {
+                report("home \((liked.minY, liked.minX) < (mix.minY, mix.minX) ? "PASS" : "FAIL") Your Library: Liked Songs, then the new playlist")
+            } else {
+                report("home FAIL Your Library shows Liked Songs and the new playlist")
+            }
+            // snap cannot draw scroll views: draw the shelves' cards themselves, off screen, to see their design
             let sample = VStack(alignment: .leading, spacing: 22) {
                 HStack(alignment: .top, spacing: 20) {
                     ForEach(Array(library.recent.prefix(3)), id: \.id) { CoverTile(track: $0) {} }
-                    ForEach(library.playlists.prefix(2)) { PlaylistCard(playlist: $0, side: Look.cardSize) {} }
-                    PlaylistCover(images: PlaylistCover.images(of: (library.liked + library.recent).lazy.map(\.image)), size: Look.cardSize, seed: "grid")
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(library.liked.prefix(3)), id: \.id) { CompactSongTile(track: $0, width: 300) {} }
@@ -753,13 +767,18 @@ enum SelfTest {
         }
     }
 
+    /// What Show in Finder would have selected (DownloadStore.revealInFinder): in a self-test it opens no Finder window.
+    static var revealed: URL?
+    /// The line under Settings › Footprint › Downloads › Download location, as shown (DownloadLocation).
+    static var downloadLocationNote = ""
+
     /// With `NN_SELFTEST_DOWNLOADS="<search>"` (test server only, muted, the Downloads-selftest folder): downloads two
     /// songs, checks the files and the index, then STOPS THE SERVER and plays a download: it must play from its file.
     static func runDownloadsCheckIfAsked(player: Player, downloads: DownloadStore) {
         guard let query = ProcessInfo.processInfo.environment["NN_SELFTEST_DOWNLOADS"] else { return }
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard await onOwnTestServer(), downloads.folder.lastPathComponent == "Downloads-selftest",
+            guard await onOwnTestServer(), let folder = downloads.folder, folder.lastPathComponent == "Downloads-selftest",
                   let found = try? await API.search(query) else { report("downloads: test server, test folder and a search needed"); NSApp.terminate(nil); return }
             var failures = 0
             @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
@@ -774,11 +793,14 @@ enum SelfTest {
             let sizes = downloads.items.map { formatBytes($0.bytes) }
             report(String(format: "downloads: 2 songs in %.1f s: %@ (%@)", Date().timeIntervalSince(start), songs.map(\.title).joined(separator: ", "), sizes.joined(separator: ", ")))
             check("both downloaded, files on disk, each over 500 KB", downloads.items.count == 2 && downloads.items.allSatisfy {
-                $0.bytes > 500_000 && FileManager.default.fileExists(atPath: downloads.folder.appending(path: $0.file).path) })
+                $0.bytes > 500_000 && FileManager.default.fileExists(atPath: folder.appending(path: $0.file).path) })
+            check("each file is named after its song", downloads.items.allSatisfy {
+                $0.file.hasPrefix(DownloadStore.fileTitle($0.best.title)) && $0.file.hasSuffix(".m4a") }, downloads.items.map(\.file).joined(separator: ", "))
             check("the index is saved: a fresh store finds both", DownloadStore().items.count == 2)
             check("songs know they are downloaded", songs.allSatisfy(downloads.isDownloaded))
             let covers = downloads.items.compactMap { $0.image.flatMap(URL.init(string:)).flatMap(downloads.keptCover(for:)) }
-            check("each download keeps its cover beside it", covers.count == 2, "\(covers.count) of 2")
+            check("each download keeps its cover, in the app's data folder", covers.count == 2 && covers.allSatisfy {
+                $0.deletingLastPathComponent().lastPathComponent == downloads.dataFolder.lastPathComponent }, "\(covers.count) of 2")
             check("…an image the cover cache draws offline", covers.allSatisfy { (try? Data(contentsOf: $0)).flatMap { ArtworkCache.decoded($0) } != nil })
 
             ServerLauncher.shared.stop()                                  // now no server at all
@@ -794,8 +816,9 @@ enum SelfTest {
             downloads.remove(songs[0])
             check("remove one: its file is gone", downloads.items.count == 1 && !songs[0].listings.contains { downloads.localURL(for: $0) != nil })
             downloads.removeAll()
-            let left = (try? FileManager.default.contentsOfDirectory(atPath: downloads.folder.path))?.filter { $0 != "index.json" } ?? []
-            check("remove all: the folder is empty", downloads.items.isEmpty && left.isEmpty, "\(left)")
+            let left = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+                + ((try? FileManager.default.contentsOfDirectory(atPath: downloads.dataFolder.path)) ?? []).filter { $0 != "index.json" }
+            check("remove all: the folder is empty, and so is the data folder but for the list", downloads.items.isEmpty && left.isEmpty, "\(left)")
             report("downloads: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
             NSApp.terminate(nil)
         }
@@ -804,44 +827,58 @@ enum SelfTest {
     /// Where views are, in window points, by name (`selfTestFrame`): "sidebar.title:Home", "bar.progress", …
     static var frames: [String: CGRect] = [:]
 
-    /// With `NN_SELFTEST_SIDEBAR=1`: the "New Playlist" row (it used to be a + in the section header, out at the
-    /// sidebar's edge). Pictures cannot draw lists, and SwiftUI shows an in-app accessibility walk nothing, so each row
-    /// reports where its icon and title are: New Playlist must line up with the others. Then a real click on it must
-    /// ask for the New Playlist sheet.
+    /// With `NN_SELFTEST_SIDEBAR=1`: the rows line up. Pictures cannot draw lists, and SwiftUI shows an in-app
+    /// accessibility walk nothing, so each row reports where its icon (or picture) and title are: the places' titles
+    /// start in one column, the collections' and playlists' 40 pt pictures and names in another. New Playlist is the +
+    /// in the Playlists header (15 Oct, as in the Windows app; a row before): it must sit over the rows' right edge,
+    /// clear of the sidebar's, and a real click on it must ask for the New Playlist sheet.
     static func runSidebarCheckIfAsked(library: LibraryStore) {
         guard ProcessInfo.processInfo.environment["NN_SELFTEST_SIDEBAR"] != nil else { return }
         Task {
             for _ in 0..<40 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
             await library.refresh()
+            // a playlist row to line up with the collections (a new test account has none)
+            var made = false
+            if library.ownPlaylists.isEmpty { made = await library.createPlaylist(named: "Sidebar test") == nil }
             try? await Task.sleep(for: .seconds(1.5))
             var failures = 0
             @MainActor func check(_ rule: String, _ ok: Bool, _ got: String = "") {
                 if !ok { failures += 1 }
                 report("sidebar \(ok ? "PASS" : "FAIL") \(rule)\(ok || got.isEmpty ? "" : " (got \(got))")")
             }
-            let names = SidebarItem.allCases.map(\.title) + library.playlists.map(\.name)
+            func spread(_ xs: [CGFloat]) -> CGFloat { (xs.max() ?? 0) - (xs.min() ?? 0) }
+            let places = ["Home", "Library", "Friends"]
+            let pictures: [String] = ["Liked Songs", "Recently Played"] + (frames["sidebar.title:Downloads"] != nil ? ["Downloads"] : [])
+                + library.playlists.map(\.name)
             guard let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
-                  let newTitle = frames["sidebar.title:New Playlist"], let newIcon = frames["sidebar.icon:New Playlist"],
-                  names.allSatisfy({ frames["sidebar.title:\($0)"] != nil }) else {
+                  let plus = frames["sidebar.newPlaylist"], let list = frames["sidebar.list"], let row = frames["sidebar.row:Liked Songs"],
+                  (places + pictures).allSatisfy({ frames["sidebar.title:\($0)"] != nil && frames["sidebar.icon:\($0)"] != nil }) else {
                 report("sidebar: frames missing: \(frames.keys.sorted())"); NSApp.terminate(nil); return
             }
-            for name in names + ["New Playlist"] {
+            for name in places + pictures {
                 let t = frames["sidebar.title:\(name)"]!, i = frames["sidebar.icon:\(name)"]!
-                report("sidebar: \(name == "New Playlist" ? "NEW " : "    ")icon centre x \(String(format: "%.1f", i.midX)), title starts x \(String(format: "%.1f", t.minX)), y \(Int(t.midY))")
+                report("sidebar: icon centre x \(String(format: "%.1f", i.midX)) (\(Int(i.width)) pt), title starts x \(String(format: "%.1f", t.minX)), y \(Int(t.midY)): \(name)")
             }
-            let titleOffsets = names.map { frames["sidebar.title:\($0)"]!.minX - newTitle.minX }
-            let iconOffsets = names.map { frames["sidebar.icon:\($0)"]!.midX - newIcon.midX }
-            check("New Playlist's title starts where every other title starts (within 1 pt)", titleOffsets.allSatisfy { abs($0) <= 1 }, "\(titleOffsets)")
-            check("its + is centred in the same icon column (within 1 pt)", iconOffsets.allSatisfy { abs($0) <= 1 }, "\(iconOffsets)")
-            let lastPlaylistY = library.playlists.compactMap { frames["sidebar.title:\($0.name)"]?.midY }.max() ?? 0
-            check("it is the last row of Playlists", newTitle.midY > lastPlaylistY)
+            report("sidebar: + from x \(String(format: "%.1f", plus.minX)) to \(String(format: "%.1f", plus.maxX)), y \(Int(plus.midY)); rows end at x \(String(format: "%.1f", row.maxX)), the list at \(String(format: "%.1f", list.maxX))")
+            let placeTitles = places.map { frames["sidebar.title:\($0)"]!.minX }
+            check("the places' titles start in one column (within 1 pt)", spread(placeTitles) <= 1, "\(placeTitles)")
+            let names = pictures.map { frames["sidebar.title:\($0)"]!.minX }
+            check("the collections' and playlists' names start in one column (within 1 pt)", spread(names) <= 1, "\(names)")
+            let centres = pictures.map { frames["sidebar.icon:\($0)"]!.midX }
+            check("…their pictures are centred in one column", spread(centres) <= 1, "\(centres)")
+            check("…and 40 pt square", pictures.allSatisfy { let i = frames["sidebar.icon:\($0)"]!; return abs(i.width - 40) < 0.5 && abs(i.height - 40) < 0.5 })
+            let friends = frames["sidebar.title:Friends"]!, liked = frames["sidebar.icon:Liked Songs"]!
+            check("the + is in the Playlists header: under Friends, over Liked Songs", plus.midY > friends.maxY && plus.midY < liked.minY)
+            check("…inside the sidebar, clear of its edge", plus.minX > list.minX && plus.maxX <= list.maxX - 6, "ends \(plus.maxX), list \(list.maxX)")
+            check("…over the rows' right edge (at most 14 pt in, as the Windows +)", plus.maxX <= row.maxX + 2 && plus.maxX >= row.maxX - 14,
+                  "ends \(plus.maxX), rows \(row.maxX)")
 
-            // a real click on its title, through the normal event queue (window points have y going up)
+            // a real click on the +, through the normal event queue (window points have y going up)
             library.newPlaylistRequest = nil
             NSApp.activate(); window.makeKeyAndOrderFront(nil)
             try? await Task.sleep(for: .seconds(0.5))
             let height = window.contentView!.frame.height
-            let p = NSPoint(x: newTitle.midX, y: height - newTitle.midY)
+            let p = NSPoint(x: plus.midX, y: height - plus.midY)
             for type in Array(repeating: [NSEvent.EventType.leftMouseDown, .leftMouseUp], count: window.isKeyWindow ? 1 : 2).flatMap({ $0 }) {
                 if let event = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
@@ -855,6 +892,7 @@ enum SelfTest {
                 report("sidebar SKIP the click: the window cannot become key while another app is in use (a click only selects it)")
             }
             library.newPlaylistRequest = nil
+            if made, let mine = library.ownPlaylists.first(where: { $0.name == "Sidebar test" }) { await library.deletePlaylist(mine) }
             report("sidebar: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
             try? await Task.sleep(for: .seconds(0.5))
             NSApp.terminate(nil)
@@ -991,7 +1029,7 @@ enum SelfTest {
             window.setFrame(NSRect(x: saved.minX, y: saved.minY, width: 900, height: saved.height), display: true)
             try? await Task.sleep(for: .seconds(1))
             layout("narrowest window, \(Int(window.frame.width)) pt")
-            check("narrow: the volume slider folds away to make room", buttonsWidth() < wide, "\(Int(buttonsWidth())) vs \(Int(wide))")
+            check("narrow: buttons fold away to make room", buttonsWidth() < wide, "\(Int(buttonsWidth())) vs \(Int(wide))")
             window.setFrame(saved, display: true)
             try? await Task.sleep(for: .seconds(0.8))
 
@@ -1340,7 +1378,7 @@ enum SelfTest {
         let parts = spec.split(separator: "|").map(String.init)
         Task {
             for _ in 0..<60 where !(await API.health()) { try? await Task.sleep(for: .milliseconds(500)) }
-            guard await onOwnTestServer(), parts.count == 3, downloads.folder.lastPathComponent == "Downloads-selftest",
+            guard await onOwnTestServer(), parts.count == 3, downloads.folder?.lastPathComponent == "Downloads-selftest",
                   let found = try? await API.search(parts[0]), found.songs.count >= 3,
                   let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) })
             else { report("lyrics: test server, three searches and the test folder needed"); NSApp.terminate(nil); return }
@@ -1482,8 +1520,8 @@ enum SelfTest {
                 saved = downloads.lyrics(for: song)
                 if saved == nil { try? await Task.sleep(for: .milliseconds(100)) }
             }
-            report("lyrics: downloaded \(song.title): \(downloaded ? "yes" : "no"); lyrics kept beside it: \(describe(saved))")
-            check("a download keeps its lyrics beside the file", downloaded && saved != nil)
+            report("lyrics: downloaded \(song.title): \(downloaded ? "yes" : "no"); lyrics kept with it: \(describe(saved))")
+            check("a download keeps its lyrics", downloaded && saved != nil)
             let fromServer = try? await API.lyrics(for: song)
             check("… the same lyrics the server gives", saved != nil && saved == fromServer)
 
@@ -1500,7 +1538,7 @@ enum SelfTest {
                   "\(String(describing: lyrics.state(for: songs[2])))")
 
             downloads.removeAll()
-            let left = (try? FileManager.default.contentsOfDirectory(atPath: downloads.folder.path))?.filter { $0 != "index.json" } ?? []
+            let left = (try? FileManager.default.contentsOfDirectory(atPath: downloads.dataFolder.path))?.filter { $0 != "index.json" } ?? []
             check("remove all: the lyrics files go too", left.isEmpty, "\(left.count) files left")
             finish()
         }
@@ -1532,6 +1570,21 @@ enum SelfTest {
         }
     }
 
+    /// A real picture of the app's window alone, as it is on screen (glass, materials and the toolbar included, which
+    /// `snap` cannot draw), as `<folder>/<name>-window.png`. Needs `NN_SELFTEST_VISIBLE=1` (the window is otherwise
+    /// see-through) and Screen Recording; says so without them (15 Oct). `of`: another window, such as Settings.
+    static func windowShot(_ name: String, of chosen: NSWindow? = nil) {
+        guard let folder = ProcessInfo.processInfo.environment["NN_SELFTEST_SNAP"],
+              let window = chosen ?? NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }) else { return }
+        let file = URL(filePath: folder).appending(path: "\(name)-window.png")
+        let shot = Process()
+        shot.executableURL = URL(filePath: "/usr/sbin/screencapture")
+        shot.arguments = ["-x", "-o", "-l\(window.windowNumber)", file.path]
+        try? shot.run()
+        shot.waitUntilExit()
+        report(FileManager.default.fileExists(atPath: file.path) ? "wrote \(file.path)" : "no window picture (Screen Recording not allowed?)")
+    }
+
     /// Written straight through, not buffered: with the output going to a file, `print` held every line until the
     /// app quit, so nothing outside could follow a run while it happened (6 Oct).
     static func report(_ line: String) { FileHandle.standardOutput.write(Data("SELFTEST \(line)\n".utf8)) }
@@ -1548,7 +1601,7 @@ enum SelfTest {
         return names.isEmpty ? "nothing" : names.joined(separator: " < ")
     }
 
-    private static func snapshot(_ view: NSView, to url: URL) {
+    static func snapshot(_ view: NSView, to url: URL) {
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds),
               let png = { view.cacheDisplay(in: view.bounds, to: rep); return rep.representation(using: .png, properties: [:]) }()
         else { report("could not draw the window"); return }

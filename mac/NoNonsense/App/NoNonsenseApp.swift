@@ -88,6 +88,7 @@ struct NoNonsenseApp: App {
                 .environment(theme)
                 .environment(library)                       // Server: a new address reloads the library
                 .environment(player)                        // Playback › Autoplay switched on: Up Next may need songs
+                .environment(downloads)                     // Footprint › Downloads: the download location
                 .preferredColorScheme(appearance.colorScheme)
         }
     }
@@ -134,12 +135,21 @@ extension NoNonsenseApp {
         SelfTest.runLoaderCheckIfAsked()
         SelfTest.runBrowseCheckIfAsked(library: library)
         SelfTest.runFriendsCheckIfAsked(account: account)
-        SelfTest.runJamCheckIfAsked(player: player)
+        SelfTest.runJamCheckIfAsked(player: player, library: library)
         SelfTest.runImportCheckIfAsked(library: library)
         SelfTest.runAutoplayCheckIfAsked(player: player)
         SelfTest.runSearchScrollCheckIfAsked()
         SelfTest.runShotsIfAsked(account: account, library: library, player: player)
         SelfTest.runTranslateCheckIfAsked(player: player, lyrics: lyrics)
+        SelfTest.runTranslateIntoCheckIfAsked(player: player, lyrics: lyrics)
+        SelfTest.runShellCheckIfAsked(account: account, library: library, player: player, downloads: downloads)
+        SelfTest.runDownloadFilesCheckIfAsked(downloads: downloads)
+        SelfTest.runPagesCheckIfAsked(library: library, player: player, theme: theme, downloads: downloads)
+        SelfTest.runBar2CheckIfAsked(player: player, lyrics: lyrics)
+        SelfTest.runHomeHeroCheckIfAsked(player: player, library: library, downloads: downloads)
+        SelfTest.runCommandBarCheckIfAsked(player: player, library: library)
+        SelfTest.runLibrarySearchCheckIfAsked(library: library)
+        SelfTest.runReadableCheckIfAsked(player: player, lyrics: lyrics, theme: theme)
     }
 }
 #endif

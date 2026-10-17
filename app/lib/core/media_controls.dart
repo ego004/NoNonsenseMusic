@@ -36,6 +36,8 @@ class MediaControls {
           androidNotificationChannelId: 'dev.nononsense.playback',
           androidNotificationChannelName: 'Playback',
           androidStopForegroundOnPause: false,
+          // the logo's mark in one colour: Android draws a small icon from its shape, and the launcher icon's was a square
+          androidNotificationIcon: 'drawable/ic_stat_nononsense',
         ),
       );
     }

@@ -78,8 +78,12 @@ class SearchResult {
   final List<SearchArtist> artists;
   final List<AlbumRef> albums;
   final List<({String source, bool healthy})> sources;
+
+  /// How many of [songs], from the first, are the user's own: liked, in their playlists or downloaded (#26). The server
+  /// lists them first and marks them in_library; a search without the server finds only these.
+  final int yours;
   const SearchResult(
-      {this.songs = const [], this.artists = const [], this.albums = const [], this.sources = const []});
+      {this.songs = const [], this.artists = const [], this.albums = const [], this.sources = const [], this.yours = 0});
 
   bool get isEmpty => songs.isEmpty && artists.isEmpty && albums.isEmpty;
 
@@ -88,6 +92,7 @@ class SearchResult {
 
   factory SearchResult.fromJson(Map<String, dynamic> j) => SearchResult(
         songs: [for (final s in (j['songs'] as List? ?? const [])) Track.fromSong(s as Map<String, dynamic>)],
+        yours: (j['songs'] as List? ?? const []).takeWhile((s) => (s as Map)['in_library'] == true).length,
         artists: [
           for (final a in (j['artists'] as List? ?? const [])) SearchArtist.fromJson(a as Map<String, dynamic>),
         ],
@@ -199,12 +204,13 @@ class Catalog {
   static Future<PlaylistSummary> pinAlbum(AlbumRef ref) async => PlaylistSummary.fromJson(
       await Api.sendJson('POST', 'albums/pin', {'source': ref.source, 'source_id': ref.id}) as Map<String, dynamic>);
 
-  /// POST /radio: songs like [seed], leaving out [exclude] (the server takes 100 at most) and, with [skipRecent], what
-  /// the user played lately.
+  /// POST /radio: songs like [seed], leaving out [exclude] (the server takes 100 at most: the newest, at its end, as
+  /// on the Mac) and, with [skipRecent], what the user played lately.
   static Future<List<Track>> radio(Listing seed, List<Listing> exclude, {int limit = 20, required bool skipRecent}) async {
+    final newest = exclude.length > 100 ? exclude.sublist(exclude.length - 100) : exclude;
     final j = await Api.sendJson('POST', 'radio', {
       'seed': {'source': seed.source, 'source_id': seed.id},
-      'exclude': [for (final l in exclude.take(100)) {'source': l.source, 'source_id': l.id}],
+      'exclude': [for (final l in newest) {'source': l.source, 'source_id': l.id}],
       'limit': limit,
       'skip_recent': skipRecent,
     }) as Map<String, dynamic>;

@@ -53,6 +53,48 @@ async def search(query: str) -> list[Listing]:
     return listings
 
 
+# the top results a search can put first: a song, a music video, an upload. Not an artist, album or podcast episode
+TOP_KINDS = {"MUSIC_VIDEO_TYPE_ATV", "MUSIC_VIDEO_TYPE_OMV", "MUSIC_VIDEO_TYPE_UGC"}
+
+
+async def top_result(query: str) -> Listing | None:
+    """YouTube Music's own first choice (its unfiltered search's "Top result") when it is a song or video, else None.
+
+    It reads typos, artist names and popularity, and finds a song that is there only as a music video: "pasoori" is
+    Ali Sethi and Shae Gill's Coke Studio video, missing from the songs-only search (#25). One more request per search,
+    sent alongside the others.
+    """
+    r = await http.client.post(SEARCH_URL, params = {"prettyPrint" : "false"},
+                               json = {"context" : {"client" : CLIENT}, "query" : query})
+    return top_listing(r.json())
+
+
+def top_listing(response: dict) -> Listing | None:
+    """The top-result card of an unfiltered search reply as a listing. Its subtitle reads "Song • Artist • 5:21" or
+    "Video • Artist • 1B views • 4:37"."""
+    tabs = response.get("contents", {}).get("tabbedSearchResultsRenderer", {}).get("tabs", [])
+    sections = tabs[0]["tabRenderer"]["content"]["sectionListRenderer"]["contents"] if tabs else []
+    card = next((section["musicCardShelfRenderer"] for section in sections if "musicCardShelfRenderer" in section), None)
+    watch = ((card or {}).get("onTap") or {}).get("watchEndpoint") or {}
+    kind = watch.get("watchEndpointMusicSupportedConfigs", {}).get("watchEndpointMusicConfig", {}).get("musicVideoType")
+    if kind not in TOP_KINDS or not watch.get("videoId"):
+        return None
+    parts = split_on_separator(card["subtitle"]["runs"])
+    title, artists = named({"title" : card["title"]["runs"][0]["text"], "videoType" : kind,
+                            "artists" : [{"name" : run["text"]} for run in parts[1] if run["text"] not in ARTIST_JOINERS]})
+    return Listing(
+        source = "ytmusic",
+        id = watch["videoId"],
+        title = title,
+        artists = artists,
+        album = None,
+        duration = to_seconds(parts[-1][0]["text"]),
+        popularity = to_count(parts[2][0]["text"]) if len(parts) == 4 else None,   # a video's views
+        image = artwork(card),
+        explicit = is_explicit(card),
+    )
+
+
 # Album and artist search go through ytmusicapi, whose parsers handle reply shapes that would
 # otherwise be hand-parsed. Its calls block on requests, so each runs in a thread, with one client
 # per thread: requests.Session is not thread-safe, and constructing a YTMusic performs no web
@@ -158,10 +200,12 @@ def count_or_none(text) -> int | None:
 
 
 async def radio(source_id: str, limit: int = 25) -> list[Listing]:
-    """Return the watch-playlist radio seeded from one video (ytmusicapi get_watch_playlist, in a thread).
+    """Return the watch-playlist radio seeded from one video (ytmusicapi get_watch_playlist, in a thread): every track
+    read, at least `limit` while the station has them, each video once.
 
-    The reply's first track is the seed itself; the caller drops it. Continuations add nothing:
-    re-fetching with the playlistId returns the same 50, so the app re-seeds from the queue tail.
+    The reply's first track is the seed itself; the caller drops it. The station goes on in pages of ~50, a request
+    each: ~150 distinct songs in its first 197, on the seed's language and genre to the end; the pages after the first
+    repeat a few of its songs, and past ~200 it repeats itself (17 Oct, four seeds).
     """
     return await asyncio.to_thread(radio_blocking, source_id, limit)
 
@@ -174,12 +218,12 @@ def radio_blocking(source_id: str, limit: int) -> list[Listing]:
         return []
     except Exception as e:
         raise SourceUnavailable(f"YouTube Music: {e}") from e
-    listings = []
-    # one extra track: the reply leads with the seed, which the endpoint drops
-    for row in (d.get("tracks") or [])[: limit + 1]:
+    listings, seen = [], set()
+    for row in d.get("tracks") or []:
         try:
-            if not row.get("videoId") or not row.get("length"):
+            if not row.get("videoId") or not row.get("length") or row["videoId"] in seen:
                 continue
+            seen.add(row["videoId"])
             title, artists = named(row)
             listings.append(Listing(
                 source = "ytmusic",

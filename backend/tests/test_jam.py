@@ -1,14 +1,14 @@
-"""Test the jam room: one host plays, everyone else holds the remote. Rooms are in memory, with no
-database writes beyond authentication. Tests drive the hub directly for command semantics and the
-real WebSocket for the socket path."""
+"""Test the jam room: one host plays, everyone else holds the remote. Rooms are in memory, written to the
+database only when the server stops (and read back when it starts). Tests drive the hub directly for command
+semantics and the real WebSocket for the socket path."""
 import time
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
 from music_backend.core import db
-from music_backend.models import JamCommand, ListingIn
+from music_backend.models import JamCommand, JamSong, ListingIn
 from music_backend.services import jam
 from conftest import TEST_URL, sign_up
 
@@ -251,6 +251,7 @@ def test_leave_closes_that_users_socket(client):
     with client.websocket_connect(f"/ws/jam?ticket={ticket}&room_id={room['room_id']}") as ws:
         ws.receive_json()
         assert alice("POST", f"/jam/{room['room_id']}/leave").status_code == 204
+        assert ws.receive_json() == {"type": "out", "reason": "left"}      # her other device is told why (11)
         with pytest.raises(Exception):
             ws.receive_json()                                              # server closed with 4404
     state = bob("GET", f"/jam/{room['room_id']}").json()
@@ -617,3 +618,212 @@ def test_ws_a_locked_member_is_told_and_the_room_is_unchanged(client):
                 assert ws.receive_json()["data"]["only_host_controls"] is True
             ws_b.send_json({"type": "skip"})
             assert ws_b.receive_json() == {"type": "error", "detail": "The host controls this jam. You can add songs to the queue."}
+
+
+# ---------- across a restart (#31) ----------
+
+def snapshot_after(hub: jam.JamHub, seconds_away: float) -> list:
+    """The hub's rooms as saved, with the server away for this long before they are read back."""
+    return [(room_id, {**state, "saved_at": state["saved_at"] - seconds_away}) for room_id, state in hub.snapshot()]
+
+
+@pytest.mark.anyio
+async def test_a_room_comes_back_as_it_was_after_a_restart():
+    hub = jam.JamHub()
+    room = hub.create(alice := uuid4(), "alice", "Friday")
+    room.members[bob := uuid4()] = "bob"
+    room.join_order.append(bob)
+    room.only_host_controls = True
+    await hub.handle_command(room, alice, JamCommand(type="add", listings=[make_listing(1, 300), make_listing(2)]), FakeWS())
+    await hub.handle_command(room, alice, JamCommand(type="seek", seconds=100), FakeWS())
+
+    restarted = jam.JamHub()
+    restarted.restore(snapshot_after(hub, 4))                                # a deploy: about 4 s away
+    back = restarted.require(room.id, bob)
+    assert (back.code, back.name, back.host_id, back.members, back.join_order) == (room.code, "Friday", alice, room.members, [alice, bob])
+    assert restarted.state(back).model_dump(include={"current", "queue", "only_host_controls"}) == \
+           hub.state(room).model_dump(include={"current", "queue", "only_host_controls"})        # as the apps see it
+    assert back.is_playing and restarted.playhead(back) == pytest.approx(104, abs=1)   # the players never stopped
+    assert restarted.join(uuid4(), "carol", room.code)[0] is back           # its code still works
+
+
+@pytest.mark.anyio
+async def test_a_room_away_for_long_waits_paused_where_it_was():
+    hub = jam.JamHub()
+    room = hub.create(alice := uuid4(), "alice", None)
+    await hub.handle_command(room, alice, JamCommand(type="add", listings=[make_listing(1, 300)]), FakeWS())
+    await hub.handle_command(room, alice, JamCommand(type="seek", seconds=100), FakeWS())
+    restarted = jam.JamHub()
+    restarted.restore(snapshot_after(hub, jam.RESUME_WITHIN + 1))
+    back = restarted.require(room.id, alice)
+    assert not back.is_playing and restarted.playhead(back) == pytest.approx(100, abs=1)
+
+
+def test_a_room_idle_too_long_is_not_reopened():
+    hub = jam.JamHub()
+    room = hub.create(alice := uuid4(), "alice", None)
+    room.touched_at -= jam.ROOM_IDLE_SECONDS - 30                         # 30 s of its idle time left
+    restarted = jam.JamHub()
+    restarted.restore(snapshot_after(hub, 60))                               # the time away counts as idle
+    assert restarted.get(room.id) is None
+
+
+def test_open_jams_survive_the_server_restarting(monkeypatch):
+    monkeypatch.setattr(db, "DATABASE_URL", TEST_URL)
+    from music_backend.main import app
+    with TestClient(app) as first:
+        alice, bob = Person(first), Person(first)
+        room = alice("POST", "/jam", json={"name": "Friday"}).json()
+        bob("POST", "/jam/join", json={"code": room["code"]})
+    # the server stopped, saving its rooms; it starts again and reads them back
+    with TestClient(app) as again:
+        r = again.get(f"/jam/{room['room_id']}", headers={"Authorization": f"Bearer {bob.token}"})
+        assert r.status_code == 200
+        assert {m["username"] for m in r.json()["members"]} == {alice.username, bob.username}
+        assert r.json()["host_id"] == alice.id and r.json()["name"] == "Friday"
+
+
+# ---------- the scenarios of docs/jam.md (the same list runs in jam_test.dart and the Mac's NN_SELFTEST_JAM) ----------
+
+def song(i: int, seconds: float = 0, playing: bool = True, duration: int = 200, copies: tuple[int, ...] = ()) -> dict:
+    """The song on screen as an app sends it with a start or a join."""
+    return {"listing": listing(i, duration), "copies": [listing(c) for c in copies], "seconds": seconds, "playing": playing}
+
+
+def two_people_in_a_room(hub: jam.JamHub) -> tuple[jam.Room, UUID, UUID, FakeWS, FakeWS]:
+    """A room with a host and a member, each with a live socket."""
+    room = hub.create(host := uuid4(), "alice", None)
+    room.members[member := uuid4()] = "bob"
+    room.join_order.append(member)
+    host_ws, member_ws = FakeWS(), FakeWS()
+    room.sockets[host_ws] = host
+    room.sockets[member_ws] = member
+    return room, host, member, host_ws, member_ws
+
+
+def test_1_a_jam_started_with_a_song_playing_starts_with_it_where_it_was(client):
+    alice = Person(client)
+    room = alice("POST", "/jam", json={"song": song(1, seconds=61, copies=(2,))}).json()
+    assert room["current"]["listing"]["id"] == "jam-1" and [c["id"] for c in room["current"]["copies"]] == ["jam-2"]
+    assert room["is_playing"] is True and room["position_seconds"] == pytest.approx(61, abs=1)
+    paused = alice("POST", "/jam", json={"song": song(3, seconds=30, playing=False)}).json()
+    assert paused["is_playing"] is False and paused["position_seconds"] == 30, "a paused song comes in paused"
+    assert alice("POST", "/jam", json={}).json()["current"] is None, "nothing on screen: an empty room"
+
+
+def test_2_joining_an_empty_room_brings_your_song_and_a_room_with_one_keeps_its_own(client):
+    alice, bob, carol = Person(client), Person(client), Person(client)
+    room = alice("POST", "/jam", json={}).json()
+    ticket = alice("POST", "/ws-ticket").json()["ticket"]
+    with client.websocket_connect(f"/ws/jam?ticket={ticket}&room_id={room['room_id']}") as ws:
+        ws.receive_json()
+        joined = bob("POST", "/jam/join", json={"code": room["code"], "song": song(5, seconds=40)}).json()
+        assert joined["current"]["listing"]["id"] == "jam-5" and joined["position_seconds"] == pytest.approx(40, abs=1)
+        assert ws.receive_json()["data"]["current"]["listing"]["id"] == "jam-5", "the host hears it at once"
+        again = carol("POST", "/jam/join", json={"code": room["code"], "song": song(6)}).json()
+        assert again["current"]["listing"]["id"] == "jam-5", "a room with a song keeps it"
+        assert again["position_seconds"] == pytest.approx(40, abs=2)
+
+
+def test_a_song_at_no_place_is_refused():
+    for bad in (float("nan"), float("inf"), -1):
+        with pytest.raises(ValueError):
+            JamSong.model_validate(song(1, seconds=bad))
+
+
+@pytest.mark.anyio
+async def test_3_4_5_play_pause_seek_and_next_by_a_member_reach_everyone():
+    hub = jam.JamHub()
+    room, host, member, host_ws, member_ws = two_people_in_a_room(hub)
+    await hub.handle_command(room, host, JamCommand(type="add", listings=[make_listing(1), make_listing(2)]), host_ws)
+    for cmd, check in [(JamCommand(type="pause"), lambda: not room.is_playing),
+                       (JamCommand(type="play"), lambda: room.is_playing),
+                       (JamCommand(type="seek", seconds=90), lambda: hub.playhead(room) == pytest.approx(90, abs=1)),
+                       (JamCommand(type="skip"), lambda: room.current.listing.title == "Song 2")]:
+        await hub.handle_command(room, member, cmd, member_ws)
+        assert check(), cmd.type
+        assert host_ws.last()["type"] == member_ws.last()["type"] == "state"
+
+
+@pytest.mark.anyio
+async def test_the_hosts_report_reaches_the_members_and_not_the_host():
+    hub = jam.JamHub()
+    room, host, member, host_ws, member_ws = two_people_in_a_room(hub)
+    await hub.handle_command(room, host, JamCommand(type="add", listings=[make_listing(1)]), host_ws)
+    sent_to_host = len(host_ws.sent)
+    await hub.handle_command(room, host, JamCommand(type="position", seconds=30), host_ws)
+    assert member_ws.last() == {"type": "position", "seconds": pytest.approx(30, abs=1), "is_playing": True}
+    assert len(host_ws.sent) == sent_to_host, "its own place is the one thing the host never needs"
+
+
+@pytest.mark.anyio
+async def test_6_the_first_ended_near_the_end_moves_the_room_on_and_the_rest_do_nothing():
+    hub = jam.JamHub()
+    room, host, member, host_ws, member_ws = two_people_in_a_room(hub)
+    await hub.handle_command(room, host, JamCommand(type="add", listings=[make_listing(1, 200), make_listing(2)]), host_ws)
+    first = room.current.entry_id
+    sent = len(member_ws.sent)
+    await hub.handle_command(room, member, JamCommand(type="ended", entry_id=first), member_ws)
+    assert room.current.entry_id == first, "far from the end (a copy that failed on one device): the room plays on"
+    assert len(member_ws.sent) == sent, "and nothing is answered"
+    room.position_seconds, room.position_at = 198.5, time.time()             # the room's clock: 1.5 s left
+    await hub.handle_command(room, member, JamCommand(type="ended", entry_id=first), member_ws)
+    assert room.current.listing.title == "Song 2" and room.is_playing and hub.playhead(room) < 1, \
+        "the member's song ended first: the host's app is not waited for"
+    sent = len(host_ws.sent)
+    await hub.handle_command(room, host, JamCommand(type="ended", entry_id=first), host_ws)
+    assert room.current.listing.title == "Song 2" and len(host_ws.sent) == sent, "a late one changes nothing"
+
+
+@pytest.mark.anyio
+async def test_6_the_hosts_early_ended_moves_the_room_and_a_members_does_not():
+    """Every copy shorter than the listing says (a radio edit, YouTube Music copies of a JioSaavn listing): every end
+    comes early. The host's player is the room's clock, so its end moves the room; a member's alone would not."""
+    hub = jam.JamHub()
+    room, host, member, host_ws, member_ws = two_people_in_a_room(hub)
+    await hub.handle_command(room, host, JamCommand(type="add", listings=[make_listing(1, 200), make_listing(2)]), host_ws)
+    first = room.current.entry_id
+    room.position_seconds, room.position_at = 190.0, time.time()             # 10 s before the listed end
+    await hub.handle_command(room, member, JamCommand(type="ended", entry_id=first), member_ws)
+    assert room.current.entry_id == first, "a member's shorter copy cannot cut the song for the others"
+    await hub.handle_command(room, host, JamCommand(type="ended", entry_id=first), host_ws)
+    assert room.current.listing.title == "Song 2" and room.is_playing, "the host's end moves the room: it does not stick"
+    await hub.handle_command(room, host, JamCommand(type="ended", entry_id=first), host_ws)
+    assert room.current.listing.title == "Song 2", "an end reported twice moves the room once"
+
+
+@pytest.mark.anyio
+async def test_ended_with_no_known_length_moves_on_and_is_open_to_a_member_the_host_controls():
+    hub = jam.JamHub()
+    room, host, member, host_ws, member_ws = two_people_in_a_room(hub)
+    room.only_host_controls = True
+    await hub.handle_command(room, host, JamCommand(type="add", listings=[make_listing(1), make_listing(2)]), host_ws)
+    room.current.listing.duration = 0                                        # a listing that gave no length
+    await hub.handle_command(room, member, JamCommand(type="ended", entry_id=room.current.entry_id), member_ws)
+    assert room.current.listing.title == "Song 2"
+
+
+def test_7_the_host_leaving_makes_the_next_member_host_and_tells_everyone(client):
+    alice, bob = Person(client), Person(client)
+    room = alice("POST", "/jam", json={}).json()
+    bob("POST", "/jam/join", json={"code": room["code"]})
+    ticket = bob("POST", "/ws-ticket").json()["ticket"]
+    with client.websocket_connect(f"/ws/jam?ticket={ticket}&room_id={room['room_id']}") as ws:
+        ws.receive_json()
+        assert alice("POST", f"/jam/{room['room_id']}/leave").status_code == 204
+        data = ws.receive_json()["data"]
+        assert data["host_id"] == bob.id and [m["username"] for m in data["members"]] == [bob.username]
+
+
+def test_11_a_removed_member_is_told_and_their_socket_closes(client):
+    alice, bob = Person(client), Person(client)
+    room = alice("POST", "/jam", json={}).json()
+    bob("POST", "/jam/join", json={"code": room["code"]})
+    ticket = bob("POST", "/ws-ticket").json()["ticket"]
+    with client.websocket_connect(f"/ws/jam?ticket={ticket}&room_id={room['room_id']}") as ws:
+        ws.receive_json()
+        assert alice("DELETE", f"/jam/{room['room_id']}/members/{bob.id}").status_code == 204
+        assert ws.receive_json() == {"type": "out", "reason": "removed"}
+        with pytest.raises(Exception):
+            ws.receive_json()                                                # closed: it used to stay open, silent
+    assert bob("GET", f"/jam/{room['room_id']}").status_code == 404

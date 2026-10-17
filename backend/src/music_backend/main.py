@@ -12,7 +12,8 @@ from psycopg import errors
 
 from music_backend.core import db, ratelimit
 from music_backend.services import auth, library, cache, genius, lyrics, friends, notifications, jam, readings, served, spotify_import
-from music_backend.services.matching import rank_songs, merge_youtube, rank_albums, rank_artists, by_relevance, coverage, normalise, artists_match
+from music_backend.services.matching import (rank_songs, merge_youtube, rank_albums, rank_artists, artists_by_name, by_relevance,
+                                             coverage, artists_match, library_first)
 from music_backend.models import (SpotifyImportRequest, SpotifyImportStatus, EventRequest, LibrarySong, ListingsRequest, Listing, SearchResponse,
                                   SearchSourceInfo, SongRef, SourceName, PlaylistRequest, PlaylistMetadata,
                                   PlaylistsResponse, PlaylistItemRef, PlaylistItems, MoveRequest, PrefetchRequest,
@@ -40,6 +41,9 @@ async def lifespan(app: FastAPI):
     pool = db.make_pool(db.DATABASE_URL)
     await pool.open()
     await db.migrate(pool)
+    async with pool.connection() as conn:
+        if filled := await library.load_words(conn):              # the words a search finds your songs by (#26)
+            logger.info("search: words given to %d stored copies", filled)
     app.state.pool = pool
     app.state.limits = ratelimit.Limiter()                        # rate limits (core/ratelimit.py): counts in memory
     app.state.served = served.ServedListings()                    # what search etc. returned: the only copies stored
@@ -47,8 +51,11 @@ async def lifespan(app: FastAPI):
     app.state.lyrics_cache = cache.LyricsCache(pool)
     app.state.genius_cache = cache.GeniusCache(pool)
     app.state.hub = notifications.NotificationHub()               # WebSocket connections + one-time WS tickets
-    app.state.jams = jam.JamHub()                                 # jam rooms: in memory, lost on restart by design
-    app.state.imports = spotify_import.ImportHub()                # Spotify imports: in memory, as jam rooms
+    app.state.jams = jam.JamHub()                                 # jam rooms: in memory, saved across a restart
+    async with pool.connection() as conn:
+        if restored := await jam.load_rooms(conn, app.state.jams):
+            logger.info("jam: %d rooms reopened", restored)
+    app.state.imports = spotify_import.ImportHub()                # Spotify imports: in memory, lost on restart
     # the prefetch workers: N separate tasks, running by themselves; the list keeps them alive
     # (a list comprehension: `[create_task(...)] * N` would be ONE task listed N times)
     app.state.prefetch_workers = [asyncio.create_task(app.state.url_cache.prefetch_worker())
@@ -72,6 +79,13 @@ async def lifespan(app: FastAPI):
     await asyncio.gather(*(source.http.close() for source in SOURCES.values()))   # the sources' kept connections
     await lyrics.http.close()                                                     # and LRCLIB's
     await genius.http.close()                                                     # and Genius's
+    # the open jams, for the next start: a deploy restarts the server and used to end every jam (#31)
+    try:
+        async with pool.connection() as conn:
+            if saved := await jam.save_rooms(conn, app.state.jams):
+                logger.info("jam: %d rooms saved", saved)
+    except Exception:
+        logger.exception("jam: the open rooms could not be saved")
     await pool.close()
 
 
@@ -259,15 +273,44 @@ async def search(q: str, request: Request, user: Annotated[User, Depends(per_acc
     youtube: also search plain YouTube (MUS-13). Off by default, so a normal search never asks it;
     when on, its videos rank below every music-source song (merge_youtube) and its channels join
     the artists. albums come from the music sources only: plain YouTube has no albums.
+
+    The songs of your own library that match come first, marked in_library (#26): each song once, a source's copy of
+    one of them joining its row (library_first).
     """
+    songs, albums, artists, sources = await ranked_search(q, youtube, filter)
+    async with request.app.state.pool.connection() as conn:
+        mine = await library.matching_songs(conn, user.id, q, songs) if filter in ("all", "songs") else []
+        # a song already stored keeps the cover it has in the library (one indexed query)
+        covers = await library.stored_covers(conn, [l for song in songs for l in song.listings])
+    for song in songs:
+        song.image = next((covers[(l.source, l.id)] for l in song.listings if (l.source, l.id) in covers), song.image)
+    songs = library_first(songs, mine, q)
+    remember_served(request, songs)
+    return SearchResponse(query = q, sources = sources, songs = songs, albums = albums, artists = artists)
+
+
+async def top_result(q: str) -> Listing | None:
+    """YouTube Music's top result for a search (ytmusic.top_result), or None: it never fails a search."""
+    try:
+        return await ytmusic.top_result(q)
+    except Exception as e:
+        logger.warning("ytmusic top result failed (query of %d characters): %s", len(q), type(e).__name__)
+        return None
+
+
+async def ranked_search(q: str, youtube: bool = False, filter: str = "all"
+                        ) -> tuple[list[Song], list, list, list[SearchSourceInfo]]:
+    """A search's songs, albums and artists, ranked, and how each source answered: /search without the library."""
     active = dict(SOURCES)
     if not youtube:
         active.pop("youtube", None)
     want = {"songs" : filter in ("all", "songs"),
             "albums" : filter in ("all", "albums"),
             "artists" : filter in ("all", "artists")}
-    # every source runs at the same time; each one's failures stay inside its own search_one
-    results = await asyncio.gather(*(search_one(name, source, q, **want) for name, source in active.items()))
+    # every source runs at the same time, YouTube Music's top result too (asyncio.sleep(0): None, for a search without
+    # songs); each one's failures stay inside its own call
+    top, *results = await asyncio.gather(top_result(q) if want["songs"] else asyncio.sleep(0),
+                                         *(search_one(name, source, q, **want) for name, source in active.items()))
     songs_by_source, videos = [], []
     albums_by_source, artists_by_source = [], []
     sources = []
@@ -280,7 +323,7 @@ async def search(q: str, request: Request, user: Annotated[User, Depends(per_acc
             songs_by_source.append(song_listings)
             albums_by_source.append(album_refs)
             artists_by_source.append(artist_refs)
-    songs = rank_songs(songs_by_source)
+    songs = rank_songs(songs_by_source, plays = True, top = top)
     # nothing from the music sources has most of what was typed: plain YouTube too, where uploads like a fan's remix
     # live ("who cares if you exist eisu remix": only YouTube had it, 13 Oct). A search the music sources answer well
     # never waits for it
@@ -290,15 +333,7 @@ async def search(q: str, request: Request, user: Annotated[User, Depends(per_acc
         videos = song_listings
     if videos:
         songs = merge_youtube(songs, videos)
-    songs = by_relevance(songs, q)
-    remember_served(request, songs)
-    # a song already stored keeps the cover it has in the library (one indexed query)
-    async with request.app.state.pool.connection() as conn:
-        covers = await library.stored_covers(conn, [l for song in songs for l in song.listings])
-    for song in songs:
-        song.image = next((covers[(l.source, l.id)] for l in song.listings if (l.source, l.id) in covers), song.image)
-    return SearchResponse(query = q, sources = sources, songs = songs,
-                          albums = rank_albums(albums_by_source), artists = rank_artists(artists_by_source))
+    return by_relevance(songs, q), rank_albums(albums_by_source), artists_by_name(rank_artists(artists_by_source), q), sources
 
 # ---------- Spotify import ----------
 # The app reads Spotify's file on the device and sends only titles, artists and lengths; the server searches each one
@@ -452,11 +487,16 @@ async def prefetch_urls(body: PrefetchRequest, request: Request, user: Annotated
 
 # ---------- radio (MUS-3) ----------
 
+# songs into a station read at most: YouTube Music's first 197 (4 requests, ~2 s), where it starts to repeat itself
+STATION_DEPTH = 150
+
 async def station_video(seed: PrefetchListing, copies: list[dict]) -> str | None:
     """A video of the seed song, to start YouTube Music's station from: the seed itself when it is a video (YouTube and
     YouTube Music share ids), else a stored copy's, else a YouTube Music result with the song's title and artist. A
     song not stored yet (the app asks before the song's first "play" is recorded) is looked up on JioSaavn by its id.
-    None when no video is the same song."""
+    None when no video is the same song. Titles are compared without labels like (From "Film"), which often only one
+    source writes. Compared whole, 36 of 82 JioSaavn songs found no video, 21 of them turned down for that label alone,
+    and got JioSaavn's station, a new random draw on every call; now 13 do, mostly covers YouTube Music lacks (17 Oct)."""
     if seed.source != "jiosaavn":
         return seed.source_id
     own = next((c["source_id"] for c in copies if c["source"] in ("youtube", "ytmusic")), None)
@@ -471,13 +511,14 @@ async def station_video(seed: PrefetchListing, copies: list[dict]) -> str | None
         found = await ytmusic.search(f"{title} {(artists or [''])[0]}")
     except (SongNotFound, SourceUnavailable):
         return None
-    return next((l.id for l in found if normalise(l.title) == normalise(title) and artists_match(l.artists, artists)), None)
+    core = spotify_import.core_title(title)
+    return next((l.id for l in found if spotify_import.core_title(l.title) == core and artists_match(l.artists, artists)), None)
 
 
 @app.post("/radio")
 async def radio(body: RadioRequest, request: Request,
                 user: Annotated[User, Depends(per_account("radio"))]) -> RadioResponse:
-    """More songs to keep playing, seeded from the last song in the queue (MUS-3).
+    """More songs to keep playing, seeded from the last song the user chose (MUS-3).
 
     YouTube Music's station, started from a video of the song (station_video); JioSaavn's own station only for a song
     with no such video. YouTube's Mix was asked first on 13-14 Oct: it follows the uploader's channel (12-13
@@ -485,8 +526,11 @@ async def radio(body: RadioRequest, request: Request,
     (#24). YouTube Music's station spreads artists itself (14-20 in 25, measured on six seeds).
 
     Dropped: the seed, the app's exclude list and (skip_recent, on unless the app turned it off) the account's last 50
-    played songs. The reply keeps the station's order (rank_songs groups duplicates). 200 with fewer songs (possibly
-    none: the app stops asking) is a normal answer; 502 only when the station was unreachable.
+    played songs. The station is read as far past them as there are of them (STATION_DEPTH at most), so a station asked
+    again (the next refill, the song played another day) gives its next songs. Read only to its 22nd song, refills
+    shrank (20, 16.5, 15.3, 13.7 songs) and a song played again after an hour of Autoplay got 1 to 3 (17 Oct).
+    The reply keeps the station's order (rank_songs groups duplicates). 200 with fewer songs (possibly none: the app
+    stops asking) is a normal answer; 502 only when the station was unreachable.
     """
     async with request.app.state.pool.connection() as conn:
         copies = await library.copies_of(conn, body.seed.source, body.seed.source_id)
@@ -497,7 +541,7 @@ async def radio(body: RadioRequest, request: Request,
     exclude |= {(body.seed.source, body.seed.source_id), (source, seed_id)}
     try:
         # one extra listing: every station leads with its own seed
-        listings = await SOURCES[source].radio(seed_id, body.limit + 1)
+        listings = await SOURCES[source].radio(seed_id, min(body.limit + 1 + len(exclude), STATION_DEPTH))
     except SourceUnavailable as e:
         logger.warning("%s unavailable while seeding radio from %r: %s", source, seed_id, e)
         raise HTTPException(status_code=502, detail=f"{source} is unavailable right now")
@@ -951,9 +995,10 @@ async def notification_unread_count(request: Request, user: Signed) -> MarkReadR
 async def create_jam(body: JamCreateRequest, request: Request,
                      user: Annotated[User, Depends(per_account("jam"))]) -> JamState:
     """Open a jam room. You are its host (the speakers) and its first member. The 8-character
-    code is what you give to other people; the room lives in this process and is lost on restart."""
+    code is what you give to other people. The song on your screen, when sent, is the room's first, where it was
+    (docs/jam.md)."""
     try:
-        room = request.app.state.jams.create(user.id, user.username, body.name)
+        room = request.app.state.jams.create(user.id, user.username, body.name, body.song)
     except jam.RoomLimit:
         raise HTTPException(status_code=429, detail="You already have too many open jams")
     return request.app.state.jams.state(room)
@@ -962,13 +1007,14 @@ async def create_jam(body: JamCreateRequest, request: Request,
 @app.post("/jam/join")
 async def join_jam(body: JamJoinRequest, request: Request,
                    user: Annotated[User, Depends(per_account("jam"))]) -> JamState:
-    """Join a room by its code. Joining a room you are already in does nothing (same state back)."""
+    """Join a room by its code. A room with no song takes the one on your screen, when sent (docs/jam.md). Joining a
+    room you are already in changes nothing else (the same state back)."""
     try:
-        room, added = request.app.state.jams.join(user.id, user.username, body.code)
+        room, changed = request.app.state.jams.join(user.id, user.username, body.code, body.song)
     except jam.RoomNotFound:
         raise HTTPException(status_code=404, detail="No room with that code")
     state = request.app.state.jams.state(room)
-    if added:
+    if changed:
         await request.app.state.jams.broadcast(room, {"type": "state", "data": state.model_dump(mode="json")})
     return state
 
@@ -1036,8 +1082,11 @@ async def set_jam_host(room_id: UUID, body: JamHostRequest, request: Request,
 @app.delete("/jam/{room_id}/members/{member_id}", status_code=204)
 async def remove_jam_member(room_id: UUID, member_id: UUID, request: Request,
                             user: Annotated[User, Depends(per_account("jam"))]) -> Response:
-    """The host may remove another member; members use /leave to remove themselves."""
+    """The host may remove another member; members use /leave to remove themselves. The removed member's sockets are
+    told ("out", "removed") and closed, so their app leaves the jam and says why."""
     jams = request.app.state.jams
+    room_before = jams.get(room_id)
+    theirs = [ws for ws, uid in room_before.sockets.items() if uid == member_id] if room_before else []
     try:
         room = jams.remove_member(user.id, room_id, member_id)
     except jam.RoomNotFound:
@@ -1046,6 +1095,7 @@ async def remove_jam_member(room_id: UUID, member_id: UUID, request: Request,
         raise HTTPException(status_code=404, detail="You are not in this room")
     except jam.NotHost:
         raise HTTPException(status_code=403, detail="Only the host can remove members")
+    await jams.put_out(theirs, "removed")
     if room is not None:
         await jams.broadcast(room, {"type": "state", "data": jams.state(room).model_dump(mode="json")})
     return Response(status_code=204)
@@ -1056,7 +1106,7 @@ async def leave_jam(room_id: UUID, request: Request,
                     user: Annotated[User, Depends(per_account("jam"))]) -> Response:
     """Leave the room. If you were the host, the next member by join order inherits the speakers;
     if you were the last member, the room closes. Any WebSocket you still hold for this room is
-    closed with 4404 — leaving everywhere means leaving on every device."""
+    told ("out", "left") and closed with 4404 — leaving everywhere means leaving on every device."""
     jams = request.app.state.jams
     room_before = jams.get(room_id)
     mine = [ws for ws, uid in room_before.sockets.items() if uid == user.id] if room_before else []
@@ -1066,11 +1116,7 @@ async def leave_jam(room_id: UUID, request: Request,
         raise HTTPException(status_code=404, detail="No such room")
     except jam.NotAMember:
         raise HTTPException(status_code=404, detail="You are not in this room")
-    for ws in mine:                                  # the sockets are already off the room; now end them
-        try:
-            await ws.close(code=4404, reason="you left this room")
-        except Exception:
-            pass
+    await jams.put_out(mine, "left")                 # the sockets are already off the room; now end them
     if room is not None:
         await jams.broadcast(room, {"type": "state", "data": jams.state(room).model_dump(mode="json")})
     return Response(status_code=204)

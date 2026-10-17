@@ -13,6 +13,13 @@ final class LibraryStore {
 
     func isLiked(_ track: Track) -> Bool { track.listings.contains { likedKeys.contains($0.key) } }
 
+    /// The songs of yours this app holds when the server cannot be reached: the downloads first (they play with no
+    /// server), then the liked songs and the playlists opened since the app started. A search finds yours among them
+    /// then, by the server's rule (Matching, #26).
+    func held(_ downloads: DownloadStore) -> [Track] {
+        downloads.tracks + liked + details.values.flatMap(\.tracks)
+    }
+
     /// The server's last answers, and the version (Settings › Playback) the tracks were built for. Observation counts
     /// every assignment as a change, equal or not: assigning the same lists after every song start redrew every row,
     /// heart, shelf and the sidebar (audit, 7 Oct). Now only what changed is assigned.

@@ -410,6 +410,7 @@ private struct LyricsSettings: View {
     @AppStorage("lyricsFetch") private var fetch = LyricsFetch.songStart
     @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion
     @AppStorage("geniusNotes") private var genius = false                // experimental, off by default (8 Oct)
+    @AppStorage("translateInto") private var translateInto = ""          // LyricsTranslations.target: "" the Mac's own (#19)
 
     var body: some View {
         Form {
@@ -426,6 +427,16 @@ private struct LyricsSettings: View {
                 }
             } footer: {
                 Text("Fetching when a song starts has the lyrics ready when you open them. Downloaded songs keep their lyrics offline.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Picker("Translate into", selection: $translateInto) {
+                    Text("System language").tag("")
+                    Divider()
+                    ForEach(LyricsTranslations.choices, id: \.id) { Text($0.name).tag($0.id) }
+                }
+            } footer: {
+                Text("For Translate in Lyrics. This Mac translates them (macOS asks to download a language the first time); what it can't goes to Google. The line under the translation says which.")
                     .foregroundStyle(.secondary)
             }
             Section {
@@ -814,6 +825,12 @@ private struct FootprintSettings: View {
             .task { cacheUsed = await AudioCache.shared.size() }
 
             Section {
+                DownloadLocation()
+            } header: {
+                Text("Downloads")
+            }
+
+            Section {
                 Toggle(isOn: $animateBackdrop) {
                     Text("Moving background")
                     Text("Uses about 5% more CPU while music plays, and 10–14% more in Now Playing.")
@@ -841,6 +858,78 @@ private struct FootprintSettings: View {
             }
         }
         .settingsPage()
+    }
+}
+
+/// Settings › Footprint › Downloads: the folder songs download to, and a way to choose another. Choosing one moves the
+/// songs already downloaded there (DownloadStore.moveTo); the choice is saved only once every file is there, and the
+/// app opens it at launch. The same row as the Windows app's Settings › Storage › Download location (15 Oct).
+private struct DownloadLocation: View {
+    @Environment(DownloadStore.self) private var downloads
+    @AppStorage("downloadFolder") private var chosenFolder = ""    // a path; empty: the app's own (DownloadStore reads it)
+    /// Why the last move failed, until the next one.
+    @State private var failure: String?
+
+    var body: some View {
+        let busy = downloads.moving || !downloads.inProgress.isEmpty
+        let note = self.note
+        LabeledContent {
+            HStack {
+                Button("Change…") { choose() }
+                    .disabled(busy)
+                if let folder = downloads.folder {
+                    Button("Show in Finder") { NSWorkspace.shared.open(folder) }
+                }
+                if !chosenFolder.isEmpty {
+                    Button("Use Default") { move(to: nil) }
+                        .disabled(busy)
+                }
+            }
+        } label: {
+            Text("Download location")
+            Text(note.text).foregroundStyle(note.warning ? .red : .secondary)
+        }
+        .selfTestFrame("settings.downloadLocation")
+        #if DEBUG
+        .onChange(of: note.text, initial: true) { SelfTest.downloadLocationNote = note.text }
+        #endif
+    }
+
+    /// The folder (~ for your home folder), or what is happening to it.
+    private var note: (text: String, warning: Bool) {
+        let shown = downloads.folder ?? downloads.missingFolder ?? downloads.defaultFolder
+        let path = (shown.path as NSString).abbreviatingWithTildeInPath
+        if downloads.moving { return ("Moving your downloads…", false) }
+        if let failure { return (failure, true) }
+        if !downloads.available { return ("Not found: \(path). Connect its drive, or choose another folder.", true) }
+        if !downloads.inProgress.isEmpty { return ("\(path)\nIt can be changed once the downloads in progress finish.", false) }
+        return (path, false)
+    }
+
+    /// The system's folder picker, at the folder in use; the folder chosen takes every download.
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.directoryURL = downloads.folder
+        panel.prompt = "Choose"
+        panel.message = "Download songs to"
+        guard panel.runModal() == .OK, let target = panel.url else { return }
+        move(to: target)
+    }
+
+    /// `target` nil: back to the app's own folder, and the choice forgotten.
+    private func move(to target: URL?) {
+        failure = nil
+        Task {
+            do {
+                try await downloads.moveTo(target ?? downloads.defaultFolder)
+                chosenFolder = target?.path ?? ""
+            } catch {
+                failure = "Couldn't move your downloads there: \(error.localizedDescription)"
+            }
+        }
     }
 }
 

@@ -6,6 +6,8 @@ struct SongRow: View {
     let track: Track
     let queue: [Track]
     let index: Int
+    /// On an album (its page, or a pinned album): the track number, shown in place of the cover.
+    var number: Int? = nil
     /// In a playlist: the rows' item ids and the playlist's queue name, so your edits reach a playing queue.
     var keys: [String]? = nil
     var source: String? = nil
@@ -33,7 +35,7 @@ struct SongRow: View {
                         }
                     }
                 }
-                .padding(.leading, 56)          // under the title: artwork (44) + spacing (12)
+                .padding(.leading, number == nil ? 56 : 44)     // under the title: artwork (44) + spacing (12), or number (34) + 10
                 .padding(.bottom, 6)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -41,7 +43,7 @@ struct SongRow: View {
     }
 
     private var row: some View {
-        SongRowLine(track: track, expanded: $expanded) { player.play(queue, startAt: index, keys: keys, source: source) }
+        SongRowLine(track: track, number: number, expanded: $expanded) { player.play(queue, startAt: index, keys: keys, source: source) }
             .contentShape(.rect)
             // off in a list you reorder: any double-tap gesture on a row, simultaneous or not, takes the mouse-down the
             // list needs to start a drag, so a playlist's songs could not be dragged (real input, 8 Oct). There the list
@@ -82,6 +84,7 @@ struct SongRow: View {
 /// and over (as Home's tiles did: 8% of a core, 7 Oct).
 private struct SongRowLine: View {
     let track: Track
+    let number: Int?
     @Binding var expanded: Bool
     let play: () -> Void
     @Environment(Player.self) private var player
@@ -91,24 +94,31 @@ private struct SongRowLine: View {
     @State private var hovering = false
 
     /// Settings › Colours › Playing song; System is your Mac's accent.
-    private var highlight: AnyShapeStyle { theme.color(.playing).map(AnyShapeStyle.init) ?? AnyShapeStyle(Color.accentColor) }
+    private var highlight: Color { theme.color(.playing) ?? .accentColor }
 
     var body: some View {
         let current = player.current.map { $0.isSameSong(as: track) } ?? false
-        HStack(spacing: 12) {
+        // an album's playing song: its whole row filled in the playing colour, as Apple Music marks it (15 Oct, as in
+        // the Windows app). Other rows keep the hover shade alone
+        let filled = current && number != nil
+        HStack(spacing: number == nil ? 12 : 10) {
             Button(action: play) {
-                ArtworkView(url: track.image, size: 44, radius: 8)
-                    .overlay {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.black.opacity(0.35))
-                            if current && player.isBuffering {
-                                ProgressView().controlSize(.small).tint(.white)          // loading this song
-                            } else {
-                                PlayingSpeaker(playing: current && player.isPlaying)
+                if let number {
+                    numberBox(number, current: current)
+                } else {
+                    ArtworkView(url: track.image, size: 44, radius: 8)
+                        .overlay {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.black.opacity(0.35))
+                                if current && player.isBuffering {
+                                    ProgressView().controlSize(.small).tint(.white)          // loading this song
+                                } else {
+                                    PlayingSpeaker(playing: current && player.isPlaying)
+                                }
                             }
+                            .opacity(hovering || current ? 1 : 0)
                         }
-                        .opacity(hovering || current ? 1 : 0)
-                    }
+                }
             }
             .buttonStyle(.quiet(highlight: false))
             .accessibilityLabel("Play \(track.title)")
@@ -117,7 +127,7 @@ private struct SongRowLine: View {
                 HStack(spacing: 5) {
                     Text(track.title)
                         .textStyle(.body, weight: .medium)
-                        .foregroundStyle(current ? highlight : AnyShapeStyle(.primary))
+                        .foregroundStyle(current ? AnyShapeStyle(highlight) : AnyShapeStyle(.primary))
                         .lineLimit(1)
                     if track.isExplicit { ExplicitBadge() }
                 }
@@ -167,8 +177,32 @@ private struct SongRowLine: View {
         }
         .padding(.vertical, 5)
         .padding(.horizontal, 8)
-        .background(.primary.opacity(hovering ? 0.05 : 0), in: .rect(cornerRadius: 10, style: .continuous))
+        .background(filled ? AnyShapeStyle(highlight.opacity(0.12)) : AnyShapeStyle(.primary.opacity(hovering ? 0.05 : 0)),
+                    in: .rect(cornerRadius: filled ? 12 : 10, style: .continuous))
         .onHover { hovering = $0 }                         // instant: a fade per hover redrew the window ~15 times
+    }
+
+    /// An album row's number, in a 34 × 40 box where the cover would be (15 Oct, as in the Windows app): ▶ under the
+    /// pointer, and the playing mark on the playing song. Number and ▶ swap by opacity, as the cover's overlay fades:
+    /// a hover lays nothing out again.
+    private func numberBox(_ number: Int, current: Bool) -> some View {
+        ZStack {
+            Text(String(number))
+                .monospacedDigit()
+                .textStyle(size: 15, weight: .semibold)
+                .foregroundStyle(.primary.opacity(0.42))
+                .opacity(current || hovering ? 0 : 1)
+            Image(systemName: "play.fill")
+                .opacity(!current && hovering ? 1 : 0)
+            if current {
+                if player.isBuffering {
+                    ProgressView().controlSize(.small)                  // loading this song
+                } else {
+                    PlayingSpeaker(playing: player.isPlaying, style: AnyShapeStyle(highlight), color: highlight)
+                }
+            }
+        }
+        .frame(width: 34, height: 40)
     }
 }
 

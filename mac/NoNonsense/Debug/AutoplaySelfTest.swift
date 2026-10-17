@@ -2,7 +2,8 @@
 import AppKit
 
 /// With `NN_SELFTEST_AUTOPLAY=1` (needs the internet): one song played alone; with Autoplay on, Up Next fills with other
-/// songs before it ends; with Autoplay off, it stays empty. Your own Autoplay setting is put back.
+/// songs before it ends, also for a song picked while Autoplay was still asking for the one before; with Autoplay off,
+/// it stays empty. Your own Autoplay setting is put back.
 extension SelfTest {
     private static var startedAutoplay = false
 
@@ -31,8 +32,12 @@ extension SelfTest {
             check("Autoplay off: Up Next stays empty", player.upNext.isEmpty, "\(player.upNext.count)")
 
             UserDefaults.standard.set(true, forKey: "autoplay")
+            // the second song is picked while Autoplay still asks for the first: that answer is not for it, and until
+            // 17 Oct the request in flight kept the second from being asked for (its Up Next stayed empty)
+            player.play([songs[1]])
             player.play([songs[0]])
-            check("Autoplay on: Up Next fills with songs like it", await until(15) { player.upNext.count >= 5 }, "\(player.upNext.count)")
+            check("Autoplay on, a song picked while it asked for another: Up Next fills with songs like it",
+                  await until(15) { player.upNext.count >= 5 }, "\(player.upNext.count)")
             check("…none of them the song playing", !player.upNext.contains { $0.isSameSong(as: songs[0]) })
             check("…all marked Autoplay", player.upNextEntries.allSatisfy(\.autoplay))
             player.addToQueue(songs[1])

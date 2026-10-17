@@ -103,7 +103,7 @@ final class Player {
         guard tracks.indices.contains(i) else { return }
         if let jam { jam.add([tracks[i]], .now); return }   // in a jam: this song plays for the room at once, not the list
         reportSkipIfNeeded()
-        radioSeed = nil                                   // a new queue: Autoplay may seed from it, whatever came before
+        radioAskedAfter = nil                             // a new queue: Autoplay may ask for it, whatever came before
         order.load(tracks, startAt: i, keys: keys, source: source, shuffled: shufflePreferred)
         startCurrent()
     }
@@ -203,33 +203,41 @@ final class Player {
     /// Autoplay was switched on: the queue may need songs now.
     func upNextChanged() { refillIfNeeded() }
 
-    /// Up Next › Autoplay (on by default): when two songs or fewer are left, songs like the last one are added.
+    /// Up Next › Autoplay (on by default): when two songs or fewer are left, songs like the last one you chose are added.
     static var autoplay: Bool { UserDefaults.standard.object(forKey: "autoplay") as? Bool ?? true }
     /// Settings › Playback › Autoplay (on by default): the server leaves out your last 50 played songs, skipped ones too.
     static var autoplaySkipsRecent: Bool { UserDefaults.standard.object(forKey: "autoplaySkipsRecent") as? Bool ?? true }
-    /// The seed last asked about: one request per seed, so a station with nothing new is not asked again and again.
-    @ObservationIgnored private var radioSeed: String?
+    /// The queue's last song when Autoplay last had an answer: one request per last song, so a station with nothing new
+    /// is not asked again and again.
+    @ObservationIgnored private var radioAskedAfter: String?
     @ObservationIgnored private var radioAsking = false
 
-    /// Asks the server's radio (POST /radio) for songs like the queue's last one. Not in a jam (the room decides), not
+    /// Asks the server's radio (POST /radio) for songs like the last one you chose. Not in a jam (the room decides), not
     /// with repeat on (the queue never runs out).
     private func refillIfNeeded() {
         guard Self.autoplay, jam == nil, order.repeatMode == .off, upNext.count <= 2, let last = queue.last,
-              radioSeed != last.best.key, !radioAsking else { return }
-        // a video of the song first: the server starts YouTube Music's station from one, and a JioSaavn copy needs it
-        // found first (#24)
-        let seed = ["ytmusic", "youtube", "jiosaavn"].lazy.compactMap { source in last.listings.first { $0.source == source } }.first
-            ?? last.best
-        // what is still to come (and the song playing): the station must not repeat it. The server leaves out what was
-        // played lately on its own, unless that is switched off
-        let exclude = queue[index...].flatMap(\.listings)
+              radioAskedAfter != last.best.key, !radioAsking else { return }
+        // every refill asks for the station of the last song you chose, which the server reads on past the songs it
+        // gave. Seeded from the one before's last song, refills drifted: 98% of a first refill was the chosen song's
+        // station, then 32%, 14%, 13% (Do I Wanna Know? to Fifth Harmony in three, 17 Oct). A video of the song first:
+        // the server starts YouTube Music's station from one, and a JioSaavn copy needs it found first (#24)
+        let chosen = order.autoplaySeed ?? last
+        let seed = ["ytmusic", "youtube", "jiosaavn"].lazy.compactMap { source in chosen.listings.first { $0.source == source } }.first
+            ?? chosen.best
+        // every song in the queue, played ones too, each copy once: the station read on must not give them again (the
+        // server also leaves out what was played lately, unless that is switched off). As on Windows and Android
+        var seen = Set<String>()
+        let exclude = queue.flatMap(\.listings).filter { seen.insert($0.key).inserted }
         radioAsking = true
         Task {
-            defer { radioAsking = false }
-            guard let songs = try? await API.radio(seed: seed, exclude: exclude, skipRecent: Self.autoplaySkipsRecent), !songs.isEmpty else { return }
+            let songs = try? await API.radio(seed: seed, exclude: exclude, skipRecent: Self.autoplaySkipsRecent)
+            radioAsking = false
+            // another song was played meanwhile: the answer is not for its queue, and this request kept that queue from
+            // asking, so it is asked for now (its Up Next stayed empty, and the music stopped after it)
+            guard queue.last?.id == last.id else { refillIfNeeded(); return }
+            guard let songs, !songs.isEmpty else { return }
             // marked only after an answer: a failure (offline, a busy server) is asked again at the next song
-            radioSeed = last.best.key
-            guard queue.last?.id == last.id else { return }                 // the queue changed meanwhile: not for it
+            radioAskedAfter = last.best.key
             order.appendAutoplay(songs.map(Track.init))
             announceNext()
             publish()
@@ -249,7 +257,7 @@ final class Player {
     #endif
 
     func togglePlayPause() {
-        if let jam { jam.togglePlay(); return }
+        if let jam { jam.setPlaying(!isPlaying); return }          // what the button shows, as on Windows (docs/jam.md)
         guard current != nil else { return }
         // after "Stopped: … Press play to try again" the loaded copy is the one that failed: play() on it did nothing
         // (isPlaying on, no sound). Play means: try this song again, from its first copy
@@ -352,43 +360,62 @@ final class Player {
     /// still be 0 from the song's start (it changes only on events), so nothing would change. Lyrics follow this.
     private(set) var seeks = 0
 
-    /// Space plays/pauses anywhere in the window, and ← → seek 5 s, except while typing in a text field. And while typing, ⌘← ⌘→ ⌘↑ ⌘↓
+    /// Space plays/pauses anywhere in the window, ← → seek 5 s, L likes or unlikes the song, M mutes or unmutes, and /
+    /// puts the keyboard in the command bar, except while typing in a text field. And while typing, ⌘← ⌘→ ⌘↑ ⌘↓
     /// move the cursor, as in any text field: menus answer their shortcuts before the field sees the key, so the
     /// Controls menu's Next, Previous and Volume took them (audit, 7 Oct). A monitor sees the key before the menus do.
     func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            // arrow keys also carry the numeric-pad and function flags: only ⌘ itself counts
-            let isCommandArrow = (123...126).contains(event.keyCode)
-                && event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]) == .command
-            if isCommandArrow {
-                let typed = MainActor.assumeIsolated { () -> Bool in
-                    guard let field = NSApp.keyWindow?.firstResponder as? NSTextView else { return false }
-                    field.keyDown(with: event)                  // the field's own ⌘-arrow: start or end of line or text
-                    return true
-                }
-                return typed ? nil : event
-            }
-            // ← → : 5 s back or on (as on YouTube). Not while typing (the field's cursor) or on a focused slider
-            let isPlainArrow = (event.keyCode == 123 || event.keyCode == 124)
-                && event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]).isEmpty
-            if isPlainArrow {
-                let seeked = MainActor.assumeIsolated { () -> Bool in
-                    let focused = NSApp.keyWindow?.firstResponder
-                    guard let self, self.current != nil, !(focused is NSText), !(focused is NSSlider) else { return false }
-                    self.seek(by: event.keyCode == 124 ? 5 : -5)
-                    return true
-                }
-                return seeked ? nil : event
-            }
-            let isPlainSpace = event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
-            guard isPlainSpace else { return event }
-            let handled = MainActor.assumeIsolated { () -> Bool in
-                guard let self, self.current != nil, !(NSApp.keyWindow?.firstResponder is NSText) else { return false }
-                self.togglePlayPause()
-                return true
-            }
+            // decided on the main actor as a plain Bool (an NSEvent cannot cross isolation); consumed outside
+            let handled = MainActor.assumeIsolated { self?.heard(event) ?? false }
             return handled ? nil : event
+        }
+    }
+
+    /// Whether a key down is the window's own (true: nothing else gets it). The key monitor's decision; self-tests ask it
+    /// directly, as the events they make do not pass the app's monitors.
+    func heard(_ event: NSEvent) -> Bool {
+        // arrow keys also carry the numeric-pad and function flags: only ⌘ itself counts
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+        let focused = (event.window ?? NSApp.keyWindow)?.firstResponder       // a text field's editor while typing
+        if (123...126).contains(event.keyCode), modifiers == .command {
+            guard let field = focused as? NSTextView else { return false }
+            field.keyDown(with: event)                      // the field's own ⌘-arrow: start or end of line or text
+            return true
+        }
+        // the rest never while typing: the key is the field's (a space typed into Search once paused the song)
+        guard !(focused is NSText) else { return false }
+        let key = event.charactersIgnoringModifiers ?? ""
+        // / : the command bar, where it is on screen (also where / is a shifted key, as ⇧7 on a German keyboard)
+        if key == "/", modifiers.subtracting(.shift).isEmpty, CommandBarState.shared.onScreen, !showNowPlaying {
+            if !event.isARepeat { CommandBarState.shared.summon() }
+            return true
+        }
+        guard modifiers.isEmpty else { return false }
+        switch event.keyCode {
+        case 123, 124:                                      // ← → : 5 s back or on (as on YouTube), not on a focused slider
+            guard current != nil, !(focused is NSSlider) else { return false }
+            seek(by: event.keyCode == 124 ? 5 : -5)
+            return true
+        case 49:                                            // Space
+            guard current != nil else { return false }
+            togglePlayPause()
+            return true
+        default:
+            break
+        }
+        // L and M once per press: held down, they neither repeat nor beep
+        switch key {
+        case "l":
+            guard let song = current else { return false }
+            if !event.isARepeat { Task { await library.toggleLike(song) } }
+            return true
+        case "m":
+            if !event.isARepeat { toggleMute() }
+            return true
+        default:
+            return false
         }
     }
 
@@ -426,7 +453,7 @@ final class Player {
     /// The session ended (signed out): nothing of that account keeps playing, stays queued, or shows in Control Center
     /// and Discord. Shuffle and repeat are this Mac's settings, so they stay.
     func stop() {
-        radioSeed = nil
+        radioAskedAfter = nil
         loads += 1                                                // an address still on its way is dropped
         resolving = false
         player.pause()
@@ -690,6 +717,12 @@ final class Player {
 
     private func giveUp(_ track: Track, because reason: String?) {
         isBuffering = false
+        // in a jam a copy failing is this Mac's alone: the room plays on, and this Mac waits for the next song
+        // (docs/jam.md). A skip here moved the room on for everyone: a member's failure until 12 Oct, the host's until 17 Oct
+        if jam != nil {
+            show("Couldn't play “\(track.title)”." + (reason.map { " " + $0 } ?? "") + " The jam plays on.", seconds: 6)
+            return
+        }
         failuresInARow += 1
         // three songs in a row would not play: something is wrong for all of them (no internet, the server gone, a
         // source blocking us). Stop and say so, instead of trying the whole queue: with no internet it cycled (7 Oct)
@@ -703,8 +736,6 @@ final class Player {
             return
         }
         show("Couldn't play “\(track.title)”." + (reason.map { " " + $0 } ?? ""), seconds: 6)
-        // in a jam the room moves on: a local seek to 0 would have reset everyone's playhead and stalled the room
-        if let jam { jam.songEnded(); return }
         // repeat on and nothing in the queue plays: one full round of failures, then stop instead of looping forever
         go(to: failuresInARow >= queue.count ? nil : order.indexAfterNext())
     }
@@ -753,6 +784,7 @@ final class Player {
 
     private func itemEnded(_ item: AVPlayerItem?) {
         guard item === player.currentItem, let track = current else { return }
+        // in a jam the room moves on at the first device to finish (docs/jam.md)
         if let jam { report("finish", track, at: Int(duration)); jam.songEnded(); return }
         report("finish", track, at: Int(duration))
         let after = order.indexAfterEnd()

@@ -112,6 +112,16 @@ final class ArtworkCache {
         return grid
     }
 
+    #if DEBUG
+    /// Self-tests: a made-up cover for `url`, at every size, so nothing is fetched (#20: no internet needed).
+    func keepForSelfTest(_ image: NSImage, for url: URL) {
+        for pixels in [256, 512, 1200] {
+            images.setObject(image, forKey: Self.key(url, pixels) as NSString, cost: Int(image.size.width * image.size.height) * 4)
+        }
+        grids[url] = nil
+    }
+    #endif
+
     /// A vivid colour from the cover for sliders, the progress line and the heart: its most colourful ninth,
     /// made readable on this background. A grey cover keeps the system accent.
     func accent(for url: URL?, dark: Bool) async -> Color? {

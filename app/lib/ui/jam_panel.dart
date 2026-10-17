@@ -6,6 +6,7 @@ import '../core/jam.dart';
 import '../core/social.dart';
 import 'cover.dart';
 import 'friends.dart';
+import 'glass_menu.dart';
 import 'popover.dart';
 
 /// The jam's button in the top bar: filled while the user is in one. It opens the panel that starts or joins a jam,
@@ -190,14 +191,15 @@ class _RoomViewState extends State<_RoomView> {
         // where the jam plays: every device (the default) or this one only, and who hosts. Only with someone else in the
         // room, the only time it means anything; a switch beside the line did not fit the panel's width
         if (host && room.members.length > 1)
-          PopupMenuButton<Object>(
+          GlassMenuButton<Object>(
             tooltip: 'Choose where the jam plays',
-            itemBuilder: (_) => [
-              CheckedPopupMenuItem<Object>(value: _onlyHere, checked: room.onlyHostPlays, child: const Text('Only this device plays')),
-              CheckedPopupMenuItem<Object>(value: _onlyMe, checked: room.onlyHostControls, child: const Text('Only I control playback')),
-              const PopupMenuDivider(),
+            width: 260,
+            entries: () => [
+              GlassMenuEntry<Object>(_onlyHere, 'Only this device plays', checked: room.onlyHostPlays),
+              GlassMenuEntry<Object>(_onlyMe, 'Only I control playback', checked: room.onlyHostControls),
+              const GlassMenuEntry<Object>.divider(),
               for (final m in room.members.where((m) => m.userId != room.hostId))
-                PopupMenuItem<Object>(value: m, child: Text("Make ${m.username} the host")),
+                GlassMenuEntry<Object>(m, "Make ${m.username} the host", checked: false),
             ],
             onSelected: (choice) => switch (choice) {
               JamMember m => jam.giveSpeakers(m),
@@ -262,16 +264,13 @@ class _RoomViewState extends State<_RoomView> {
       builder: (context, _) {
         final inRoom = {for (final m in room.members) m.username};
         final friends = [for (final f in widget.social.friends) if (!inRoom.contains(f.username)) f];
-        return PopupMenuButton<String>(
+        return GlassMenuButton<String>(
           tooltip: 'Invite a friend to this jam',
-          itemBuilder: (_) => [
-            if (friends.isEmpty) const PopupMenuItem<String>(enabled: false, child: Text('Add friends to invite them')),
+          entries: () => [
+            if (friends.isEmpty) const GlassMenuEntry<String>.disabled('Add friends to invite them'),
             for (final f in friends)
-              PopupMenuItem(
-                value: f.username,
-                enabled: !_invited.contains(f.username),
-                child: Text(_invited.contains(f.username) ? '${f.username} (Invited)' : f.username),
-              ),
+              GlassMenuEntry(f.username, _invited.contains(f.username) ? '${f.username} (Invited)' : f.username,
+                  enabled: !_invited.contains(f.username)),
           ],
           onSelected: _invite,
           child: const _MenuLabel(icon: FluentIcons.person_add_24_regular, label: 'Invite'),
@@ -301,7 +300,7 @@ class _RoomViewState extends State<_RoomView> {
         ),
         IconButton(
           tooltip: room.isPlaying ? 'Pause' : 'Play',
-          onPressed: jam.togglePlay,
+          onPressed: () => jam.setPlaying(!room.isPlaying), // what this button shows: the room
           icon: Icon(room.isPlaying ? FluentIcons.pause_24_filled : FluentIcons.play_24_filled),
         ),
         IconButton(tooltip: 'Next', onPressed: jam.skip, icon: const Icon(FluentIcons.next_24_filled)),

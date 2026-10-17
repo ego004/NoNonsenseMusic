@@ -7,8 +7,10 @@ import '../core/catalog.dart';
 
 import 'browse_nav.dart';
 import 'friends.dart';
+import 'glass_menu.dart';
 import 'home.dart';
 import 'account_settings.dart';
+import 'concept.dart';
 import 'layout.dart';
 import 'list_filter.dart';
 import 'scope.dart';
@@ -79,47 +81,48 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
             sliver: SliverToBoxAdapter(
               // A phone: the cover above the name and the buttons. Beside a 172 cover they had 150 of its width, and
               // the buttons stood one to a line (13 Oct). Flex 0 lets the text take its own height in the column.
+              // The concept (13 Oct): the cover, then the text, come in once
               child: Flex(direction: phone ? Axis.vertical : Axis.horizontal, crossAxisAlignment: phone ? CrossAxisAlignment.start : CrossAxisAlignment.end, children: [
-                PlaylistCover(covers: covers, size: phone ? 148 : 172, name: d.summary.name),
-                SizedBox(width: phone ? 0 : 22, height: phone ? 16 : 0),
+                Stagger(order: 0, child: PlaylistCover(covers: covers, size: phone ? 148 : 200, name: d.summary.name)),
+                SizedBox(width: phone ? 0 : 28, height: phone ? 16 : 0),
                 Expanded(
                   flex: phone ? 0 : 1,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(p.isAlbum ? 'ALBUM' : 'PLAYLIST', style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600)),
-                    Text(d.summary.name, maxLines: 2, style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  child: Stagger(order: 1, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(p.isAlbum ? 'ALBUM' : 'PLAYLIST', style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700, letterSpacing: 1.4)),
+                    const SizedBox(height: 4),
+                    Text(d.summary.name, maxLines: 2, style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w700, fontFamily: displayFont, letterSpacing: -0.5)),
                     Text('${d.items.length} songs · $minutes min', style: theme.textTheme.bodyMedium),
                     if (standing != null) Text(standing, style: theme.textTheme.bodySmall),
                     const SizedBox(height: 12),
                     Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                      FilledButton.icon(onPressed: tracks.isEmpty ? null : () => s.player.play(tracks, keys: d.keys, source: d.queueSource, wholeList: true),
-                          icon: const Icon(FluentIcons.play_24_filled, size: 18), label: const Text('Play')),
-                      OutlinedButton.icon(onPressed: tracks.isEmpty ? null : () => s.player.play(tracks, keys: d.keys, source: d.queueSource, shuffled: true, wholeList: true),
-                          icon: const Icon(FluentIcons.arrow_shuffle_24_regular, size: 18), label: const Text('Shuffle')),
+                      ActionPill(icon: FluentIcons.play_24_filled, label: 'Play', filled: true,
+                          onTap: tracks.isEmpty ? null : () => s.player.play(tracks, keys: d.keys, source: d.queueSource, wholeList: true)),
+                      ActionPill(icon: FluentIcons.arrow_shuffle_24_regular, label: 'Shuffle',
+                          onTap: tracks.isEmpty ? null : () => s.player.play(tracks, keys: d.keys, source: d.queueSource, shuffled: true, wholeList: true)),
                       DownloadAllButton(tracks: tracks),
                       if (p.canEdit && !p.isAlbum) ImportIntoPlaylistButton(playlistId: widget.id),
                       if (tracks.isNotEmpty) FilterField(controller: _filter),
-                      PopupMenuButton<String>(
+                      GlassMenuButton<String>(
                         icon: const Icon(FluentIcons.more_horizontal_24_regular),
                         // Only what the role allows: the server refuses anything else with 403, so it is not offered.
-                        itemBuilder: (_) => p.isAlbum
+                        entries: () => p.isAlbum
                             // a pinned album is a copy of the source's album: nothing to rename, share or reorder
                             ? [
-                                if (p.source != null && p.sourceId != null)
-                                  const PopupMenuItem(value: 'album', child: Text('Go to Album')),
-                                const PopupMenuDivider(),
-                                const PopupMenuItem(value: 'unpin', child: Text('Unpin from Home')),
+                                if (p.source != null && p.sourceId != null) const GlassMenuEntry('album', 'Go to Album'),
+                                const GlassMenuEntry.divider(),
+                                const GlassMenuEntry('unpin', 'Unpin from Home'),
                               ]
                             : p.isOwner
                             ? [
-                                const PopupMenuItem(value: 'rename', child: Text('Rename…')),
-                                const PopupMenuItem(value: 'share', child: Text('Share…')),
-                                PopupMenuItem(value: 'public', child: Text(p.public ? 'Make Private' : 'Make Public')),
-                                const PopupMenuDivider(),
-                                const PopupMenuItem(value: 'delete', child: Text('Delete…')),
+                                const GlassMenuEntry('rename', 'Rename…'),
+                                const GlassMenuEntry('share', 'Share…'),
+                                GlassMenuEntry('public', p.public ? 'Make Private' : 'Make Public'),
+                                const GlassMenuEntry.divider(),
+                                const GlassMenuEntry('delete', 'Delete…'),
                               ]
                             : const [
-                                PopupMenuItem(value: 'share', child: Text('People…')), // The same dialog, read-only.
-                                PopupMenuItem(value: 'leave', child: Text('Leave…')),
+                                GlassMenuEntry('share', 'People…'), // The same dialog, read-only.
+                                GlassMenuEntry('leave', 'Leave…'),
                               ],
                         onSelected: (v) async {
                           switch (v) {
@@ -161,7 +164,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                         },
                       ),
                     ]),
-                  ]),
+                  ])),
                 ),
               ]),
             ),
@@ -198,7 +201,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                 itemCount: d.items.length,
                 itemBuilder: (_, i) => Padding(
                   padding: noGrip,
-                  child: SizedBox(height: songRowExtent(context), child: SongRow(queue: tracks, index: i, keys: d.keys, source: d.queueSource)),
+                  child: SizedBox(height: songRowExtent(context), child: SongRow(queue: tracks, index: i, keys: d.keys, source: d.queueSource, number: p.isAlbum ? i + 1 : null)),
                 ),
               ),
             )
@@ -236,9 +239,9 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
 /// Returns null when the dialog is cancelled or the entry is blank.
 Future<String?> askName(BuildContext context, {required String title, String initial = ''}) {
   final field = TextEditingController(text: initial);
-  return showDialog<String>(
+  return showGlassDialog<String>(
     context: context,
-    builder: (c) => AlertDialog(
+    builder: (c) => GlassDialog(
       title: Text(title),
       content: TextField(controller: field, autofocus: true, onSubmitted: (v) => Navigator.pop(c, v.trim().isEmpty ? null : v.trim())),
       actions: [
@@ -253,9 +256,9 @@ Future<String?> askName(BuildContext context, {required String title, String ini
 ///
 /// Dismissing the dialog counts as a refusal.
 Future<bool> confirm(BuildContext context, String title, String? detail, {String action = 'Delete'}) async =>
-    await showDialog<bool>(
+    await showGlassDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(title: Text(title), content: detail == null ? null : Text(detail), actions: [
+      builder: (c) => GlassDialog(title: Text(title), content: detail == null ? null : Text(detail), actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
         FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(action)),
       ]),
@@ -277,7 +280,7 @@ Future<String?> share(BuildContext context, PlaylistSummary p) {
   List<PlaylistMember>? members;
   var asked = false;
   var copied = false;
-  return showDialog<String>(
+  return showGlassDialog<String>(
     context: context,
     builder: (c) => StatefulBuilder(
       builder: (c, set) {
@@ -314,7 +317,7 @@ Future<String?> share(BuildContext context, PlaylistSummary p) {
         }
 
         final theme = Theme.of(c);
-        return AlertDialog(
+        return GlassDialog(
           title: Row(children: [
             Expanded(child: Text(p.isOwner ? 'Share “${p.name}”' : 'People on “${p.name}”')),
             // The web address: anyone it is shared with, or anyone at all when it is public, can open it.
