@@ -8,9 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
-import '../core/api.dart';
+import '../core/catalog.dart';
 import '../core/download_store.dart';
 import '../core/jam.dart';
+import '../core/matching.dart';
 import '../core/models.dart';
 import '../core/play_queue.dart';
 import '../core/reveal.dart';
@@ -105,6 +106,7 @@ class _CommandBarState extends State<CommandBar> {
   Timer? _wait;
   int _asked = 0; // the newest search: an older answer that comes late is dropped
   List<Track> _songs = [];
+  int _yours = 0; // how many of _songs, from the first, are the user's own (#26)
   bool _searching = false;
   int _chosen = 0;
   List<_Entry> _entries = [];
@@ -137,20 +139,28 @@ class _CommandBarState extends State<CommandBar> {
     final asked = ++_asked;
     setState(() {
       _chosen = 0;
-      if (q.length < 2) _songs = [];
+      if (q.length < 2) {
+        _songs = [];
+        _yours = 0;
+      }
       _searching = q.length >= 2;
     });
     if (q.length < 2) return;
     _wait = Timer(const Duration(milliseconds: 250), () async {
-      List<Track> found;
+      SearchResult found;
       try {
-        found = (await Api.search(q)).take(5).toList();
+        // songs only, as the Mac asks: the bar shows no artists or albums
+        found = await Catalog.search(q, filter: 'songs');
       } catch (_) {
-        found = []; // no server now: the commands still work
+        if (!mounted) return;
+        // no server now: the songs of yours this app holds that match, by the server's rule; the commands still work
+        final own = matchingSongs(q, Scope.of(context).library.held(DownloadStore.shared));
+        found = SearchResult(songs: own, yours: own.length);
       }
       if (!mounted || asked != _asked) return;
       setState(() {
-        _songs = found;
+        _songs = found.songs.take(5).toList();
+        _yours = math.min(found.yours, 5);
         _searching = false;
       });
     });
@@ -330,14 +340,12 @@ class _CommandBarState extends State<CommandBar> {
           child: Text(t, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 1.2, color: ink.withValues(alpha: 0.5))),
         );
     final rows = <Widget>[];
-    var songsShown = false;
     for (var i = 0; i < entries.length; i++) {
       final e = entries[i];
       if (i == 0 && e.command != null) rows.add(heading(typed ? 'ACTIONS' : 'SUGGESTED'));
-      if (e.song != null && !songsShown) {
-        songsShown = true;
-        rows.add(heading('SONGS'));
-      }
+      // your own songs first, under their own heading (#26); the sources' under SONGS
+      if (e.song != null && e.index == 0) rows.add(heading(_yours > 0 ? 'IN YOUR LIBRARY' : 'SONGS'));
+      if (e.song != null && e.index == _yours && _yours > 0) rows.add(heading('SONGS'));
       if (e.all != null && _searching && _songs.isEmpty) {
         rows.add(heading('SONGS'));
         rows.add(Padding(

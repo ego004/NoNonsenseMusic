@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'api.dart';
 import 'catalog.dart';
+import 'download_store.dart';
 import 'models.dart';
 
 /// The user's liked songs, recently played tracks and playlists; the Mac app's equivalent is LibraryStore.
@@ -21,6 +22,15 @@ class Library extends ChangeNotifier {
   void Function(PlaylistDetail)? playlistChanged;
 
   bool isLiked(Track t) => t.listings.any((l) => _likedKeys.contains(l.key));
+
+  /// The songs of yours this app holds when the server cannot be reached: the downloads first (they play with no
+  /// server), then the liked songs and the playlists opened since the app started. A search finds yours among them
+  /// then, by the server's rule (core/matching.dart, #26).
+  Iterable<Track> held(DownloadStore downloads) => [
+        for (final item in downloads.items) item.track,
+        for (final song in liked) song.track,
+        for (final playlist in details.values) ...playlist.tracks,
+      ];
 
   /// The user's own playlists, in their order; the server sends the shared ones after them.
   Iterable<PlaylistSummary> get ownPlaylists => playlists.where((p) => p.isOwner);
