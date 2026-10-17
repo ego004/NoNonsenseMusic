@@ -147,6 +147,7 @@ def test_a_liked_song_comes_first_even_when_no_source_finds_it(client, monkeypat
     sources_find(monkeypatch, listing("jiosaavn", f"j2-{t}", "Kesariya Lofi", [f"Arijit {t}"]))
     songs = me.search(f"kesariya {t}")
     assert [(s["title"], s.get("in_library", False)) for s in songs] == [("Kesariya", True), ("Kesariya Lofi", False)]
+    assert "in_library" not in songs[1]                                         # sent only when true: older apps see nothing new
 
 
 def test_typos_as_the_ranking_allows_and_every_word_needed(client):
