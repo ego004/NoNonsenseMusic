@@ -612,7 +612,7 @@ class Player extends ChangeNotifier implements JamPlayer {
     _refill();
   }
 
-  /// Asks the server's radio for songs like the queue's last one when Up Next runs low (see [Autoplay]).
+  /// Asks the server's radio for songs like the last one the user chose when Up Next runs low (see [Autoplay]).
   Future<void> _refill() async {
     final due = _autoplay.due(queue, enabled: autoplay, blocked: jam != null);
     if (due == null) return;
@@ -620,7 +620,7 @@ class Player extends ChangeNotifier implements JamPlayer {
     try {
       songs = await Catalog.radio(due.seed, due.exclude, skipRecent: autoplaySkipsRecent);
     } catch (_) {
-      return; // the same seed is not asked again; the next song or the next play starts over
+      return; // not asked again until the queue's last song changes, or a new queue
     }
     if (songs.isEmpty || queue.tracks.lastOrNull?.id != due.lastId) return; // the queue changed meanwhile
     final queued = {for (final t in queue.tracks) ...t.listings.map((l) => l.key)};

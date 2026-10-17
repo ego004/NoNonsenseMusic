@@ -62,6 +62,9 @@ class PlayQueue {
   List<Entry> get upcoming => index + 1 < entries.length ? entries.sublist(index + 1) : [];
   List<Track> get upNext => upcoming.map((e) => e.track).toList();
 
+  /// The song Autoplay's station follows: the last one in the queue that Autoplay did not add.
+  Track? get autoplaySeed => entries.where((e) => !e.autoplay).lastOrNull?.track;
+
   /// A new queue. `keys` name the entries (playlist item ids); without them each entry gets its own.
   void load(List<Track> tracks, int startAt, {List<String>? keys, String? source, required bool shuffled, Random? rng}) {
     entries = [
