@@ -110,13 +110,13 @@ struct TranslatedLyricsView: View {
                                 .textSelection(.enabled)
                             }
                         }
+                        // the stack's last row: below the stack, it went where the stack's estimated height ended and
+                        // was drawn over the second line of four (CI's pictures, 17 Oct)
+                        if let credit = store.credits[key] {
+                            Text(credit).textStyle(.caption).foregroundStyle(.secondary)     // text: tertiary is for symbols (#20)
+                        }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
-                    if let credit = store.credits[key] {
-                        Text(credit).textStyle(.caption).foregroundStyle(.secondary)         // text: tertiary is for symbols (#20)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16).padding(.bottom, 14)
-                    }
                 }
                 .selfTestFrame("lyrics.translation")
                 .selfTestShown("translation")
