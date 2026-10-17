@@ -8,11 +8,12 @@ import '../core/settings.dart';
 import '../core/translation.dart';
 import 'account_settings.dart';
 import 'layout.dart';
+import 'redesign.dart';
 import 'scope.dart';
 import 'storage_settings.dart';
 
-/// Builds the settings screen: account and sign out, the server's address, the window's material on
-/// Windows, playback choices, lyrics, and Discord presence.
+/// Builds the settings screen: account and sign out, the server's address, the appearance (the window's material on
+/// Windows, its surfaces, sizes and colours), playback choices, lyrics, and Discord presence.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
@@ -108,19 +109,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (Platform.isWindows && s.settings.material.theme != null)
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: Text('Set by the ${s.settings.material.label} background below.', style: Theme.of(context).textTheme.bodySmall),
+            child: Text('Set by the ${s.settings.material.label} window, below.', style: theme.textTheme.bodySmall),
           ),
-        const SizedBox(height: 12),
-        _slider(context, 'Text size', s.settings.textScale, 0.85, 1.4, 'Smaller', 'Larger', s.settings.setTextScale),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          value: s.settings.coverGlow,
-          onChanged: s.settings.setCoverGlow,
-          title: const Text('Cover glow'),
-          subtitle: const Text('The window takes a soft light from the cover of the song playing.'),
-        ),
+        // Settings › Appearance as on the Mac (#29): the window, its surfaces one part at a time, sizes, colours
         if (Platform.isWindows) ...[
-          heading('Background'),
+          heading('Window'),
           RadioGroup<WindowMaterial>(
             groupValue: s.settings.material,
             onChanged: (m) { if (m != null) s.settings.setMaterial(m); },
@@ -129,6 +122,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ]),
           ),
         ],
+        heading('Surfaces'),
+        const _Surfaces(),
+        heading('Sizes'),
+        _slider(context, 'Text size', s.settings.textScale, 0.85, 1.4, 'Smaller', 'Larger', s.settings.setTextScale),
+        _slider(context, 'Card size', s.settings.look.cardSize, 116, 210, 'Small', 'Large', (v) => s.settings.setLook(s.settings.look.copyWith(cardSize: v))),
+        // the sizes, live: a card at half its size and a song's two lines, as on the Mac
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(children: [
+            Container(
+              width: s.settings.look.cardSize * 0.45,
+              height: s.settings.look.cardSize * 0.45,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                gradient: LinearGradient(colors: Collection.liked.colors, begin: Alignment.topLeft, end: Alignment.bottomRight),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Song title', style: TextStyle(fontWeight: FontWeight.w600)),
+              Text('Artist', style: theme.textTheme.bodySmall),
+            ]),
+          ]),
+        ),
+        Text('Text: everywhere. Cards: the covers on Home, in the Library and in albums, shown here at half size.', style: theme.textTheme.bodySmall),
+        heading('Colours'),
+        _ColourRow(
+          title: 'Accent',
+          detail: 'Buttons, selections and the playing song. System: blue',
+          mode: s.settings.look.accent,
+          colour: s.settings.look.accentColour,
+          setMode: (m) => s.settings.setLook(s.settings.look.copyWith(accent: m)),
+          setColour: (c) => s.settings.setLook(s.settings.look.copyWith(accentColour: c)),
+        ),
+        _ColourRow(
+          title: 'Background',
+          detail: 'The colour behind the lists and Now Playing. System: none',
+          mode: s.settings.look.background,
+          colour: s.settings.look.backgroundColour,
+          setMode: (m) => s.settings.setLook(s.settings.look.copyWith(background: m)),
+          setColour: (c) => s.settings.setLook(s.settings.look.copyWith(backgroundColour: c)),
+        ),
+        Text("Song: the playing cover's colour. Custom: type a hex code or pick a colour.", style: theme.textTheme.bodySmall),
+        const SizedBox(height: 16),
+        Row(children: [
+          Expanded(child: Text('Colours, surfaces and sizes back to how they came', style: theme.textTheme.bodySmall)),
+          OutlinedButton(onPressed: s.settings.resetLook, child: const Text('Reset All')),
+        ]),
         heading('Playback'),
         ListTile(
           contentPadding: EdgeInsets.zero,
@@ -212,22 +253,172 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ]),
     );
   }
+}
 
-  /// Builds a slider for a setting on a scale: the setting's name, then the slider between words
-  /// naming its two ends.
-  ///
-  /// The value is saved when the drag ends, not at every step of it.
-  Widget _slider(BuildContext context, String label, double value, double min, double max, String low, String high,
-      Future<void> Function(double) save) {
-    final small = Theme.of(context).textTheme.bodySmall;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 480),
+/// Builds a slider for a setting on a scale: the setting's name, then the slider between words
+/// naming its two ends.
+///
+/// The value is saved when the drag ends, not at every step of it.
+Widget _slider(BuildContext context, String label, double value, double min, double max, String low, String high,
+    Future<void> Function(double) save) {
+  final small = Theme.of(context).textTheme.bodySmall;
+  return ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 480),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label),
+      Row(children: [
+        Text(low, style: small),
+        Expanded(child: _Slide(value: value, min: min, max: max, save: save)),
+        Text(high, style: small),
+      ]),
+    ]),
+  );
+}
+
+/// The parts of the window Settings › Appearance › Surfaces sets one at a time, as on the Mac (SurfacePart).
+enum _Part { main, bar, nowPlaying }
+
+/// Settings › Appearance › Surfaces: pick a part, and what can be set for it is under it. Fewer than on the Mac: Now
+/// Playing fills the window here, so it has no blur or see-through of its own (its text would stand on whatever page is
+/// under it, which #20's rule cannot keep readable), and the window's blur is Window, above.
+class _Surfaces extends StatefulWidget {
+  const _Surfaces();
+  @override
+  State<_Surfaces> createState() => _SurfacesState();
+}
+
+class _SurfacesState extends State<_Surfaces> {
+  var _part = _Part.main;
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = Scope.of(context).settings;
+    final look = settings.look;
+    final phone = isPhone(context);
+    Future<void> set(Look next) => settings.setLook(next);
+    Widget note(String text) => Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+        );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SegmentedButton<_Part>(
+        showSelectedIcon: false,
+        segments: [
+          const ButtonSegment(value: _Part.main, label: Text('Main area')),
+          // a phone's player bar and tabs float together over the lists
+          ButtonSegment(value: _Part.bar, label: Text(phone ? 'Bottom bar' : 'Player bar')),
+          const ButtonSegment(value: _Part.nowPlaying, label: Text('Now Playing')),
+        ],
+        selected: {_part},
+        onSelectionChanged: (v) => setState(() => _part = v.first),
+      ),
+      const SizedBox(height: 12),
+      ...switch (_part) {
+        // softer only: the text on the window has nothing over the cover's colours but a light veil
+        _Part.main => [
+            _slider(context, 'Colour strength', look.artStrength, 0, Look.defaultStrength, 'Soft', 'Full', (v) => set(look.copyWith(artStrength: v))),
+            note('Behind the lists and Home. The colour comes from Colours › Background.'),
+          ],
+        _Part.bar => [
+            _slider(context, 'Blur', look.barBlur, 0, 1, 'Clear', 'Frosted', (v) => set(look.copyWith(barBlur: v))),
+            _slider(context, 'Transparency', look.barSolid, 0, 1, 'See-through', 'Solid', (v) => set(look.copyWith(barSolid: v))),
+            note(phone
+                ? 'The player bar and the tabs. Blur is drawn again with every frame the list under them moves: it costs '
+                    'battery while you scroll, so a phone starts without it.'
+                : 'A blur of what scrolls under the bar, drawn again with every frame the list under it moves.'),
+          ],
+        _Part.nowPlaying => [
+            _slider(context, 'Colour strength', look.nowPlayingColour, 0, 1, 'Soft', 'Vivid', (v) => set(look.copyWith(nowPlayingColour: v))),
+            note("The cover's colours behind Now Playing, kept where its text reads on them, however vivid."),
+          ],
+      },
+    ]);
+  }
+}
+
+/// Colours you can pick with a tap (the Mac's system colours); Custom's hex code takes any other.
+const _picks = [
+  Color(0xFF0A84FF), Color(0xFF5E5CE6), Color(0xFFBF5AF2), Color(0xFFFF375F), Color(0xFFFF453A),
+  Color(0xFFFF9F0A), Color(0xFFFFD60A), Color(0xFF30D158), Color(0xFF64D2FF), Color(0xFF8E8E93),
+];
+
+/// One coloured part, as on the Mac (ThemeRow): System, Song or Custom. Song shows the colour it takes now; Custom a
+/// hex code, saved on Enter, and colours to pick.
+class _ColourRow extends StatefulWidget {
+  final String title, detail;
+  final ColourMode mode;
+  final Color colour;
+  final void Function(ColourMode) setMode;
+  final void Function(Color) setColour;
+  const _ColourRow({required this.title, required this.detail, required this.mode, required this.colour, required this.setMode, required this.setColour});
+  @override
+  State<_ColourRow> createState() => _ColourRowState();
+}
+
+class _ColourRowState extends State<_ColourRow> {
+  late final _hex = TextEditingController(text: hexOf(widget.colour));
+
+  @override
+  void didUpdateWidget(_ColourRow old) {
+    super.didUpdateWidget(old);
+    if (old.colour != widget.colour) _hex.text = hexOf(widget.colour);
+  }
+
+  @override
+  void dispose() {
+    _hex.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final song = Look.of(context).song;
+    Widget swatch(Color c, {VoidCallback? onTap, bool chosen = false}) => GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: c,
+              shape: BoxShape.circle,
+              border: Border.all(color: chosen ? theme.colorScheme.onSurface : theme.colorScheme.onSurface.withValues(alpha: 0.15), width: chosen ? 2 : 1),
+            ),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label),
-        Row(children: [
-          Text(low, style: small),
-          Expanded(child: _Slide(value: value, min: min, max: max, save: save)),
-          Text(high, style: small),
+        Text(widget.title),
+        Text(widget.detail, style: theme.textTheme.bodySmall),
+        const SizedBox(height: 6),
+        Wrap(spacing: 10, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          SegmentedButton<ColourMode>(
+            showSelectedIcon: false,
+            segments: [for (final m in ColourMode.values) ButtonSegment(value: m, label: Text(m.label))],
+            selected: {widget.mode},
+            onSelectionChanged: (v) => widget.setMode(v.first),
+          ),
+          if (widget.mode == ColourMode.song)
+            Tooltip(
+              message: song == null ? "No colourful cover playing: the system's colour is used" : "The playing cover's colour",
+              child: swatch(song ?? theme.colorScheme.onSurface.withValues(alpha: 0.3)),
+            ),
+          if (widget.mode == ColourMode.custom) ...[
+            SizedBox(
+              width: 96,
+              child: TextField(
+                controller: _hex,
+                decoration: const InputDecoration(isDense: true, hintText: '#RRGGBB'),
+                onSubmitted: (text) {
+                  final c = colourFromHex(text);
+                  c == null ? _hex.text = hexOf(widget.colour) : widget.setColour(c); // not a colour: back to the one set
+                },
+              ),
+            ),
+            for (final c in _picks)
+              Tooltip(message: hexOf(c), child: swatch(c, onTap: () => widget.setColour(c), chosen: c == widget.colour)),
+          ],
         ]),
       ]),
     );

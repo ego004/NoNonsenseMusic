@@ -11,6 +11,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/cover_image.dart';
 import '../core/play_queue.dart';
+import '../core/settings.dart';
 import 'cover.dart';
 import 'in_front.dart';
 import 'layout.dart';
@@ -780,43 +781,64 @@ class NowPlayingInk {
 /// GPU to fill the window. It stays one still 64-pixel texture, so nothing is blurred again while the song plays. The
 /// 12-pixel cover it replaces, stretched to the window, showed its pixels as soft blocks (15 Oct). The next song's
 /// backdrop fades in over the last. Now Playing's keeps its pixels where its text reads on them ([ink], #20); the window's
-/// cover glow (no [ink]) shows the cover as it is, as the Mac's window does.
+/// cover glow (no [ink]) shows the cover as it is, as the Mac's window does. With Settings › Appearance › Colours ›
+/// Background › Custom it is the user's [colour] instead of a cover ([backdropFor]), kept and shown the same way.
 class CoverBackdrop extends StatefulWidget {
-  final String url;
+  final String? url;
+  final Color? colour;
   final NowPlayingInk? ink;
-  const CoverBackdrop({super.key, required this.url, this.ink});
+  const CoverBackdrop({super.key, this.url, this.colour, this.ink}) : assert(url != null || colour != null);
   @override
   State<CoverBackdrop> createState() => _CoverBackdropState();
 }
 
+/// Colours › Background's backdrop for a song whose cover is [cover]: the cover (Song, the default), the user's colour
+/// (Custom), or none (System).
+CoverBackdrop? backdropFor(Look look, String? cover, {NowPlayingInk? ink}) => switch (look.background) {
+      ColourMode.system => null,
+      ColourMode.song => cover == null ? null : CoverBackdrop(url: cover, ink: ink),
+      ColourMode.custom => CoverBackdrop(colour: look.backgroundColour, ink: ink),
+    };
+
 class _CoverBackdropState extends State<CoverBackdrop> {
   static const _px = 64;
+
+  /// The Mac's Backdrop.shades: a custom colour mixed with black or white, a different amount in each ninth.
+  static const _shades = [(Colors.black, 0.30), (Colors.black, 0.12), (Colors.black, 0.28), (Colors.black, 0.05),
+    (Colors.white, 0.12), (Colors.black, 0.08), (Colors.black, 0.32), (Colors.black, 0.15), (Colors.black, 0.30)];
   ui.Image? _shown, _leaving; // the backdrop, and the one it fades in over
   String? _wanted;
   Uint8List? _blurred; // the blurred cover's pixels: kept again for the other theme
   ImageStream? _stream;
   ImageStreamListener? _listener;
 
+  /// What it shows: the cover's address, or the colour's hex code.
+  String get _source => widget.url ?? hexOf(widget.colour!);
+
   @override
   void initState() {
     super.initState();
-    _load(widget.url);
+    _load();
   }
 
   @override
   void didUpdateWidget(CoverBackdrop old) {
     super.didUpdateWidget(old);
-    if (old.url != widget.url) {
-      _load(widget.url);
+    if (old.url != widget.url || old.colour != widget.colour) {
+      _load();
     } else if (old.ink != widget.ink && widget.ink != null && _blurred != null) {
-      _keep(widget.url, widget.ink!, _blurred!);
+      _keep(_source, widget.ink!, _blurred!);
     }
   }
 
-  void _load(String url) {
+  void _load() {
     _stop();
-    _wanted = url;
+    final url = _wanted = _source;
     _blurred = null;
+    if (widget.url == null) {
+      _blur(url, null);
+      return;
+    }
     final listener = ImageStreamListener((info, _) {
       _stop();
       _blur(url, info);
@@ -831,17 +853,29 @@ class _CoverBackdropState extends State<CoverBackdrop> {
     _stream = _listener = null;
   }
 
-  Future<void> _blur(String url, ImageInfo info) async {
-    final source = info.image;
-    final area = Offset.zero & Size(source.width.toDouble(), source.height.toDouble());
+  /// Draws the backdrop once, blurred: the cover in [info], or with none the custom colour's nine shades, blurred into
+  /// one another.
+  Future<void> _blur(String url, ImageInfo? info) async {
+    const area = Rect.fromLTWH(0, 0, _px * 1.0, _px * 1.0);
     final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
     // mirrored at the edges, so the blur does not darken them
-    Canvas(recorder).drawImageRect(source, area, area,
-        Paint()..imageFilter = ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5, tileMode: TileMode.mirror));
+    if (info != null) {
+      final source = info.image;
+      canvas.drawImageRect(source, Offset.zero & Size(source.width.toDouble(), source.height.toDouble()), area,
+          Paint()..imageFilter = ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5, tileMode: TileMode.mirror));
+    } else {
+      canvas.saveLayer(area, Paint()..imageFilter = ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8, tileMode: TileMode.mirror));
+      for (var i = 0; i < 9; i++) {
+        canvas.drawRect(Rect.fromLTWH(i % 3 * _px / 3, i ~/ 3 * _px / 3, _px / 3, _px / 3),
+            Paint()..color = Color.lerp(widget.colour, _shades[i].$1, _shades[i].$2)!);
+      }
+      canvas.restore();
+    }
     final picture = recorder.endRecording();
-    final blurred = await picture.toImage(source.width, source.height);
+    final blurred = await picture.toImage(_px, _px);
     picture.dispose();
-    info.dispose();
+    info?.dispose();
     final ink = widget.ink;
     if (!mounted || url != _wanted || ink == null) return _show(url, blurred);
     final bytes = await blurred.toByteData(format: ui.ImageByteFormat.rawRgba);

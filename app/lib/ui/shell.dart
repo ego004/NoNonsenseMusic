@@ -265,7 +265,7 @@ class _ShellState extends State<Shell> {
             children: [
               if (phone) const Positioned.fill(child: PhoneBackdrop()),
               // Clear has no blur behind it: a light veil keeps the text on the window readable over a busy desktop
-              if (!phone && s.settings.material == WindowMaterial.clear)
+              if (!phone && Look.of(context).material == WindowMaterial.clear)
                 Positioned.fill(
                   child: ColoredBox(color: theme.colorScheme.surface.withValues(alpha: theme.brightness == Brightness.dark ? 0.35 : 0.45)),
                 ),
@@ -435,6 +435,9 @@ class _ShellState extends State<Shell> {
                             ),
                             child: GlassSurface(
                               radius: 28,
+                              // Settings › Appearance › Surfaces › Bottom bar, as the player bar over it
+                              blur: 18 * Look.of(context).barBlur,
+                              solid: Look.of(context).barSolid,
                               // the bar pads itself by the system's insets, top and bottom; the bottom one is already
                               // given above, and the status bar's stood as an empty band over the icons (13 Oct)
                               child: MediaQuery.removePadding(

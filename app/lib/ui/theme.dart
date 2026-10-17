@@ -3,21 +3,23 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../core/accent.dart';
+import '../core/settings.dart';
 
-/// Builds the application theme for the given brightness and playing cover colour.
+/// Builds the application theme for the given brightness and playing cover colour, in the [look] chosen in Settings ›
+/// Appearance, which the theme carries to the parts that show it.
 ///
-/// Surfaces are neutral greys with no tint. The accent is read from the cover when [song] is provided and falls
-/// back to Windows 11's default blue otherwise. Ripples are removed because a desktop app answers a click rather
-/// than splashing, and hovers stay quiet. The font is the system's, which is Segoe UI Variable Text on Windows.
-/// Type leans on weight and size rather than colour.
-ThemeData buildTheme(Brightness b, Color? song) {
+/// Surfaces are neutral greys with no tint. The accent is Colours › Accent: read from the cover when [song] is
+/// provided (Song, the default), the user's own (Custom), else Windows 11's default blue. Ripples are removed because a
+/// desktop app answers a click rather than splashing, and hovers stay quiet. The font is the system's, which is Segoe UI
+/// Variable Text on Windows. Type leans on weight and size rather than colour.
+ThemeData buildTheme(Brightness b, Color? song, {Look look = const Look()}) {
   final dark = b == Brightness.dark;
   final mobile = Platform.isAndroid || Platform.isIOS;
-  final accent = song != null
-      ? Accent.readable(song, b)
-      : (dark
-            ? const Color(0xFF60CDFF)
-            : const Color(0xFF005FB8)); // Windows 11's default accent
+  final accent = switch (look.accent) {
+    ColourMode.song when song != null => Accent.readable(song, b),
+    ColourMode.custom => Accent.readable(look.accentColour, b, vivid: false),
+    _ => Accent.standard(b),
+  };
   final surface = mobile
       ? (dark ? const Color(0xFF111722) : const Color(0xFFF5F7FC))
       : (dark ? const Color(0xFF1B1B1D) : const Color(0xFFF7F7F8));
@@ -53,6 +55,7 @@ ThemeData buildTheme(Brightness b, Color? song) {
   );
   final t = base.textTheme;
   return base.copyWith(
+    extensions: [look.copyWith(song: song)],
     textTheme: t.copyWith(
       headlineLarge: t.headlineLarge?.copyWith(
         fontWeight: FontWeight.w700,
