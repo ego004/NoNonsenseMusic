@@ -55,6 +55,7 @@ class FakePlayer implements JamPlayer {
   JamSong? jamSong;
   List<Track> radio = const [];
   final radioSeeds = <String>[];
+  final radioExcluded = <List<String>>[];
   final calls = <String>[];
   double? loadedAt;
 
@@ -77,6 +78,7 @@ class FakePlayer implements JamPlayer {
   @override
   Future<List<Track>> jamRadio(Listing seed, List<Listing> exclude) async {
     radioSeeds.add(seed.id);
+    radioExcluded.add([for (final l in exclude) l.id]);
     return radio;
   }
 
@@ -278,6 +280,24 @@ void main() {
       await push(stateMessage(roomJson(host: 'u3', current: entry('e1', listing('a')), members: three)));
       expect(player.calls, contains('say “ana” is the host now.'));
       expect(player.radioSeeds, isEmpty);
+    });
+
+    test("the host's Autoplay follows the last song a person chose, never one it added", () async {
+      const me = [('me', 'kai')];
+      Track track(String id) => Track(listing(id), [listing(id)]);
+      await joinAsMember(roomJson(host: 'u2', current: entry('e1', listing('a'))));
+      player
+        ..isPlaying = true
+        ..radio = [track('r1'), track('r2')];
+      await push(stateMessage(roomJson(host: 'me', current: entry('e1', listing('a')), members: me)));
+      player.radio = [track('r3')];
+      await push(stateMessage(
+          roomJson(host: 'me', current: entry('e2', listing('r1')), queue: [entry('e3', listing('r2'))], members: me)));
+      expect(player.radioSeeds, ['a', 'a'], reason: "not r2: seeded from Autoplay's own songs, refills drifted off");
+      expect(player.radioExcluded.last, containsAll(['r1', 'r2']), reason: 'what Autoplay added is not given again');
+      await push(stateMessage(
+          roomJson(host: 'me', current: entry('e4', listing('r3')), queue: [entry('e5', listing('b'))], members: me)));
+      expect(player.radioSeeds, ['a', 'a', 'b'], reason: 'a song someone adds is the station from then on');
     });
 
     test("8. a slow load starts at the room's playhead as it is when ready, which moves on while the room plays (#28)",
