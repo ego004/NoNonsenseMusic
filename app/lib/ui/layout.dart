@@ -27,10 +27,19 @@ double songRowGap(BuildContext context) => isPhone(context) ? 8 : 2;
 
 /// The height one song row takes in a list, the gap to the next row included: a row of 56 at the usual text size,
 /// taller as Settings › Text size grows, so two lines of larger text still fit.
-double songRowExtent(BuildContext context) {
-  const lines = 14.0 + 12.5; // the title and the artists
-  return 56 + songRowGap(context) + (MediaQuery.textScalerOf(context).scale(lines) - lines).clamp(0, 40) * 1.4;
-}
+double songRowExtent(BuildContext context) =>
+    56 + songRowGap(context) + textGrowth(context, 14 + 12.5).clamp(0, 56); // the title and the artists
+
+/// How much taller lines of text whose sizes add up to [points] get at the text size the system or Settings chose
+/// (Android's font size goes to 200%): what a box of fixed height holding them must grow by. 1.4: a line's height per
+/// point of its size. The player bar's song and Home's song tiles overflowed their boxes at 200% (#20).
+double textGrowth(BuildContext context, double points) =>
+    (MediaQuery.textScalerOf(context).scale(points) - points).clamp(0, double.infinity) * 1.4;
+
+/// A box [width] wide made to fit text of [fontSize] (a time beside a line), as much wider as that text grows at a
+/// larger text size: "4:05" wrapped onto a second line in a song row's 44-point box at 200% (#20).
+double textWidth(BuildContext context, double width, double fontSize) =>
+    width * MediaQuery.textScalerOf(context).scale(fontSize) / fontSize;
 /// "1 song", "12 songs".
 String songCount(int n) => n == 1 ? '1 song' : '$n songs';
 

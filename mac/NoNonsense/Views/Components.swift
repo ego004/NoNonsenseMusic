@@ -95,19 +95,21 @@ struct Backdrop: View {
     }
 
     var body: some View {
+        // the nine colours as drawn: worked out when the body runs (a new song, light or dark, another strength), not
+        // in the timeline below, which runs 10 times a second while the mesh moves
+        let colours = mesh.map { Self.colours(of: $0.colors, dark: scheme == .dark, strength: strength, readable: inNowPlaying) }
         ZStack {
             if let base { Rectangle().fill(base) }
             if !animate && !pictureFailed {
                 StillPicture(image: picture.image, fade: picture.fade)
-            } else if let mesh {
+            } else if let mesh, let colours {
                 // 10 frames a second is plenty for a drift that takes ~30 s per cycle (the screen may run at 120):
                 // a step moves a colour ~3 pt; each frame costs ~0.5% of a core (measured 7 Oct)
                 TimelineView(DriftSchedule(interval: 1.0 / 10, paused: !moving)) { context in
                     MeshGradient(width: 3, height: 3,
                                  points: Self.points(at: moving ? context.date.timeIntervalSinceReferenceDate : 0),
-                                 colors: mesh.colors.map { $0.mix(with: scheme == .dark ? .black : .white, by: 0.3 * (1 - strength)) })
+                                 colors: colours.map(\.color))
                 }
-                .saturation(1 + 0.35 * strength)                // vivid: unmixed and a little richer, not only more opaque
                 .id(mesh.key)                                   // identity = the source: changing it crossfades
                 .transition(.opacity)
                 .opacity(strength)
@@ -133,13 +135,15 @@ struct Backdrop: View {
             guard let colors = await ArtworkCache.shared.colorGrid(for: url), !Task.isCancelled else { return }   // a newer song's mesh wins
             show((key, colors), fading: 1.1)
         }
-        // the still picture: drawn again for new colours, light or dark, or another strength (those change at once)
+        // new colours, light or dark, or another strength (those change at once): Now Playing's text learns what it is
+        // on, and the still picture is drawn again
         .task(id: [mesh?.key ?? "", scheme == .dark ? "dark" : "light", String(strength), animate ? "moving" : "still"]) {
+            if inNowPlaying { NowPlayingInk.shared.show(colours ?? [], dark: scheme == .dark, strength: strength) }
             guard !animate else { return }
             let fade = mesh?.key != pictureKey ? pictureFade : 0
             pictureKey = mesh?.key
-            guard let mesh else { picture = (nil, fade); return }
-            if let drawn = Self.drawPicture(of: mesh.colors, dark: scheme == .dark, strength: strength, key: mesh.key) {
+            guard let mesh, let colours else { picture = (nil, fade); return }
+            if let drawn = Self.drawPicture(of: colours, strength: strength, id: "\(mesh.key)|\(scheme == .dark)|\(strength)|\(inNowPlaying)") {
                 picture = (drawn, fade)
             } else {
                 pictureFailed = true                         // never seen: then the SwiftUI mesh draws it, as before
@@ -147,19 +151,26 @@ struct Backdrop: View {
         }
     }
 
-    /// The still mesh as a picture: exactly what the SwiftUI mesh draws (the same points, mix, saturation and strength),
-    /// drawn once. A mesh is smooth, so 240 × 150 pixels stretched to the window look the same. nil if it came out empty.
-    static func drawPicture(of colors: [Color], dark: Bool, strength: Double, key: String) -> CGImage? {
-        let id = "\(key)|\(dark)|\(strength)"
+    /// The nine colours the mesh is drawn in: the source's, mixed toward black (dark) or white (light) as the strength
+    /// falls and a third more colourful at full strength. That richness was `.saturation` on the drawn mesh; it is the
+    /// same sum on the nine colours here (the mesh only blends them), so what is drawn is known exactly. In Now Playing
+    /// (`readable`) each is then kept where its text reads (NowPlayingInk, #20).
+    static func colours(of source: [Color], dark: Bool, strength: Double, readable: Bool) -> [RGB] {
+        var environment = EnvironmentValues()
+        environment.colorScheme = dark ? .dark : .light
+        let ground = readable ? NowPlayingInk.Ground(dark: dark) : nil
+        return source.map { colour in
+            let mixed = colour.mix(with: dark ? .black : .white, by: 0.3 * (1 - strength)).resolve(in: environment)
+            let rich = RGB(mixed).saturated(1 + 0.35 * strength)
+            return ground?.kept(rich, strength: strength) ?? rich
+        }
+    }
+
+    /// The still mesh as a picture, kept by `id`: exactly what the SwiftUI mesh draws, drawn once. A mesh is smooth, so
+    /// 240 × 150 pixels stretched to the window look the same. nil if it came out empty.
+    static func drawPicture(of colours: [RGB], strength: Double, id: String) -> CGImage? {
         if let kept = pictures[id] { return kept }                  // opening Now Playing on this song again: none drawn
-        let mesh = MeshGradient(width: 3, height: 3, points: points(at: 0),
-                                colors: colors.map { $0.mix(with: dark ? .black : .white, by: 0.3 * (1 - strength)) })
-            .saturation(1 + 0.35 * strength)
-            .opacity(strength)
-            .frame(width: 240, height: 150)
-        let renderer = ImageRenderer(content: mesh)
-        renderer.scale = 1
-        guard let image = renderer.cgImage else { return nil }
+        guard let image = picture(of: colours, strength: strength) else { return nil }
         // one pixel from the middle: fully clear means the renderer could not draw the mesh
         var pixel = [UInt8](repeating: 0, count: 4)
         pixel.withUnsafeMutableBytes { buffer in
@@ -174,7 +185,17 @@ struct Backdrop: View {
         return image
     }
 
-    /// Pictures drawn this session, by mesh, light or dark, and strength.
+    /// The mesh as a picture `at` a moment of its drift (0: still). The self-test measures the moving one with it too.
+    static func picture(of colours: [RGB], strength: Double, at time: Double = 0, size: CGSize = CGSize(width: 240, height: 150)) -> CGImage? {
+        let mesh = MeshGradient(width: 3, height: 3, points: points(at: time), colors: colours.map(\.color))
+            .opacity(strength)
+            .frame(width: size.width, height: size.height)
+        let renderer = ImageRenderer(content: mesh)
+        renderer.scale = 1
+        return renderer.cgImage
+    }
+
+    /// Pictures drawn this session, by mesh, light or dark, strength, and whether Now Playing's (kept readable).
     private static var pictures: [String: CGImage] = [:]
 
     /// Nine shades of one colour, darker at the edges and lighter near the middle, so a single colour still has depth.
@@ -224,6 +245,197 @@ struct IsolatedBackdrop: NSViewRepresentable {
     private var content: AnyView {
         AnyView(Backdrop(track: track, strength: strength, underNowPlaying: underNowPlaying, inNowPlaying: inNowPlaying, visible: visible)
             .environment(player).environment(theme))
+    }
+}
+
+// MARK: - Text that reads on the backdrop (#20)
+
+/// A colour as three sRGB numbers from 0 to 1, as the window blends them: what the contrast sums work on.
+nonisolated struct RGB: Equatable, Sendable {
+    var r: Double
+    var g: Double
+    var b: Double
+
+    static let black = RGB(r: 0, g: 0, b: 0)
+    static let white = RGB(r: 1, g: 1, b: 1)
+
+    init(r: Double, g: Double, b: Double) {
+        self.r = min(1, max(0, r))
+        self.g = min(1, max(0, g))
+        self.b = min(1, max(0, b))
+    }
+
+    /// A SwiftUI colour as resolved in light or dark (one wider than sRGB is brought inside it).
+    init(_ resolved: Color.Resolved) { self.init(r: Double(resolved.red), g: Double(resolved.green), b: Double(resolved.blue)) }
+
+    /// WCAG 2's relative luminance: 0 for black, 1 for white.
+    var luminance: Double {
+        func linear(_ c: Double) -> Double { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+    }
+
+    /// WCAG 2's contrast ratio: 1 (the same colour) to 21 (black on white).
+    func contrast(with other: RGB) -> Double {
+        let (x, y) = (luminance, other.luminance)
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+    }
+
+    /// `t` of the way to `other`.
+    func mixed(with other: RGB, by t: Double) -> RGB {
+        RGB(r: r + (other.r - r) * t, g: g + (other.g - g) * t, b: b + (other.b - b) * t)
+    }
+
+    /// This colour drawn at `alpha` over `under`, as the window shows it.
+    func over(_ under: RGB, alpha: Double) -> RGB { under.mixed(with: self, by: alpha) }
+
+    /// Further from its grey by `amount` (1: as it is), its luma kept: what `.saturation` does.
+    func saturated(_ amount: Double) -> RGB {
+        let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return RGB(r: luma + (r - luma) * amount, g: luma + (g - luma) * amount, b: luma + (b - luma) * amount)
+    }
+
+    var color: Color { Color(.sRGB, red: r, green: g, blue: b) }
+}
+
+/// Now Playing's text, readable on its backdrop whatever the cover: light or dark mode, any colour strength (Settings ›
+/// Appearance › Surfaces › Now Playing), the backdrop still or moving (#20).
+///
+/// The text took the system's colours, which follow only light or dark; the backdrop took the cover's. A bright cover
+/// in dark mode put light text on a light background, a dark cover in light mode the opposite: the title at 1.04:1 on
+/// a white cover in dark mode, 1.03:1 on a black one in light, at the default strength (NN_SELFTEST_READABLE, 16 Oct).
+/// Choosing dark or light text per song would have turned Now Playing's glass, menus and controls the other way with
+/// it, and still failed on a cover half bright and half dark, where neither reads everywhere. So the text keeps its colours and the backdrop is kept where they read: each of the mesh's nine
+/// colours, before it is drawn, is mixed toward black (dark mode) or white (light) just far enough that every kind of
+/// text reaches WCAG's AA contrast on it, as it shows (at the colour strength, over the window's colour). A colour that
+/// reads already is left as it is: the cover's hue stays, only deeper or paler. The accent's text (the artists, a noted
+/// lyric) is then mixed toward the text's colour until it reads on all nine. A few sums on nine colours, once per song,
+/// light or dark and strength (Backdrop.colours); nothing per frame.
+///
+/// The levels: the system's label colour, then 70% and 50% of it where the system's are 55% and 25% (50% and 26% in
+/// light mode, whose secondary text reaches 3.9:1 at best, on white), and unlit lyrics at 60% of the label where they
+/// were 38% (2.7:1 on a black cover in dark mode).
+@Observable
+final class NowPlayingInk {
+    static let shared = NowPlayingInk()
+
+    /// Now Playing's secondary and tertiary text (RootView's NowPlayingRoot sets them for all of it).
+    static let secondary = level(0.7)
+    static let tertiary = level(0.5)
+
+    /// The text's colour, white in dark mode and black in light (the label colour's own), at `alpha`, following light or
+    /// dark as the system's colours do. `labelColor.withAlphaComponent` kept the mode it was made in: in dark mode it
+    /// drew black text on a black cover (the self-test's pictures, 16 Oct).
+    private nonisolated static func level(_ alpha: Double) -> NSColor {
+        NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor.white : NSColor.black).withAlphaComponent(alpha)
+        }
+    }
+    /// WCAG 2, AA: 4.5:1 for text; 3:1 for large text (the lyrics, 24 pt extra bold) and symbols.
+    static let text = 4.5
+    static let large = 3.0
+    /// The mesh blends its nine colours smoothly (cubically), which can overshoot them a little between the points: the
+    /// nine aim this much higher, and the self-test measures every pixel against the plain targets.
+    static let headroom = 1.1
+
+    /// A kind of text: its colour, how opaque it is, and the contrast it needs.
+    struct Role {
+        let name: String
+        let colour: RGB
+        let alpha: Double
+        let target: Double
+
+        func contrast(on backdrop: RGB) -> Double { colour.over(backdrop, alpha: alpha).contrast(with: backdrop) }
+    }
+
+    /// The window's colour and every kind of text, as light or dark mode draws them.
+    struct Ground {
+        let dark: Bool
+        let window: RGB
+        let label: RGB                       // the text's colour, opaque: white in dark mode, black in light
+        let roles: [Role]
+
+        init(dark: Bool) {
+            self.dark = dark
+            window = Self.resolved(.windowBackgroundColor, dark: dark).colour
+            let (label, alpha) = Self.resolved(.labelColor, dark: dark)
+            self.label = label
+            roles = [
+                Role(name: "text", colour: label, alpha: alpha, target: NowPlayingInk.text),
+                Role(name: "secondary text", colour: label, alpha: Self.resolved(NowPlayingInk.secondary, dark: dark).alpha,
+                     target: NowPlayingInk.text),
+                Role(name: "tertiary symbols", colour: label, alpha: Self.resolved(NowPlayingInk.tertiary, dark: dark).alpha,
+                     target: NowPlayingInk.large),
+                Role(name: "unlit lyrics", colour: label, alpha: alpha * Double(LyricLinesView.unlit), target: NowPlayingInk.large),
+            ]
+        }
+
+        /// A system colour (it differs in light and dark) as light or dark mode draws it.
+        static func resolved(_ colour: NSColor, dark: Bool) -> (colour: RGB, alpha: Double) {
+            var out = NSColor.black
+            NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance { out = colour.usingColorSpace(.sRGB) ?? .black }
+            return (RGB(r: out.redComponent, g: out.greenComponent, b: out.blueComponent), out.alphaComponent)
+        }
+
+        /// Every kind of text reads on `backdrop`, `headroom` times over.
+        func reads(on backdrop: RGB, headroom: Double = 1) -> Bool {
+            roles.allSatisfy { $0.contrast(on: backdrop) >= $0.target * headroom }
+        }
+
+        /// `colour`, drawn at `strength` over the window, mixed toward black (dark) or white (light) just far enough
+        /// that every kind of text reads on it; as it is when it reads already.
+        func kept(_ colour: RGB, strength: Double) -> RGB {
+            let away = dark ? RGB.black : RGB.white
+            let t = Self.least { reads(on: colour.mixed(with: away, by: $0).over(window, alpha: strength), headroom: NowPlayingInk.headroom) }
+            return colour.mixed(with: away, by: t)
+        }
+
+        /// `accent` mixed toward the text's colour just far enough that it reads on each of `behind` (the window's
+        /// colour when none): as text, and as faint as an unlit noted lyric.
+        func readable(_ accent: RGB, on behind: [RGB]) -> RGB {
+            let behind = behind.isEmpty ? [window] : behind
+            let t = Self.least { amount in
+                let colour = accent.mixed(with: label, by: amount)
+                return behind.allSatisfy { backdrop in
+                    colour.contrast(with: backdrop) >= NowPlayingInk.text * NowPlayingInk.headroom
+                        && colour.over(backdrop, alpha: Double(LyricLinesView.unlit)).contrast(with: backdrop)
+                            >= NowPlayingInk.large * NowPlayingInk.headroom
+                }
+            }
+            return accent.mixed(with: label, by: t)
+        }
+
+        /// The least `t` from 0 to 1 at which `reads` holds (it holds from there on): 0 if it holds at once, else found
+        /// by halving to 1/16,000.
+        private static func least(_ reads: (Double) -> Bool) -> Double {
+            if reads(0) { return 0 }
+            var low = 0.0, high = 1.0
+            for _ in 0..<14 {
+                let middle = (low + high) / 2
+                if reads(middle) { high = middle } else { low = middle }
+            }
+            return high
+        }
+    }
+
+    /// The backdrop behind the text now, its nine colours as they show (none: the window's colour alone), and whether
+    /// in dark mode. Now Playing's backdrop tells it (Backdrop).
+    private(set) var behind: [RGB] = []
+    private(set) var dark = false
+
+    func show(_ colours: [RGB], dark: Bool, strength: Double) {
+        let window = Ground(dark: dark).window
+        let shown = colours.map { $0.over(window, alpha: strength) }
+        if shown != behind { behind = shown }               // only what changed: everything tinted by it draws again
+        if dark != self.dark { self.dark = dark }
+    }
+
+    /// The accent (nil: the Mac's own) as Now Playing's text draws it: readable on the backdrop showing now.
+    func readable(_ accent: Color?, dark: Bool) -> Color {
+        var environment = EnvironmentValues()
+        environment.colorScheme = dark ? .dark : .light
+        let colour = RGB((accent ?? .accentColor).resolve(in: environment))
+        let made = Ground(dark: dark).readable(colour, on: dark == self.dark ? behind : [])
+        return made == colour ? (accent ?? .accentColor) : made.color
     }
 }
 

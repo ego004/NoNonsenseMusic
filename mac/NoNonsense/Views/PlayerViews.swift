@@ -164,11 +164,8 @@ struct PlayerBarLayout: Layout {
 struct TransportControls: View {
     var compact = false
     @Environment(Player.self) private var player
-    @Environment(ThemeStore.self) private var theme
     @Environment(\.colorScheme) private var scheme
 
-    /// Settings › Colours › Buttons; System is your Mac's accent.
-    private var active: Color { theme.color(.buttons) ?? .accentColor }
     private var disc: CGFloat { compact ? 38 : 68 }
     private var skip: CGFloat { compact ? 34 : 48 }                 // the box each skip button takes
 
@@ -237,14 +234,15 @@ struct TransportControls: View {
         .buttonStyle(.quiet)
     }
 
-    /// Shuffle's or repeat's face: its symbol in a circle, tinted in the accent while on.
+    /// Shuffle's or repeat's face: its symbol in a circle, tinted in the accent while on: the window's tint (Settings ›
+    /// Colours › Buttons; System is your Mac's accent), in Now Playing made readable on the cover's colours (#20).
     private func mode(_ symbol: some View, on: Bool) -> some View {
         let side: CGFloat = compact ? 30 : 40
         return symbol
             .font(.system(size: compact ? 13 : 16, weight: .semibold))
-            .foregroundStyle(on ? AnyShapeStyle(active) : AnyShapeStyle(.secondary))
+            .foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .frame(width: side, height: side)
-            .background { if on { Circle().fill(active.opacity(0.16)).transition(.scale.combined(with: .opacity)) } }
+            .background { if on { Circle().fill(.tint.opacity(0.16)).transition(.scale.combined(with: .opacity)) } }
             .contentShape(.circle)
     }
 
@@ -382,8 +380,9 @@ struct NowPlayingView: View {
             NowPlayingCover(track: track, side: side)
             titles(track)
                 .padding(.top, 30)
-            // Core Animation draws the line and the times (PlaybackTimeline): this view no longer reads the position
-            PlaybackTimeline(thickness: 5, textStyle: .caption, timesBelow: true)
+            // Core Animation draws the line and the times (PlaybackTimeline): this view no longer reads the position.
+            // The times in Now Playing's secondary text, which reads on the cover's colours (#20)
+            PlaybackTimeline(thickness: 5, textStyle: .caption, timesBelow: true, timesColour: NowPlayingInk.secondary)
                 .padding(.top, 18)
             TransportControls()
                 .frame(width: side)                 // under a small cover (a short window) it overflows both sides alike
@@ -676,6 +675,7 @@ private struct TimedLyricsView: View {
     @AppStorage("lyricsMotion") private var motion = Look.lyricsMotion       // seconds per line change (Settings › Lyrics)
     @AppStorage("buttonFeedback") private var feedback = Look.buttonFeedback  // the highlight under the pointer
     @Environment(ThemeStore.self) private var theme
+    @Environment(\.colorScheme) private var scheme
     @State private var current: Int?
     let active: Bool                                   // false while hidden behind Up Next: the lines ignore the mouse
     let notes: [Int: GeniusNote]                       // Genius notes by line: those lines are in the accent; a click opens one
@@ -691,9 +691,11 @@ private struct TimedLyricsView: View {
     }
 
     var body: some View {
-        // the noted lines take the accent (Settings › Colours › Buttons; System is your Mac's)
+        // the noted lines take the accent (Settings › Colours › Buttons; System is your Mac's), readable on the cover's
+        // colours (#20)
         LyricLines(lines: lyrics.lines, current: current, motion: motion, fontSize: LyricsFont.size * textScale, feedback: feedback,
-                   active: active, noted: Set(notes.keys), accent: theme.color(.buttons) ?? .accentColor,
+                   active: active, noted: Set(notes.keys),
+                   accent: NowPlayingInk.shared.readable(theme.color(.buttons), dark: scheme == .dark),
                    openNote: { openNote = NoteAnchor(line: $0, rect: $1) }) {
             jump(to: $0)
         }
@@ -802,8 +804,9 @@ final class LyricLinesView: NSView {
 
     private static let spacing: CGFloat = 14
     private static let inset: CGFloat = 20
-    private static let unlit: Float = 0.38         // one colour, faded: switching primary/secondary snapped (7 Oct)
-    private static let unlitNoted: Float = 0.6     // a noted line, unlit: its accent fades less (as in the Windows app)
+    /// A line not being sung: its colour, faded (switching primary/secondary snapped, 7 Oct). 0.6, a noted line's accent
+    /// as much: at 0.38 an unlit line was 2.7:1 on a black cover in dark mode, under the 3:1 large text needs (#20)
+    static let unlit: Float = 0.6
     private static let introGap: CGFloat = 140     // before the first line: it sits this far below the top
 
     override init(frame: NSRect) {
@@ -871,7 +874,7 @@ final class LyricLinesView: NSView {
             layer.isWrapped = true
             layer.alignmentMode = .left
             layer.contentsScale = scale
-            layer.opacity = i == current ? 1 : dimmed(i)
+            layer.opacity = i == current ? 1 : Self.unlit
             texts.append(layer); strings.append(text); tops.append(y); heights.append(height)
             y += height + Self.spacing
         }
@@ -944,7 +947,7 @@ final class LyricLinesView: NSView {
         let changes: [(Int?, Bool)] = [(old, false), (current, true)]
         for (index, lit) in changes {
             guard let i = index, texts.indices.contains(i) else { continue }
-            let opacity = lit ? 1 : dimmed(i)
+            let opacity = lit ? 1 : Self.unlit
             let from = texts[i].presentation()?.opacity ?? texts[i].opacity
             still { texts[i].opacity = opacity }
             if motion > 0 { texts[i].add(Self.animation("opacity", from: from, to: opacity, duration: motion), forKey: "light") }
@@ -953,9 +956,6 @@ final class LyricLinesView: NSView {
         offset = target()
         place(animated: true)
     }
-
-    /// How line `i` looks while not sung: faded, a noted line's accent less so.
-    private func dimmed(_ i: Int) -> Float { noted.contains(i) ? Self.unlitNoted : Self.unlit }
 
     /// Puts the strip at `offset`, sliding there from wherever it is now when `animated`.
     private func place(animated: Bool) {

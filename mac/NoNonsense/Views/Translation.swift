@@ -72,7 +72,7 @@ struct TranslatedLyricsView: View {
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     if let credit = store.credits[songID] {
-                        Text(credit).textStyle(.caption).foregroundStyle(.tertiary)
+                        Text(credit).textStyle(.caption).foregroundStyle(.secondary)         // text: tertiary is for symbols (#20)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 16).padding(.bottom, 14)
                     }
