@@ -89,6 +89,13 @@ extension SelfTest {
                     return nil
                 }
                 let start = Date().addingTimeInterval(-player.livePosition)
+                if let end {
+                    // where the changeover's time went: each tap's times against the first song's end and the second's clock
+                    let origin = began.timeIntervalSinceReferenceDate
+                    func at(_ t: Double) -> String { t == 0 ? "never" : String(format: "%+.0f ms", (t - origin) * 1000) }
+                    let taps = SoundChain.shared.timingsForTests.map { "\($0.key.suffix(12).prefix(4)): prepared \(at($0.prepared)), first \(at($0.first)), last \(at($0.last))" }
+                    report(String(format: "gapless: timing from play(): first song's end %+.0f ms, second song's clock 0 at %+.0f ms; ", end.timeIntervalSinceReferenceDate * 1000 - origin * 1000, start.timeIntervalSinceReferenceDate * 1000 - origin * 1000) + taps.joined(separator: "; "))
+                }
                 return end.map { start.timeIntervalSince($0) }
             }
             func ms(_ value: Double?) -> String { value.map { String(format: "%.0f ms", $0 * 1000) } ?? "no change seen" }

@@ -437,6 +437,8 @@ private struct PlaybackSettings: View {
     @AppStorage("vocalClarity") private var vocalClarity = 0.0               // SoundChain.vocalClarity
     @AppStorage("loudnessCompensation") private var loudness = false         // SoundChain.loudnessCompensation
     @AppStorage("bassHarmonics") private var bassHarmonics = 0.0              // SoundChain.bassHarmonics
+    @AppStorage("levelTarget") private var levelTarget = -14.0               // Leveller.target
+    @AppStorage("bypassEffects") private var bypass = false                  // SoundChain.bypassing
     @Environment(Player.self) private var player
 
     var body: some View {
@@ -470,13 +472,29 @@ private struct PlaybackSettings: View {
                     .foregroundStyle(.secondary)
             }
             Section {
+                Toggle(isOn: $bypass) {
+                    Text("Bypass effects")
+                    Text("A/B comparison: plays without equalizer, headphone correction, crossfeed, vocal presence, psychoacoustic bass and loudness compensation. Normalization and the limiter stay on, so the level stays comparable.")
+                        .foregroundStyle(.secondary)
+                }
+                .onChange(of: bypass) { _, _ in SoundChain.shared.bypassChanged() }
                 // measured 28 Oct: 0.10 s of one core to measure a 4-minute song (12 songs from the cache), once; then the
                 // gain, 0.0009% of one core (an hour of stereo), in the equalizer's tap (0.12% with all 14 filters, 25 Oct)
                 Toggle(isOn: Binding(get: { Leveller.shared.on }, set: { Leveller.shared.setOn($0) })) {
                     Text("Loudness normalization")
-                    Text("Target −14 LUFS (ITU-R BS.1770-4). Measured once per track.")
+                    Text("ITU-R BS.1770-4. Measured once per track.")
                         .foregroundStyle(.secondary)
                 }
+                Picker(selection: $levelTarget) {
+                    Text("Quiet, −18 LUFS").tag(-18.0)
+                    Text("Normal, −14 LUFS").tag(-14.0)
+                    Text("Loud, −11 LUFS").tag(-11.0)
+                } label: {
+                    Text("Target level")
+                    Text("Quieter leaves headroom, so equalizer boosts are not limited as hard.").foregroundStyle(.secondary)
+                }
+                .disabled(!Leveller.shared.on)
+                .onChange(of: levelTarget) { _, _ in SoundChain.shared.levelChanged() }
                 // measured 29 Oct: 0.05% of one core (an hour of stereo through it, offline, with true-peak detection); 5 ms of delay
                 Toggle(isOn: Binding(get: { Leveller.shared.limiting }, set: { Leveller.shared.setLimiting($0) })) {
                     Text("True-peak limiter")
@@ -485,7 +503,7 @@ private struct PlaybackSettings: View {
                 }
                 Toggle(isOn: $gapless) {
                     Text("Gapless playback")
-                    Text("Needs the next track cached or downloaded.")
+                    Text("Needs the next track cached or downloaded. With any effect below on, there is a gap of about 0.1 s.")
                         .foregroundStyle(.secondary)
                 }
                 .onChange(of: gapless) { _, _ in player.gaplessChanged() }

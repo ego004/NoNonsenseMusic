@@ -27,7 +27,7 @@ extension SelfTest {
             let leveller = Leveller.shared, chain = SoundChain.shared
             try? await Task.sleep(for: .seconds(2))
             borrowDefaults(["levelOn", "limiterOn", "crossfeed", "vocalClarity", "loudnessCompensation", "headphoneCorrection", "soundProfiles", "soundOutputID", "soundOutputName",
-                            "soundPerOutput", "eqGains", "eqPreset", "eqOn", "audioCacheMB", "autoplay"])
+                            "soundPerOutput", "eqGains", "eqPreset", "eqOn", "audioCacheMB", "autoplay", "levelTarget", "bypassEffects"])
             var keys: [String] = []
             @MainActor func finish() {
                 leveller.setOn(false)
@@ -219,6 +219,30 @@ extension SelfTest {
             let at8k = corrected.offline(frequency: 8903), at514 = corrected.offline(frequency: 514)
             check("in the chain: 8.9 kHz (+6 dB filter) comes out louder than 514 Hz (−4.4 dB filter), under the preamp",
                   at8k > at514 + 6 && at8k <= 0.1, "\(db(at8k)), \(db(at514))")
+
+            // B5. target level, the limiter's default, and the A/B bypass (29 Oct)
+            UserDefaults.standard.set(-18.0, forKey: "levelTarget")
+            check("target −18 LUFS: material at −14 LUFS is turned down 4 dB", near(Leveller.gain(Reading(lufs: -14, peak: -20)), -4, 1e-9))
+            UserDefaults.standard.set(-11.0, forKey: "levelTarget")
+            check("target −11 LUFS: material at −14 LUFS is turned up 3 dB (limiter on)",
+                  near(Leveller.gain(Reading(lufs: -14, peak: -20), limiting: true), 3, 1e-9))
+            UserDefaults.standard.set(-15.0, forKey: "levelTarget")
+            check("a target that is not one of the three is −14", near(Leveller.gain(Reading(lufs: -14, peak: -20)), 0, 1e-9))
+            UserDefaults.standard.removeObject(forKey: "levelTarget")
+            UserDefaults.standard.removeObject(forKey: "limiterOn")
+            check("the limiter is on until it is switched off", Leveller.storedLimiting)
+            UserDefaults.standard.set(false, forKey: "limiterOn")
+            check("…and stays off when it is", !Leveller.storedLimiting)
+            leveller.setOn(false)
+            leveller.setLimiting(true)
+            Equalizer.shared.setOn(true)
+            Equalizer.shared.choose(.bassBoost)
+            let coloured = chain.makeProcessor(key: "selftest", bypassing: false).offline(frequency: 50)
+            let plain = chain.makeProcessor(key: "selftest", bypassing: true).offline(frequency: 50)
+            check("bypass takes the equalizer's +6 dB at 50 Hz away and leaves the level as it was",
+                  near(plain, 0, 0.3) && coloured > plain + 4, "\(db(coloured)) with, \(db(plain)) bypassed")
+            Equalizer.shared.setOn(false)
+            leveller.setLimiting(false)
 
             // C. the meter, on 1 kHz tones through AAC
             let loudPeak = 30000.0, quietPeak = 2000.0

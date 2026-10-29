@@ -4,7 +4,7 @@ import Observation
 
 /// Settings › Playback › Loudness normalization (28 Oct): each copy's loudness is measured once from its file, as
 /// ITU-R BS.1770-4 measures it (the LUFS that Spotify, YouTube and Apple Music level by), and the song is played turned
-/// up or down to −14 LUFS, the level Spotify and YouTube play at. A boost stops 1 dB under the song's loudest sample, so
+/// up or down to the target level (−14 LUFS, the level Spotify and YouTube play at, unless set otherwise). A boost stops 1 dB under the song's loudest sample, so
 /// levelling never clips. Off by default; off, nothing is measured and no tap is attached for it.
 ///
 /// A copy is measured when its whole file is in the cache (the next song, fetched while this one plays, is measured
@@ -17,14 +17,18 @@ import Observation
 final class Leveller {
     static let shared = Leveller()
 
-    /// The level songs are played at, in LUFS.
-    nonisolated static let target = -14.0
+    /// The level songs are played at, in LUFS: Settings › Playback › Target level. −14 (Spotify and YouTube) unless set to
+    /// −18 (quiet: headroom for equalizer boosts) or −11 (loud).
+    nonisolated static var target: Double {
+        let stored = UserDefaults.standard.double(forKey: "levelTarget")
+        return [-18.0, -14, -11].contains(stored) ? stored : -14
+    }
     /// Room left under a boosted song's loudest sample, in dB: a sample peak can sit a little under the true peak.
     nonisolated static let headroom = 1.0
 
     private(set) var on: Bool
     /// Settings › Playback › Limiter: the last step of the chain (PeakLimiter) catches peaks, so the equalizer's boosts
-    /// keep their volume and a quiet song is brought all the way up. Off by default.
+    /// keep their volume and a quiet song is brought all the way up. On by default (29 Oct).
     private(set) var limiting: Bool
     /// Copies measured, by their names in the cache (AudioCache.name: the listing key, made a file name).
     @ObservationIgnored private var readings: [String: LoudnessMeter.Reading] = [:]
@@ -41,12 +45,15 @@ final class Leveller {
 
     private init() {
         on = UserDefaults.standard.bool(forKey: "levelOn")
-        limiting = UserDefaults.standard.bool(forKey: "limiterOn")
+        limiting = Self.storedLimiting
         if let data = try? Data(contentsOf: Self.file),
            let saved = try? JSONDecoder().decode([String: LoudnessMeter.Reading].self, from: data) {
             readings = saved
         }
     }
+
+    /// On unless switched off: a boost with no limiter lowers the whole song by its size (the preamp), which hid it.
+    nonisolated static var storedLimiting: Bool { UserDefaults.standard.object(forKey: "limiterOn") as? Bool ?? true }
 
     func setOn(_ value: Bool) {
         guard value != on else { return }

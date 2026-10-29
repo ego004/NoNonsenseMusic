@@ -10,16 +10,30 @@ struct PhoneSettings: View {
     @AppStorage("vocalClarity") private var vocalClarity = 0.0
     @AppStorage("loudnessCompensation") private var loudness = false
     @AppStorage("bassHarmonics") private var bassHarmonics = 0.0
+    @AppStorage("levelTarget") private var levelTarget = -14.0
+    @AppStorage("bypassEffects") private var bypass = false
     private var leveller: Leveller { .shared }
     private var profiles: SoundProfiles { .shared }
 
     var body: some View {
         Form {
             Section {
+                Toggle(isOn: $bypass) {
+                    Text("Bypass effects")
+                    Text("A/B comparison. Normalization and the limiter stay on.")
+                }
+                .onChange(of: bypass) { _, _ in SoundChain.shared.bypassChanged() }
                 Toggle(isOn: Binding(get: { leveller.on }, set: { leveller.setOn($0) })) {
                     Text("Loudness normalization")
-                    Text("Target −14 LUFS (ITU-R BS.1770-4).")
+                    Text("ITU-R BS.1770-4.")
                 }
+                Picker("Target level", selection: $levelTarget) {
+                    Text("Quiet, −18 LUFS").tag(-18.0)
+                    Text("Normal, −14 LUFS").tag(-14.0)
+                    Text("Loud, −11 LUFS").tag(-11.0)
+                }
+                .disabled(!leveller.on)
+                .onChange(of: levelTarget) { _, _ in SoundChain.shared.levelChanged() }
                 Toggle(isOn: Binding(get: { leveller.limiting }, set: { leveller.setLimiting($0) })) {
                     Text("True-peak limiter")
                     Text("Look-ahead limiter, −1 dBTP ceiling.")

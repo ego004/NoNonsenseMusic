@@ -18,14 +18,32 @@ final class SoundChain {
     private struct Weak { weak var processor: SoundProcessor? }
 
     private init() {
+        UserDefaults.standard.set(false, forKey: "bypassEffects")      // a comparison never survives a launch
         Equalizer.shared.changed = { [weak self] in self?.changed?() }
         Leveller.shared.changed = { [weak self] in self?.changed?() }
         Leveller.shared.measured = { [weak self] key in self?.measured(key) }
     }
 
+    /// Whether songs get a tap. Not for the limiter alone: with nothing else on there is no gain to limit, and a song with
+    /// a tap changes over to the next with a gap of about 0.1 s (measured 29 Oct: 109 ms against 2 ms), as the player
+    /// starts its audio pipeline only when the song starts.
     var active: Bool {
-        Self.bassHarmonics > 0 || Self.vocalClarity > 0 || Self.loudnessCompensation || Equalizer.shared.on || Leveller.shared.on || Leveller.shared.limiting || Self.crossfeeding || HeadphoneCorrection.shared.model != nil
+        Self.bassHarmonics > 0 || Self.vocalClarity > 0 || Self.loudnessCompensation || Equalizer.shared.on || Leveller.shared.on || Self.crossfeeding || HeadphoneCorrection.shared.model != nil
             || Player.crossfade > 0                       // its fades are shaped in the taps
+    }
+
+    /// Settings › Playback › Bypass effects (29 Oct): an A/B comparison. Everything that colours the sound is off (equalizer,
+    /// headphone correction, crossfeed, vocal presence, psychoacoustic bass, loudness compensation); normalization and
+    /// the limiter stay on, so the songs keep their level and only the colour changes. Not kept across launches.
+    static var bypassing: Bool { UserDefaults.standard.bool(forKey: "bypassEffects") }
+
+    /// Bypass switched: the playing song's tap is made again.
+    func bypassChanged() { changed?() }
+
+    /// Target level changed: every tap glides to its song's new gain.
+    func levelChanged() {
+        guard Leveller.shared.on else { return }
+        for entry in processors { entry.processor.processor?.update(level: Leveller.shared.gain(for: entry.key)) }
     }
 
     /// Settings › Playback › Crossfeed (off by default).
@@ -48,7 +66,7 @@ final class SoundChain {
                 CorrectionFilter(kind: .highShelf, frequency: 8000, gain: treble, q: 0.7)]
     }
 
-    private var shelvesNow: [CorrectionFilter] { Self.loudnessCompensation ? Self.loudnessShelves(place: listeningPlace) : [] }
+    private var shelvesNow: [CorrectionFilter] { Self.loudnessCompensation && !Self.bypassing ? Self.loudnessShelves(place: listeningPlace) : [] }
 
     /// The volume moved: every tap's shelves follow (only when they change by half a dB or more).
     func volumeChanged(place: Double) {
@@ -72,6 +90,7 @@ final class SoundChain {
 
     /// Its slider moved: every tap follows at once.
     func bassHarmonicsChanged() {
+        guard !Self.bypassing else { return }
         for entry in processors { entry.processor.processor?.update(bass: Self.bassHarmonics) }
     }
 
@@ -80,6 +99,7 @@ final class SoundChain {
 
     /// Its slider moved: every tap follows at once, without being made again.
     func vocalClarityChanged() {
+        guard !Self.bypassing else { return }
         for entry in processors { entry.processor.processor?.update(vocal: Self.vocalClarity) }
     }
 
@@ -91,14 +111,10 @@ final class SoundChain {
     /// that many seconds (a crossfade).
     func apply(to item: AVPlayerItem, key: String, fadeIn: Double? = nil) {
         guard active else { item.audioMix = nil; return }
-        let eq = Equalizer.shared, leveller = Leveller.shared
+        let leveller = Leveller.shared
         if leveller.on, let url = (item.asset as? AVURLAsset)?.url, url.isFileURL { leveller.measure(key, file: url) }
-        let processor = SoundProcessor(gains: eq.on ? eq.gains : Self.flat, level: leveller.on ? leveller.gain(for: key) : 0,
-                                       limiting: leveller.limiting, crossfeeding: Self.crossfeeding,
-                                       correction: HeadphoneCorrection.shared.filters, vocal: Self.vocalClarity)
-        processor.update(bass: Self.bassHarmonics)
+        let processor = makeProcessor(key: key, bypassing: Self.bypassing)
         if let fadeIn { processor.fade(in: true, over: fadeIn) }
-        if Self.loudnessCompensation { processor.update(loudness: shelvesNow) }
         processors.removeAll { $0.processor.processor == nil }
         processors.append((key, ObjectIdentifier(item), Weak(processor: processor)))
         Task {
@@ -112,6 +128,25 @@ final class SoundChain {
         }
     }
 
+    /// The processor for a copy, from the settings as they are. `bypassing`: only the level and the limiter (see `bypassing`).
+    func makeProcessor(key: String, bypassing: Bool) -> SoundProcessor {
+        let eq = Equalizer.shared, leveller = Leveller.shared
+        let processor = SoundProcessor(gains: eq.on && !bypassing ? eq.gains : Self.flat, level: leveller.on ? leveller.gain(for: key) : 0,
+                                       limiting: leveller.limiting, crossfeeding: Self.crossfeeding && !bypassing,
+                                       correction: bypassing ? [] : HeadphoneCorrection.shared.filters,
+                                       vocal: bypassing ? 0 : Self.vocalClarity)
+        processor.update(bass: bypassing ? 0 : Self.bassHarmonics)
+        if Self.loudnessCompensation && !bypassing { processor.update(loudness: shelvesNow) }
+        return processor
+    }
+
+    #if DEBUG
+    /// Self-tests: each tap's key and times (see SoundProcessor.timingsForTests).
+    var timingsForTests: [(key: String, prepared: Double, first: Double, last: Double)] {
+        processors.compactMap { entry in entry.processor.processor.map { (entry.key, $0.timingsForTests.prepared, $0.timingsForTests.first, $0.timingsForTests.last) } }
+    }
+    #endif
+
     private static let flat = Array(repeating: 0.0, count: Equalizer.bands.count)
 
     /// A crossfade: the song going out fades to silence over `seconds`.
@@ -122,7 +157,7 @@ final class SoundChain {
 
     /// Equalizer: a band or preset changed; every tap follows.
     func equalizerChanged(_ gains: [Double]) {
-        guard Equalizer.shared.on else { return }           // off, its taps (levelling's) stay flat
+        guard Equalizer.shared.on, !Self.bypassing else { return }     // off, its taps (levelling's) stay flat
         for entry in processors { entry.processor.processor?.update(gains: gains) }
     }
 
@@ -292,7 +327,15 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
     }
 
     /// The tap's prepare: the format is known now.
+    #if DEBUG
+    /// Self-tests: when this tap was prepared, and when it processed its first and its latest buffer (absolute time).
+    nonisolated(unsafe) var timingsForTests: (prepared: Double, first: Double, last: Double) = (0, 0, 0)
+    #endif
+
     fileprivate func prepare(format: AudioStreamBasicDescription) {
+        #if DEBUG
+        if timingsForTests.prepared == 0 { timingsForTests.prepared = CFAbsoluteTimeGetCurrent() }
+        #endif
         let harmonics = BassHarmonics(sampleRate: format.mSampleRate, channels: Int(format.mChannelsPerFrame))
         let float = format.mFormatFlags & kAudioFormatFlagIsFloat != 0 && format.mBitsPerChannel == 32
         let separate = format.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0 || format.mChannelsPerFrame == 1
@@ -346,6 +389,11 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
     /// level). The first buffer starts at the gain; a later change glides there (`glideSeconds`). Then crossfeed and the
     /// limiter, when on. A flat curve at 0 dB with neither leaves the audio untouched.
     fileprivate func process(_ buffers: UnsafeMutableAudioBufferListPointer, frames: Int) {
+        #if DEBUG
+        let now = CFAbsoluteTimeGetCurrent()
+        if timingsForTests.first == 0 { timingsForTests.first = now }
+        timingsForTests.last = now
+        #endif
         lock.withLockUnchecked {
             #if DEBUG
             measure(buffers, frames: frames, into: &energyIn)
