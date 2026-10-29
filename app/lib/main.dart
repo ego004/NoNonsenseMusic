@@ -8,6 +8,7 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 
 import 'core/android_sound.dart';
 import 'core/api.dart';
@@ -37,6 +38,8 @@ final accent = Accent();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Linux plays through libmpv, which the system provides (libmpv2); media_kit looks for it by name
+  if (Platform.isLinux) JustAudioMediaKit.ensureInitialized(linux: true, windows: false);
   PlaylistLinks.start(); // Started early: the link that opened the app is not missed.
   final settings = Settings();
   await settings.load();
