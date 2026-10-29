@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart' as ja;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'android_sound.dart';
 import 'api.dart';
@@ -96,6 +97,7 @@ class Player extends ChangeNotifier implements JamPlayer {
       : _audio = audio ?? ja.AudioPlayer(audioPipeline: AndroidSound.available ? AndroidSound.shared.pipeline : null),
         _fetches = fetches ?? AudioDownloads.shared,
         _cache = (fetches ?? AudioDownloads.shared).cache {
+    _audio.setVolume(gain(volume));
     _subs.add(_audio.playerStateStream.listen((st) {
       final playing = st.playing && st.processingState != ja.ProcessingState.completed;
       final buffering = st.playing && (st.processingState == ja.ProcessingState.loading || st.processingState == ja.ProcessingState.buffering);
@@ -302,6 +304,40 @@ class Player extends ChangeNotifier implements JamPlayer {
     notifyListeners();
   }
 
+  static const _volumeKey = 'playerVolume';
+  static const _beforeMuteKey = 'playerBeforeMute';
+  Timer? _saveVolumeTimer;
+
+  void _persistVolume() {
+    _saveVolumeTimer?.cancel();
+    _saveVolumeTimer = Timer(const Duration(milliseconds: 200), _saveVolume);
+  }
+
+  Future<void> _saveVolume() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setDouble(_volumeKey, volume);
+      await p.setDouble(_beforeMuteKey, _beforeMute);
+    } catch (_) {}
+  }
+
+  /// Restores the volume and mute state from preferences.
+  Future<void> restore({SharedPreferences? prefs}) async {
+    try {
+      final p = prefs ?? await SharedPreferences.getInstance();
+      final v = p.getDouble(_volumeKey);
+      if (v != null) {
+        volume = v.clamp(0, 1);
+        _audio.setVolume(_jamSilent ? 0 : gain(volume));
+      }
+      final bm = p.getDouble(_beforeMuteKey);
+      if (bm != null) {
+        _beforeMute = bm.clamp(0, 1);
+      }
+      notifyListeners();
+    } catch (_) {}
+  }
+
   double _beforeMute = 1;
   void toggleMute() {
     if (volume > 0) {
@@ -316,6 +352,7 @@ class Player extends ChangeNotifier implements JamPlayer {
   void setVolume(double v) {
     volume = v.clamp(0, 1);
     _audio.setVolume(_jamSilent ? 0 : gain(volume));
+    _persistVolume();
     notifyListeners();
   }
 
@@ -702,10 +739,15 @@ class Player extends ChangeNotifier implements JamPlayer {
   }
 
   /// Lets the audio go before the window closes (main.dart), while the engine can still hear the native player go.
-  Future<void> release() => _audio.dispose();
+  Future<void> release() async {
+    _saveVolumeTimer?.cancel();
+    await _saveVolume();
+    await _audio.dispose();
+  }
 
   @override
   void dispose() {
+    _saveVolumeTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }

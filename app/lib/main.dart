@@ -54,6 +54,7 @@ Future<void> main() async {
   if (Platform.isWindows) await Window.initialize();
   await MediaControls.initialize(); // Windows' media keys, Android's media session: each platform's own, nothing elsewhere
   final player = Player();
+  await player.restore();
   // Closing the window: the audio goes first, while the engine still runs. Left to the engine's own shutdown,
   // just_audio_windows unset its channel's handler after the engine had gone, and every close ended in a crash in
   // flutter_windows.dll (FlutterDesktopMessengerSetCallback; seen from 18 Oct, found 21 Oct).
