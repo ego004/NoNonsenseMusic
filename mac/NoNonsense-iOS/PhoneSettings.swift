@@ -23,6 +23,10 @@ struct PhoneSettings: View {
                     Text("A/B comparison. Normalization and the limiter stay on.")
                 }
                 .onChange(of: bypass) { _, _ in SoundChain.shared.bypassChanged() }
+            } header: {
+                Text("Compare")
+            }
+            Section {
                 Toggle(isOn: Binding(get: { leveller.on }, set: { leveller.setOn($0) })) {
                     Text("Loudness normalization")
                     Text("ITU-R BS.1770-4.")
@@ -38,6 +42,12 @@ struct PhoneSettings: View {
                     Text("True-peak limiter")
                     Text("Look-ahead limiter, −1 dBTP ceiling.")
                 }
+            } header: {
+                Text("Level")
+            } footer: {
+                Text("Normalization targets −14 LUFS, the level Spotify and YouTube use.")
+            }
+            Section {
                 Toggle(isOn: $gapless) {
                     Text("Gapless playback")
                     Text("Needs the next track cached or downloaded.")
@@ -48,6 +58,10 @@ struct PhoneSettings: View {
                     ForEach([2.0, 4, 6, 8, 12], id: \.self) { Text("\(Int($0)) seconds").tag($0) }
                 }
                 .onChange(of: crossfade) { _, _ in SoundChain.shared.settingChanged() }
+            } header: {
+                Text("Between songs")
+            }
+            Section {
                 Toggle(isOn: $crossfeed) {
                     Text("Headphone crossfeed")
                     Text("Mixes a low-passed copy of each channel into the opposite ear (bs2b).")
@@ -55,6 +69,8 @@ struct PhoneSettings: View {
                 .onChange(of: crossfeed) { _, _ in SoundChain.shared.settingChanged() }
                 VStack(alignment: .leading) {
                     Text("Psychoacoustic bass: " + (bassHarmonics > 0 ? "\(Int((bassHarmonics * 100).rounded()))%" : "off"))
+                    Text("Adds harmonics of content below 120 Hz, so small drivers imply the fundamental.")
+                        .font(.footnote).foregroundStyle(.secondary)
                     Slider(value: $bassHarmonics, in: 0...1)
                 }
                 .onChange(of: bassHarmonics) { old, new in
@@ -67,13 +83,15 @@ struct PhoneSettings: View {
                 .onChange(of: loudness) { _, _ in SoundChain.shared.loudnessChanged() }
                 VStack(alignment: .leading) {
                     Text("Vocal presence: " + (vocalClarity > 0 ? String(format: "+%g dB", vocalClarity) : "off"))
+                    Text("Boosts the center channel at 2.5 kHz. The side channel is unchanged.")
+                        .font(.footnote).foregroundStyle(.secondary)
                     Slider(value: $vocalClarity, in: 0...6, step: 0.5)
                 }
                 .onChange(of: vocalClarity) { old, new in
                     if (old > 0) != (new > 0) { SoundChain.shared.settingChanged() } else { SoundChain.shared.vocalClarityChanged() }
                 }
             } header: {
-                Text("Sound")
+                Text("Tone")
             }
 
             Section {

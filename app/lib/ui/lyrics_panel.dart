@@ -62,13 +62,9 @@ class LyricsPanel extends StatelessWidget {
               ),
               // Translate for any lyrics; with it on, the language menu always shows, saying "Already in …" when there
               // is nothing to translate into it, so another language is one pick away (English into Hindi, 20 Oct)
-              IconButton(
-                  tooltip: s.settings.translateLyrics ? 'Show the Lyrics' : 'Translate',
-                  isSelected: s.settings.translateLyrics,
-                  icon: const Icon(FluentIcons.translate_24_regular, size: 18),
-                  selectedIcon: Icon(FluentIcons.translate_24_filled, size: 18, color: theme.colorScheme.primary),
-                  onPressed: () => s.settings.setTranslateLyrics(!s.settings.translateLyrics),
-                ),
+              _TranslateToggle(
+                  on: s.settings.translateLyrics, onTap: () => s.settings.setTranslateLyrics(!s.settings.translateLyrics)),
+              const SizedBox(width: 6),
               // the language, changeable here as well as in Settings › Lyrics (20 Oct, as on the Mac)
               if (s.settings.translateLyrics) _TranslateInto(settings: s.settings, already: already),
               if (about != null && !about.isEmpty)
@@ -150,6 +146,47 @@ class TranslatedLyrics extends StatelessWidget {
 }
 
 /// Translate into, in the Lyrics pane while a translation shows: the language's name, a menu of the others.
+/// Translate, switched on or off: a pill with its name and icon, tinted while on, as the language pill beside it. The
+/// icon alone said nothing about what it did (29 Oct).
+class _TranslateToggle extends StatelessWidget {
+  final bool on;
+  final VoidCallback onTap;
+  const _TranslateToggle({required this.on, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final accent = theme.colorScheme.primary;
+    final ink = on ? accent : theme.colorScheme.onSurface;
+    return Tooltip(
+      message: on ? 'Show the original lyrics' : 'Translate the lyrics',
+      child: Semantics(
+        button: true,
+        toggled: on,
+        label: 'Translate',
+        excludeSemantics: true,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(999),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              color: on ? accent.withValues(alpha: 0.16) : null,
+              border: Border.all(color: on ? accent.withValues(alpha: 0.6) : theme.colorScheme.onSurface.withValues(alpha: 0.22)),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(on ? FluentIcons.translate_24_filled : FluentIcons.translate_24_regular, size: 16, color: ink),
+              const SizedBox(width: 5),
+              Text('Translate', style: theme.textTheme.bodySmall?.copyWith(color: ink)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _TranslateInto extends StatelessWidget {
   final Settings settings;
   final bool already; // the lyrics are in the language chosen: "Already in …"

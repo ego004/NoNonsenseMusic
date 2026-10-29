@@ -619,15 +619,12 @@ struct LyricsPanel: View {
             Spacer()
             // their translation, made on this Mac or by Google
             if canTranslate {
-                Button { translating.toggle() } label: {
-                    Image(systemName: "character.bubble")
-                        .symbolVariant(translating ? .fill : .none)
-                        .foregroundStyle(translating ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                }
-                .buttonStyle(.quiet)
-                .help(translating ? "Show the Lyrics" : "Translate")
-                .accessibilityLabel(translating ? "Show the lyrics" : "Translate the lyrics")
-                .selfTestFrame("lyrics.translate")
+                // a labelled toggle, pressed while on: the bubble icon alone said nothing about what it did (29 Oct)
+                Toggle(isOn: $translating) { Label("Translate", systemImage: "translate") }
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .help(translating ? "Show the original lyrics" : "Translate the lyrics")
+                    .selfTestFrame("lyrics.translate")
                 // the language, changeable here: in Settings › Lyrics alone it was not found (20 Oct)
                 if translating {
                     Menu {

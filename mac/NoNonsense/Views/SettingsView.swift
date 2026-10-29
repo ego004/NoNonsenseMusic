@@ -478,6 +478,10 @@ private struct PlaybackSettings: View {
                         .foregroundStyle(.secondary)
                 }
                 .onChange(of: bypass) { _, _ in SoundChain.shared.bypassChanged() }
+            } header: {
+                Text("Compare")
+            }
+            Section {
                 // measured 28 Oct: 0.10 s of one core to measure a 4-minute song (12 songs from the cache), once; then the
                 // gain, 0.0009% of one core (an hour of stereo), in the equalizer's tap (0.12% with all 14 filters, 25 Oct)
                 Toggle(isOn: Binding(get: { Leveller.shared.on }, set: { Leveller.shared.setOn($0) })) {
@@ -501,6 +505,13 @@ private struct PlaybackSettings: View {
                     Text("Look-ahead limiter, −1 dBTP ceiling. Prevents clipping when gain is applied.")
                         .foregroundStyle(.secondary)
                 }
+            } header: {
+                Text("Level")
+            } footer: {
+                Text("Normalization targets −14 LUFS, the level Spotify and YouTube use. Without the limiter, boosts are capped so peaks stay under −1 dBFS.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
                 Toggle(isOn: $gapless) {
                     Text("Gapless playback")
                     Text("Needs the next track cached or downloaded. With any effect below on, there is a gap of about 0.1 s.")
@@ -515,6 +526,10 @@ private struct PlaybackSettings: View {
                     Text("Equal-power overlap of consecutive tracks.").foregroundStyle(.secondary)
                 }
                 .onChange(of: crossfade) { _, _ in SoundChain.shared.settingChanged() }
+            } header: {
+                Text("Between songs")
+            }
+            Section {
                 // measured 28 Oct: 0.026% of one core (an hour of stereo through it, offline)
                 Toggle(isOn: $crossfeed) {
                     Text("Headphone crossfeed")
@@ -554,10 +569,7 @@ private struct PlaybackSettings: View {
                     if (old > 0) != (new > 0) { SoundChain.shared.settingChanged() } else { SoundChain.shared.vocalClarityChanged() }
                 }
             } header: {
-                Text("Sound")
-            } footer: {
-                Text("Normalization targets −14 LUFS, the level Spotify and YouTube use. Without the limiter, boosts are capped so peaks stay under −1 dBFS.")
-                    .foregroundStyle(.secondary)
+                Text("Tone")
             }
             Section {
                 Toggle(isOn: Binding(get: { SoundProfiles.shared.on }, set: { SoundProfiles.shared.setOn($0) })) {
