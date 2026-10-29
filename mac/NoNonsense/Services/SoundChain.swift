@@ -55,11 +55,17 @@ final class SoundChain {
     /// for the treble (at most 4 dB). An approximation of the contours' gaps, not a fit to them.
     static var loudnessCompensation: Bool { UserDefaults.standard.bool(forKey: "loudnessCompensation") }
 
-    /// The volume control's place, 0 to 1 (the Mac's slider, the iPhone's system volume); its cut is the cube's.
+    /// The volume control's place, 0 to 1 (the Mac's slider, the iPhone's system volume), and the power its gain is the
+    /// place to (the Mac's slider: Player.gain; the iPhone's system volume is taken as a cube).
+    #if os(macOS)
+    nonisolated static let volumeCurve = Player.volumeCurve
+    #else
+    nonisolated static let volumeCurve = 3.0
+    #endif
     private(set) var listeningPlace: Double = 1
 
     nonisolated static func loudnessShelves(place: Double) -> [CorrectionFilter] {
-        let cut = -60 * log10(max(place, 0.01))                        // dB the volume takes off (gain = place³)
+        let cut = -20 * volumeCurve * log10(max(place, 0.01))          // dB the volume takes off (gain = place^curve)
         let bass = min(cut / 3, 10), treble = min(cut / 8, 4)
         guard bass >= 0.5 else { return [] }
         return [CorrectionFilter(kind: .lowShelf, frequency: 105, gain: bass, q: 0.7),

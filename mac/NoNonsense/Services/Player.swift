@@ -360,18 +360,21 @@ final class Player {
     }
     @ObservationIgnored private var volumeSave: Task<Void, Never>?
 
-    /// The gain for a slider place: its cube. AVPlayer's volume is linear, but loudness is heard in ratios, so a straight
-    /// line put nearly all of the change in the slider's last stretch (a quarter of the way was still -12 dB, barely
-    /// quieter than full). The cube spreads it out: half is -18 dB, a quarter -36 dB, a tenth -60 dB.
-    nonisolated static func gain(_ place: Float) -> Float { place * place * place }
+    /// The gain for a slider place: its place to the power 5/3. AVPlayer's volume is linear, but loudness is heard in
+    /// ratios: +10 dB sounds about twice as loud, so for the slider to change the loudness evenly, half way must sound half
+    /// as loud: -10 dB, a quarter -20 dB, a tenth -33 dB. A straight line put a quarter of the way at -12 dB, barely quieter
+    /// than full; the cube that followed (13 to 29 Oct) put half at -18 dB and a quarter at -36 dB, which nothing below
+    /// half could be heard through.
+    nonisolated static let volumeCurve = 5.0 / 3.0
+    nonisolated static func gain(_ place: Float) -> Float { Float(pow(Double(place), volumeCurve)) }
 
-    /// The remembered slider place. Until the cube (13 Oct) the place was the gain itself: a place saved then is moved
-    /// once to the cube root, so the music plays exactly as loud as before the update.
+    /// The remembered slider place. Until 13 Oct the place was the gain itself: a place saved then is moved once to the
+    /// place with that gain, so the music plays exactly as loud as before the update.
     nonisolated private static func savedVolume() -> Float {
         let defaults = UserDefaults.standard
         guard let saved = defaults.object(forKey: "volume") as? Float else { return 1 }
         if defaults.bool(forKey: "volumeIsPlace") { return saved }
-        let place = Float(pow(Double(saved), 1.0 / 3.0))
+        let place = Float(pow(Double(saved), 1 / volumeCurve))
         defaults.set(place, forKey: "volume")
         defaults.set(true, forKey: "volumeIsPlace")
         return place

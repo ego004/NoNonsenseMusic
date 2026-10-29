@@ -319,10 +319,12 @@ class Player extends ChangeNotifier implements JamPlayer {
     notifyListeners();
   }
 
-  /// The gain for a slider place: its cube. Players take a linear gain, but loudness is heard in ratios, so a straight
-  /// line put nearly all of the change in the slider's last stretch (a quarter of the way was still -12 dB, barely
-  /// quieter than full). The cube spreads it out: half is -18 dB, a quarter -36 dB, a tenth -60 dB.
-  static double gain(double place) => place * place * place;
+  /// The gain for a slider place: its place to the power 5/3. Players take a linear gain, but loudness is heard in ratios:
+  /// +10 dB sounds about twice as loud, so for the slider to change the loudness evenly, half way must sound half as loud:
+  /// -10 dB, a quarter -20 dB, a tenth -33 dB. A straight line put a quarter of the way at -12 dB, barely quieter than
+  /// full; the cube that followed (13 to 29 Oct) put half at -18 dB and a quarter at -36 dB, which nothing below half
+  /// could be heard through.
+  static double gain(double place) => place <= 0 ? 0 : math.pow(place, 5 / 3).toDouble();
 
   bool _jamSilent = false;
   @override

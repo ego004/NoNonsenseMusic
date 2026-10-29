@@ -150,10 +150,11 @@ extension SelfTest {
             check("…what differs between the ears (the side) stays as it was", near(side, 0, 0.3), db(side))
             check("…and centred bass is untouched", near(lows, 0, 0.3), db(lows))
 
-            // B3c. loudness compensation: at half volume (18 dB down) +6 dB at 105 Hz, +2.25 dB at 8 kHz, the middle as it was
-            let shelves = SoundChain.loudnessShelves(place: 0.5)
+            // B3c. loudness compensation: where the volume is 18 dB down, +6 dB at 105 Hz, +2.25 dB at 8 kHz, the middle as it was
+            let eighteenDown = pow(0.5, 3 / SoundChain.volumeCurve)       // the place whose gain is a cube's half
+            let shelves = SoundChain.loudnessShelves(place: eighteenDown)
             check("loudness: at full volume there is nothing to add", SoundChain.loudnessShelves(place: 1).isEmpty)
-            check("…at half volume, a 6 dB bass shelf and a 2.25 dB treble shelf", shelves.count == 2
+            check("…18 dB down, a 6 dB bass shelf and a 2.25 dB treble shelf", shelves.count == 2
                   && near(shelves[0].gain, 6.02, 0.05) && near(shelves[1].gain, 2.26, 0.05),
                   shelves.map { String(format: "%.2f", $0.gain) }.joined(separator: ", "))
             @MainActor func compensated(_ hz: Double) -> Double {
@@ -165,6 +166,13 @@ extension SelfTest {
             // the shelves' response worked out offline (28 Oct): 60 Hz +5.38 dB (a 105 Hz shelf), 1 kHz 0, 14 kHz +2.19
             check("…in the chain: 60 Hz up 5.4 dB, 1 kHz as it was, 14 kHz up 2.2 dB, and no preamp taking it back",
                   near(low, 5.38, 0.4) && near(middle, 0, 0.3) && near(high, 2.19, 0.4), "\(db(low)), \(db(middle)), \(db(high))")
+
+            // B3c2. the volume slider (29 Oct): half way sounds half as loud (−10 dB), a quarter a quarter (−20), not the cube's −18 and −36
+            func slider(_ place: Float) -> Double { 20 * log10(Double(Player.gain(place))) }
+            check("the slider: half way is −10 dB, a quarter −20 dB, a tenth −33 dB",
+                  near(slider(0.5), -10.03, 0.05) && near(slider(0.25), -20.06, 0.05) && near(slider(0.1), -33.4, 0.1),
+                  "\(db(slider(0.5))), \(db(slider(0.25))), \(db(slider(0.1)))")
+            check("…nothing at the bottom, full at the top", Player.gain(0) == 0 && Player.gain(1) == 1)
 
             // B3d. bass harmonics: a low note gains its 3rd harmonic and keeps itself; what is above 110 Hz is left alone
             @MainActor func goertzel(_ x: [Float], _ hz: Double, rate: Double) -> Double {

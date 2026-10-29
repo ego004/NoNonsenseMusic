@@ -1,5 +1,5 @@
-// The volume slider's place becomes the player's gain through a cube, so that each part of the slider changes how loud
-// it sounds by a similar amount (loudness is heard in ratios; the player's gain is linear).
+// The volume slider's place becomes the player's gain through a power of 5/3, so that each part of the slider changes how
+// loud it sounds by a similar amount (loudness is heard in ratios: +10 dB is twice as loud; the player's gain is linear).
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -13,10 +13,10 @@ void main() {
     expect(Player.gain(1), 1);
   });
 
-  test('a lower place is clearly quieter: half is -18 dB, a quarter -36 dB, a tenth -60 dB', () {
-    expect(decibels(Player.gain(0.5)), closeTo(-18.1, 0.1));
-    expect(decibels(Player.gain(0.25)), closeTo(-36.1, 0.1));
-    expect(decibels(Player.gain(0.1)), closeTo(-60, 0.1));
+  test('half way sounds half as loud: half is -10 dB, a quarter -20 dB, a tenth -33 dB', () {
+    expect(decibels(Player.gain(0.5)), closeTo(-10.0, 0.1));
+    expect(decibels(Player.gain(0.25)), closeTo(-20.1, 0.1));
+    expect(decibels(Player.gain(0.1)), closeTo(-33.3, 0.1));
   });
 
   test('every step down the slider turns it down', () {
