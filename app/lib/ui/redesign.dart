@@ -479,7 +479,7 @@ class _NowCard extends StatelessWidget {
             const SizedBox(height: 6),
             // the editorial type: the title as the page's headline
             Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontFamily: displayFont, fontSize: 42, fontWeight: FontWeight.w800, letterSpacing: -1.2, height: 1.1, color: ink)),
+                style: TextStyle(fontFamily: displayFont, fontFamilyFallback: appFontFallbacks, fontSize: 42, fontWeight: FontWeight.w800, letterSpacing: -1.2, height: 1.1, color: ink)),
             const SizedBox(height: 2),
             Text(track.artistLine, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 16, color: ink.withValues(alpha: 0.65))),
             const SizedBox(height: 18),
@@ -668,7 +668,7 @@ class _ResumeCard extends StatelessWidget {
                 style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 2, color: ink.withValues(alpha: 0.55))),
             const SizedBox(height: 6),
             Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontFamily: displayFont, fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.6, color: ink)),
+                style: TextStyle(fontFamily: displayFont, fontFamilyFallback: appFontFallbacks, fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.6, color: ink)),
             Text(track.artistLine, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14.5, color: ink.withValues(alpha: 0.65))),
           ]),
         ),

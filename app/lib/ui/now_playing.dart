@@ -374,7 +374,7 @@ class NowPlaying extends StatelessWidget {
                           child: Column(key: ValueKey(t.id), crossAxisAlignment: CrossAxisAlignment.start, children: [
                             Row(children: [
                               Flexible(child: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontFamily: displayFont, fontSize: 26, fontWeight: FontWeight.w700, letterSpacing: -0.5, height: 1.15))),
+                                  style: const TextStyle(fontFamily: displayFont, fontFamilyFallback: appFontFallbacks, fontSize: 26, fontWeight: FontWeight.w700, letterSpacing: -0.5, height: 1.15))),
                               if (t.isExplicit) const Padding(padding: EdgeInsets.only(left: 8), child: ExplicitBadge()),
                             ]),
                             const SizedBox(height: 3),

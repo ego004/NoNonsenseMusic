@@ -72,7 +72,7 @@ class Home extends StatelessWidget {
                 inset(
                   Text(
                     [greeting(DateTime.now()), displayName(s.auth.user?.username ?? '')].where((w) => w.isNotEmpty).join(', '),
-                    style: TextStyle(fontFamily: displayFont, fontSize: 22, fontWeight: FontWeight.w600, letterSpacing: -0.3, color: theme.colorScheme.onSurface.withValues(alpha: 0.85)),
+                    style: TextStyle(fontFamily: displayFont, fontFamilyFallback: appFontFallbacks, fontSize: 22, fontWeight: FontWeight.w600, letterSpacing: -0.3, color: theme.colorScheme.onSurface.withValues(alpha: 0.85)),
                   ),
                 ),
                 const SizedBox(height: 18),

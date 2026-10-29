@@ -103,6 +103,14 @@ flutter:
           weight: 700
         - asset: assets/fonts/Figtree-ExtraBold.ttf
           weight: 800
+    - family: Noto Sans Devanagari
+      fonts:
+        - asset: assets/fonts/NotoSansDevanagari-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansDevanagari-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/NotoSansDevanagari-Bold.ttf
+          weight: 800
 
   # To add assets to your application, add an assets section, like this:
   # assets:

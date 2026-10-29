@@ -106,7 +106,7 @@ class AlbumPage extends StatelessWidget {
 const _narrow = 560.0;
 
 TextStyle _title(BuildContext context, double size) =>
-    TextStyle(fontSize: size, fontWeight: FontWeight.w700, letterSpacing: -0.5, height: 1.15, color: Theme.of(context).colorScheme.onSurface);
+    TextStyle(fontSize: size, fontWeight: FontWeight.w700, letterSpacing: -0.5, height: 1.15, color: Theme.of(context).colorScheme.onSurface, fontFamilyFallback: appFontFallbacks);
 
 Widget _section(BuildContext context, String text, double side) => SliverToBoxAdapter(
     child: Padding(

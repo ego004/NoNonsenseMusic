@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/accent.dart';
 import '../core/settings.dart';
+import 'concept.dart';
 
 /// Builds the application theme for the given brightness and playing cover colour, in the [look] chosen in Settings ›
 /// Appearance, which the theme carries to the parts that show it.
@@ -46,6 +47,7 @@ ThemeData buildTheme(Brightness b, Color? song, {Look look = const Look()}) {
     colorScheme: scheme,
     brightness: b,
     fontFamily: Platform.isWindows ? 'Segoe UI Variable Text' : null,
+    fontFamilyFallback: appFontFallbacks,
     visualDensity: mobile ? VisualDensity.standard : VisualDensity.compact,
     splashFactory: NoSplash.splashFactory,
     highlightColor: Colors.transparent,

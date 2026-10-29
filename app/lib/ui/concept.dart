@@ -25,10 +25,27 @@ const spring = Curves.easeOutBack;
 /// The display face for big titles: Segoe UI Variable Display, Windows 11's optical size for headings.
 const displayFont = 'Segoe UI Variable Display';
 
+/// Fallback fonts ensuring consistent weights across OS, especially for non-Latin scripts (e.g. Devanagari).
+const appFontFallbacks = [
+  'Noto Sans Devanagari',
+  'Nirmala UI',
+  'Kohinoor Devanagari',
+  'Noto Sans',
+  'Segoe UI',
+  'sans-serif',
+];
+
 /// The lyrics' face: Figtree (bundled, assets/fonts), an open geometric font in the manner of Spotify's own, set as
 /// Spotify sets its lyrics: extra bold, large, tightly spaced.
 const lyricsFont = 'Figtree';
-const lyricsStyle = TextStyle(fontFamily: lyricsFont, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.6, height: 1.2);
+const lyricsStyle = TextStyle(
+  fontFamily: lyricsFont,
+  fontFamilyFallback: appFontFallbacks,
+  fontSize: 24,
+  fontWeight: FontWeight.w800,
+  letterSpacing: -0.6,
+  height: 1.2,
+);
 
 /// Fades and lifts its child in once, [order] steps after its parent appears: Now Playing's elements arrive one after
 /// another. Later rebuilds keep it still (the tween's end never changes).

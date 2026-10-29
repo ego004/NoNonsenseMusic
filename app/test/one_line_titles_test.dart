@@ -41,7 +41,11 @@ Future<void> loadRoboto() async {
   for (final family in ['Roboto', 'Segoe UI Variable Text', 'Segoe UI Variable Display']) {
     final loader = FontLoader(family);
     for (final weight in ['regular', 'medium', 'bold', 'black']) {
-      loader.addFont(Future.value(ByteData.sublistView(File('$fonts/roboto-$weight.ttf').readAsBytesSync())));
+      final titleWeight = '${weight[0].toUpperCase()}${weight.substring(1)}';
+      final file = File('$fonts/roboto-$weight.ttf').existsSync()
+          ? File('$fonts/roboto-$weight.ttf')
+          : File('$fonts/Roboto-$titleWeight.ttf');
+      loader.addFont(Future.value(ByteData.sublistView(file.readAsBytesSync())));
     }
     await loader.load();
   }
