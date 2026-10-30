@@ -626,8 +626,8 @@ class UpNext extends StatelessWidget {
                       padding: const EdgeInsets.all(6),
                       child: Text(
                         isTouchDevice
-                            ? 'Nothing queued. Play a list, or long-press a song → Play Next or Add to Queue.'
-                            : 'Nothing queued. Play a list, or right-click a song → Play Next or Add to Queue.',
+                            ? 'Nothing queued. Play a list, or long-press a song › Play Next or Add to Queue.'
+                            : 'Nothing queued. Play a list, or right-click a song › Play Next or Add to Queue.',
                         style: TextStyle(color: muted),
                       ),
                     )

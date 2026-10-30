@@ -484,7 +484,7 @@ struct SongListView: View {
             } else if tracks.isEmpty && item != .downloads && !Connectivity.shared.serverAnswers {
                 // not "No liked songs yet" when the songs are only out of reach (a server down at launch said that)
                 ContentUnavailableView("Can't reach your server", systemImage: "bolt.horizontal.circle",
-                                       description: Text("\(item.title) comes from it. Downloads still play."))
+                                       description: Text("\(item.title) is on the server. Downloads still play."))
             } else if tracks.isEmpty {
                 switch item {
                 case .liked:
@@ -656,7 +656,7 @@ struct RecentSearchChips: View {
         let recent = RecentSearches.list(raw)
         VStack(alignment: .leading, spacing: 14) {
             if recent.isEmpty {
-                Text("Try a song or an artist. Searches that lead to music show up here.")
+                Text("Search for a song, an artist or an album. Recent searches appear here.")
                     .textStyle(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)

@@ -691,6 +691,9 @@ class Player extends ChangeNotifier implements JamPlayer {
     notifyListeners();
   }
 
+  /// Something else in the app has a message for the screen (a like or a playlist change that did not go through).
+  void say(String text) => _show(text);
+
   void _show(String text) {
     message = text;
     _messageTimer?.cancel();

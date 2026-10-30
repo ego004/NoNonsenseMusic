@@ -52,7 +52,7 @@ struct HomeView: View {
                         if Connectivity.shared.serverAnswers { firstStep }
                         else {
                             ContentUnavailableView("Can't reach your server", systemImage: "bolt.horizontal.circle",
-                                                   description: Text("Your library lives on it. Downloads still play."))
+                                                   description: Text("Your library is on the server. Downloads still play."))
                         }
                     }
                     .padding(.bottom, 32)

@@ -21,6 +21,14 @@ class Library extends ChangeNotifier {
   /// The player sets this: a playing playlist's queue follows edits made anywhere.
   void Function(PlaylistDetail)? playlistChanged;
 
+  /// Where an action that did not go through says so (main.dart: the player's message chip). Without it a like, an add
+  /// or a delete that failed looked as if nothing had happened, or as if it had worked.
+  void Function(String)? problem;
+
+  void _failed(String what, Object error) => problem?.call("Couldn't $what: ${whyNoAnswer(error) ?? error}");
+
+  String _nameOf(String playlist) => playlists.where((p) => p.id == playlist).map((p) => p.name).firstOrNull ?? 'the playlist';
+
   bool isLiked(Track t) => t.listings.any((l) => _likedKeys.contains(l.key));
 
   /// The songs of yours this app holds when the server cannot be reached: the downloads first (they play with no
@@ -136,7 +144,16 @@ class Library extends ChangeNotifier {
             _songIds[l.key] = id;
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        // the server never got it: the heart goes back to what it was
+        if (was) {
+          _likedKeys.addAll(t.listings.map((l) => l.key));
+        } else {
+          _likedKeys.removeAll(t.listings.map((l) => l.key));
+        }
+        notifyListeners();
+        _failed('${was ? 'unlike' : 'like'} “${t.title}”', e);
+      }
     }();
     _turns[t.id] = turn;
     await turn;
@@ -243,7 +260,10 @@ class Library extends ChangeNotifier {
   Future<void> deletePlaylist(String id) async {
     try {
       await Api.delete(id);
-    } catch (_) {}
+    } catch (e) {
+      _failed('delete “${_nameOf(id)}”', e); // it is still there: it stays in the list
+      return;
+    }
     details.remove(id);
     await _refreshPlaylists();
   }
@@ -253,7 +273,9 @@ class Library extends ChangeNotifier {
       await Api.add(t.listings, playlist);
       await _refreshPlaylists();
       await loadPlaylist(playlist);
-    } catch (_) {}
+    } catch (e) {
+      _failed('add to “${_nameOf(playlist)}”', e);
+    }
   }
 
   Future<void> remove(String itemId, String playlist) async {
@@ -262,8 +284,9 @@ class Library extends ChangeNotifier {
     try {
       await Api.remove(itemId, playlist);
       await _refreshPlaylists();
-    } catch (_) {
+    } catch (e) {
       await loadPlaylist(playlist);
+      _failed('remove a song from “${_nameOf(playlist)}”', e);
     }
   }
 
@@ -278,8 +301,9 @@ class Library extends ChangeNotifier {
     final k = items.indexOf(moved);
     try {
       await Api.moveItem(playlist, moved.$1, k > 0 ? items[k - 1].$1 : null, k + 1 < items.length ? items[k + 1].$1 : null);
-    } catch (_) {
+    } catch (e) {
       await loadPlaylist(playlist);
+      _failed('move a song in “${_nameOf(playlist)}”', e);
     }
   }
 }

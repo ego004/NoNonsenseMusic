@@ -256,7 +256,7 @@ struct NamePlaylistSheet: View {
                 .font(.title3)
                 .focused($focused)
                 .onSubmit(go)
-                .keyframeAnimator(initialValue: 0.0, trigger: shakes) { field, x in
+                .keyframeAnimator(initialValue: 0.0, trigger: shakes) { [reduceMotion] field, x in
                     field.offset(x: reduceMotion ? 0 : x)
                 } keyframes: { _ in
                     KeyframeTrack {

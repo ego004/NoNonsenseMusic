@@ -95,7 +95,7 @@ class Home extends StatelessWidget {
               inset(
                 const _Note(
                   'Can\'t reach your server',
-                  'Your library lives on it.',
+                  'Your library is on the server.',
                   FluentIcons.plug_disconnected_24_regular,
                 ),
               )

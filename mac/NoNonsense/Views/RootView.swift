@@ -114,7 +114,7 @@ struct RootView: View {
                         }
                         PlayerBar(glass: glass)
                             // a song that would not play: one short sideways shake, like a wrong password (not with Reduce Motion)
-                            .keyframeAnimator(initialValue: 0.0, trigger: player.problems) { bar, x in
+                            .keyframeAnimator(initialValue: 0.0, trigger: player.problems) { [reduceMotion] bar, x in
                                 bar.offset(x: reduceMotion ? 0 : x)
                             } keyframes: { _ in
                                 KeyframeTrack {

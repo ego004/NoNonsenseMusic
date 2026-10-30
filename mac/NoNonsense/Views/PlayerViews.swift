@@ -1328,7 +1328,7 @@ struct UpNextView: View {
             }
             .padding(.horizontal, 16).padding(.top, 16)
             if entries.isEmpty {
-                Text("Nothing queued. Play a list, or right-click a song → Play Next or Add to Queue.")
+                Text("Nothing queued. Play a list, or right-click a song › Play Next or Add to Queue.")
                     .textStyle(.callout).foregroundStyle(.secondary)
                     .padding(.horizontal, 16).padding(.bottom, 16)
             } else {

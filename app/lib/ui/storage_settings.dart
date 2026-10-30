@@ -48,7 +48,7 @@ class _StorageSettingsState extends State<StorageSettings> {
       ListTile(
         contentPadding: EdgeInsets.zero,
         title: const Text('Keep songs on this device'),
-        subtitle: const Text('Songs you have played start at once and play offline. The least recently played are removed first.'),
+        subtitle: const Text('Songs you\'ve played start at once and play offline. The least recently played are removed first.'),
         trailing: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 120),
           child: DropdownButton<int>(

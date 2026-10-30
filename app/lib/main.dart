@@ -59,7 +59,9 @@ Future<void> main() async {
     return AppExitResponse.exit;
   });
   player.currentId.addListener(() => accent.follow(player.current?.image));
-  final library = Library()..playlistChanged = player.playlistChanged;
+  final library = Library()
+    ..playlistChanged = player.playlistChanged
+    ..problem = player.say;
   await Presence.shared.load(); // The Discord status is off by default; it follows the player from here.
   Presence.shared.follow(player, library);
   // A session that ends stops the music and empties the library: nothing of one account shows to the next.

@@ -224,7 +224,7 @@ class _SongListScreenState extends State<SongListScreen> {
         }
         if (tracks.isEmpty) {
           return !s.library.reachable
-              ? _Empty('Can\'t reach your server', '$title comes from it.', FluentIcons.plug_disconnected_24_regular)
+              ? _Empty('Can\'t reach your server', '$title is on the server.', FluentIcons.plug_disconnected_24_regular)
               : _Empty(liked ? 'No liked songs yet' : 'Nothing played yet',
                   liked ? 'Tap ♥ on any song to keep it here.' : 'Songs you play show up here.',
                   liked ? FluentIcons.heart_24_regular : FluentIcons.history_24_regular);
