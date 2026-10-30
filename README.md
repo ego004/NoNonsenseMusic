@@ -57,6 +57,8 @@ cd app
 flutter run -d windows    # or: flutter run -d <android device>
 ```
 
+Linux (experimental, contributed in #38 and not tested by the maintainer) plays through the system's `libmpv`: install it (`sudo apt install libmpv2` on Debian and Ubuntu), then `flutter run -d linux`.
+
 ### The server
 
 See [Running a server](#running-a-server) below.
