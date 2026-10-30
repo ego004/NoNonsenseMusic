@@ -396,13 +396,17 @@ private struct LyricsPanel: View {
         Group {
             switch lyrics.state(for: track) {
             case .found(let found) where found.lines.isEmpty:
-                message("No lyrics for this song.")
+                message("Couldn't find lyrics")
             case .found(let found):
                 if found.synced { timed(found) } else { plain(found) }
             case .unreachable:
-                message("Couldn't reach the server for lyrics.")
+                message("Couldn't reach the server")
             case .loading, nil:
-                ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 10) {
+                    ProgressView().tint(.white)
+                    Text("Finding lyrics…").font(.callout).foregroundStyle(.white.opacity(0.7))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task(id: track.id) { if lyrics.state(for: track) == nil { lyrics.fetch(track) } }
