@@ -82,6 +82,9 @@ final class Player {
     @ObservationIgnored private var keyMonitor: Any?
     @ObservationIgnored private var fallbacksTried = 0
     @ObservationIgnored private var failuresInARow = 0     // with repeat on, a queue where nothing plays must stop somewhere
+    /// Which way the queue is being walked: -1 after ⏮, else 1. A song that will not load is passed in the same direction
+    /// (it went forward whichever way you were going, so ⏮ onto a failing song jumped forward again, 29 Oct).
+    @ObservationIgnored private var heading = 1
     /// Shuffle on or off for the next queue too, and repeat: both remembered between launches, as in Apple Music.
     @ObservationIgnored private var shufflePreferred = UserDefaults.standard.bool(forKey: "shuffle")
     private(set) var playingListing: Listing?                         // the copy AVPlayer is playing right now
@@ -147,6 +150,7 @@ final class Player {
         guard tracks.indices.contains(i) else { return }
         if let jam { jam.add([tracks[i]], .now); return }   // in a jam: this song plays for the room at once, not the list
         reportSkipIfNeeded()
+        heading = 1
         radioAskedAfter = nil                             // a new queue: Autoplay may ask for it, whatever came before
         order.load(tracks, startAt: i, keys: keys, source: source, shuffled: shufflePreferred)
         startCurrent()
@@ -326,6 +330,7 @@ final class Player {
         nextPresses += 1
         let after = order.indexAfterNext()
         if after != nil { reportSkipIfNeeded() }          // ⏭ on the last song ends the queue; nothing was skipped
+        heading = 1
         go(to: after)
     }
 
@@ -335,12 +340,14 @@ final class Player {
         if livePosition > 3 { seek(to: 0); return }     // like every player: first press restarts the song
         reportSkipIfNeeded()
         guard let i = order.indexAfterPrevious() else { seek(to: 0); return }   // the first song, repeat off: restart it
+        heading = -1
         go(to: i)
     }
 
     func jump(to i: Int) {
         guard queue.indices.contains(i) else { return }
         reportSkipIfNeeded()
+        heading = 1
         go(to: i)
     }
 
@@ -1115,8 +1122,11 @@ final class Player {
             return
         }
         show("Couldn't play “\(track.title)”." + (reason.map { " " + $0 } ?? ""), seconds: 6)
-        // repeat on and nothing in the queue plays: one full round of failures, then stop instead of looping forever
-        go(to: failuresInARow >= queue.count ? nil : order.indexAfterNext())
+        // on in the direction of travel (a song that played a while first failed mid-song: forward); with nothing before it,
+        // the song after, back to where ⏮ started. Repeat on and nothing in the queue plays: one full round of failures,
+        // then stop instead of looping forever
+        let back = heading < 0 && livePosition < 3
+        go(to: failuresInARow >= queue.count ? nil : (back ? order.indexAfterPrevious() ?? order.indexAfterNext() : order.indexAfterNext()))
     }
 
     /// Why a copy failed, from the server's answer to the fresh request, as a sentence.
@@ -1168,6 +1178,7 @@ final class Player {
         // in a jam the room moves on at the first device to finish (docs/jam.md)
         if let jam { report("finish", track, at: Int(duration)); jam.songEnded(); return }
         report("finish", track, at: Int(duration))
+        heading = 1
         let after = order.indexAfterEnd()
         if after == order.index {                       // repeat one: the same song again, without reloading it
             seek(to: 0)

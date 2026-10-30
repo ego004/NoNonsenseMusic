@@ -140,6 +140,15 @@ extension SelfTest {
             Leveller.shared.setOn(false)
             player.gaplessChanged()
 
+            // E. ⏮ onto a song that will not load goes on back, not forward again (29 Oct)
+            let missing = Listing(source: "jiosaavn", id: "selftest-missing-\(UUID().uuidString)", title: "Will Not Load", artists: ["Self-Test"],
+                                  album: nil, duration: 6, popularity: nil, image: nil)
+            player.play(tracks([songs[0], missing, songs[1]]), startAt: 2)
+            _ = await until(5) { player.playingListing?.key == songs[1].key && player.isPlaying && player.livePosition > 0.2 }
+            player.previous()
+            check("⏮ onto a song that will not load goes on back to the one before it",
+                  await until(30) { player.playingListing?.key == songs[0].key && player.isPlaying }, player.playerStateForTests)
+
             // C. ⏭ with a song queued
             player.play(tracks([songs[0], songs[1], songs[2]]))
             _ = await until(5) { player.queuedKeyForTests == songs[1].key }

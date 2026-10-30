@@ -82,6 +82,9 @@ class Player extends ChangeNotifier implements JamPlayer {
   final Set<int> _tried = {}; // the copies of the current song already tried: a failed copy is not tried again
   int _failuresInARow = 0;
   bool _reported = false; // the current song's "play" was sent
+  /// Which way the queue is being walked: -1 after ⏮, else 1. A song that will not load is passed in the same
+  /// direction (it went forward whichever way you were going, so ⏮ onto a failing song jumped forward again, 29 Oct).
+  int _heading = 1;
   int _loads = 0; // each load's number: news about a replaced copy is ignored
   bool _loading = false;
   bool _ready = false; // the loaded copy has been ready: a "completed" before that is the replaced copy's
@@ -161,6 +164,7 @@ class Player extends ChangeNotifier implements JamPlayer {
   /// other call is a tap on one song and plays just that one.
   Future<void> play(List<Track> tracks,
       {int startAt = 0, List<String>? keys, String? source, bool shuffled = false, bool wholeList = false}) async {
+    _heading = 1;
     if (jam != null) {
       if (startAt >= tracks.length) return;
       // the jam says what it did (JamSession.add)
@@ -193,6 +197,7 @@ class Player extends ChangeNotifier implements JamPlayer {
   Future<void> next() async {
     if (jam != null) return jam!.skip();
     await _skipIfPlaying();
+    _heading = 1;
     _go(queue.indexAfterNext());
   }
 
@@ -200,11 +205,13 @@ class Player extends ChangeNotifier implements JamPlayer {
     if (jam != null) return jam!.previous(); // the room's last song, or this one from the start: the server decides
     if (await readPosition() > 3) return seek(0);
     await _skipIfPlaying();
+    _heading = -1;
     _go(queue.indexAfterPrevious());
   }
 
   Future<void> jump(int i) async {
     await _skipIfPlaying();
+    _heading = 1;
     _go(i);
   }
 
@@ -669,11 +676,15 @@ class Player extends ChangeNotifier implements JamPlayer {
       return;
     }
     _show("Couldn't play “${t.title}”.");
-    _go(queue.indexAfterNext());
+    // on in the direction of travel (a song that was heard first failed mid-song: forward); with nothing before it,
+    // the song after, back to where ⏮ started
+    final back = _heading < 0 && _heard.elapsed < const Duration(seconds: 3);
+    _go(back ? queue.indexAfterPrevious() ?? queue.indexAfterNext() : queue.indexAfterNext());
   }
 
   void _ended() {
     _failuresInARow = 0; // a song played to its end
+    _heading = 1;
     _report('finish', current, duration.round());
     if (jam != null) return jam!.songEnded(); // the room moves on at the first device to finish (docs/jam.md)
     _go(queue.indexAfterEnd());
