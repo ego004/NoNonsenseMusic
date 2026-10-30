@@ -1,6 +1,5 @@
 // Under the artist, Now Playing shows the album and where the song plays from ("YouTube Music · AAC 128 kbps"). The two
 // shared the row half and half, so a long album name left the source cut to "AAC 12…" (29 Oct). The album gives way.
-import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nononsense/core/models.dart';
