@@ -127,7 +127,9 @@ class NowPlaying extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Row(
+                        // the album gives way first: the source and bitrate were cut to "AAC 12…" while the album had room
+                        LayoutBuilder(
+                          builder: (context, box) => Row(
                           children: [
                             if (t.albumTitle != null) ...[
                               Flexible(
@@ -159,9 +161,12 @@ class NowPlaying extends StatelessWidget {
                                 ),
                               ),
                             ],
-                            Flexible(child: CopyMenu(track: t)),
+                            ConstrainedBox(
+                              constraints: BoxConstraints(maxWidth: box.maxWidth * 0.8),
+                              child: CopyMenu(track: t),
+                            ),
                           ],
-                        ),
+                        )),
                       ],
                     );
                     final panel = p.panel == 'lyrics'
