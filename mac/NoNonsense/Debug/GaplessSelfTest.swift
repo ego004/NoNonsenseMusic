@@ -126,6 +126,20 @@ extension SelfTest {
                   && player.current?.best.key == songs[1].key && player.isPlaying, player.playerStateForTests)
             check("its own length is read, not the first's (6 s)", abs(player.duration - 6) < 0.5, String(format: "%.2f s", player.duration))
 
+            // D. an effect on (levelling): the songs have a tap, and a short early start stands in for gapless (29 Oct)
+            Leveller.shared.setOn(true)
+            player.gaplessChanged()
+            player.play(tracks([songs[0], songs[1], songs[2]]))
+            _ = await until(5) { player.queuedKeyForTests == songs[1].key }
+            player.clearUpNext()
+            let handover = await gap(songs[0], songs[1])
+            report("gapless: with an effect on, the gap between songs is \(ms(handover))")
+            check("with an effect on: no gap (the songs overlap by at most 0.12 s)", handover.map { $0 < 0.02 && $0 > -0.12 } ?? false,
+                  "\(ms(handover)); \(player.playerStateForTests)")
+            check("…and the second song is the one playing", player.playingListing?.key == songs[1].key && player.isPlaying, player.playerStateForTests)
+            Leveller.shared.setOn(false)
+            player.gaplessChanged()
+
             // C. ⏭ with a song queued
             player.play(tracks([songs[0], songs[1], songs[2]]))
             _ = await until(5) { player.queuedKeyForTests == songs[1].key }

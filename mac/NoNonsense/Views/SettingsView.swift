@@ -514,7 +514,7 @@ private struct PlaybackSettings: View {
             Section {
                 Toggle(isOn: $gapless) {
                     Text("Gapless playback")
-                    Text("Needs the next track cached or downloaded. With any effect below on, there is a gap of about 0.1 s.")
+                    Text("Needs the next track cached or downloaded. With an effect on, tracks overlap by 60 ms instead.")
                         .foregroundStyle(.secondary)
                 }
                 .onChange(of: gapless) { _, _ in player.gaplessChanged() }

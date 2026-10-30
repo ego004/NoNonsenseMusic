@@ -801,6 +801,7 @@ final class Player {
     func gaplessChanged() {
         unqueue()
         queueNext()
+        if let item = player.currentItem, item.status == .readyToPlay { planFade(for: item) }   // the handover on or off
     }
 
     #if DEBUG
@@ -908,12 +909,26 @@ final class Player {
         endPlan = nil
     }
 
-    /// The song is ready: the crossfade's start is set at its length less the fade.
+    /// Gapless with an effect on (29 Oct): a song with a tap on it changes over to the next with a gap of about 0.1 s, as
+    /// the player starts a song's audio pipeline only when it starts (measured: 109 ms against 2 ms with no tap). So the
+    /// next song starts `handoverLead` early on the second player, and the two overlap for `handoverFade`, equal power:
+    /// too short to hear as a blend, long enough that nothing is cut.
+    nonisolated static let handoverFade = 0.06
+    nonisolated static let handoverLead = 0.16
+
+    /// The seconds the songs overlap: the crossfade chosen, else the short handover when gapless needs it, else 0.
+    private var fadeSeconds: Double {
+        if Self.crossfade > 0 { return Self.crossfade }
+        return Self.gapless && SoundChain.shared.active ? Self.handoverFade : 0
+    }
+
+    /// The song is ready: the crossfade's start is set at its length less the fade (and less the lead, for the handover).
     private func planFade(for item: AVPlayerItem) {
         cancelFadePlan()
-        let seconds = Self.crossfade, length = audioLength ?? 0
-        guard seconds > 0, jam == nil, length > 2 * seconds else { return }
-        let at = NSValue(time: CMTime(seconds: length - seconds, preferredTimescale: 600))
+        let seconds = fadeSeconds, length = audioLength ?? 0
+        let lead = Self.crossfade > 0 ? 0 : Self.handoverLead
+        guard seconds > 0, jam == nil, length > 2 * seconds + 3 * lead else { return }
+        let at = NSValue(time: CMTime(seconds: length - seconds - lead, preferredTimescale: 600))
         let token = player.addBoundaryTimeObserver(forTimes: [at], queue: .main) { [weak self] in
             MainActor.assumeIsolated { self?.crossfadeNow() }
         }
@@ -931,13 +946,14 @@ final class Player {
         guard let plan = fadePlan, plan.player === player, let item = player.currentItem, ObjectIdentifier(item) == plan.item,
               let next = nextSong(), isPlaying, outgoing == nil, let track = current else { return }
         cancelFadePlan()
-        let seconds = Self.crossfade
+        let seconds = fadeSeconds
+        let handover = Self.crossfade == 0                    // the short overlap that stands in for gapless
         let mine = loads
         Task {
             guard let file = await localFile(for: next.listing), mine == loads, isPlaying, player.currentItem === item,
                   let now = nextSong(), now.index == next.index, now.listing.key == next.listing.key else { return }
             unqueue()                                         // gapless's item: the next song plays on the new player instead
-            SoundChain.shared.fade(item, outOver: seconds)
+            if !handover { SoundChain.shared.fade(item, outOver: seconds) }
             let old = player
             let new = AVQueuePlayer()
             setUp(new)
@@ -953,8 +969,15 @@ final class Player {
             announceNext()
             refreshBuffering()
             publish()
+            if handover {
+                // the next song's sound reaches the speakers `handoverLead` after it starts: this one fades out then
+                Task {
+                    try? await Task.sleep(for: .seconds(Self.handoverLead))
+                    if outgoing === old { SoundChain.shared.fade(item, outOver: seconds) }
+                }
+            }
             fadeEnd = Task {
-                try? await Task.sleep(for: .seconds(seconds + 0.3))
+                try? await Task.sleep(for: .seconds(seconds + (handover ? Self.handoverLead : 0) + 0.3))
                 if !Task.isCancelled { endFade() }
             }
         }
