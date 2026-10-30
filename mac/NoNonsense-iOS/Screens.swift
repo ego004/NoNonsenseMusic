@@ -39,8 +39,15 @@ struct HomeScreen: View {
                     }
                 }
                 if library.recent.isEmpty && library.playlists.isEmpty {
-                    ContentUnavailableView("Nothing played yet", systemImage: "music.note", description: Text("Search for a song to start."))
-                        .padding(.top, 80)
+                    // an empty library and an unreachable one look the same from here: say which (as the Mac does)
+                    if Connectivity.shared.serverAnswers {
+                        ContentUnavailableView("Nothing played yet", systemImage: "music.note", description: Text("Search for a song to start."))
+                            .padding(.top, 80)
+                    } else {
+                        ContentUnavailableView("Can't reach your server", systemImage: "bolt.horizontal.circle",
+                                               description: Text("Your library is on the server. Pull down to try again."))
+                            .padding(.top, 80)
+                    }
                 }
             }
             .padding(.vertical)
@@ -53,7 +60,7 @@ struct HomeScreen: View {
                     .accessibilityLabel("Settings")
             }
         }
-        .refreshable { await library.refresh(); await library.refreshPlaylists() }
+        .refreshable { if await Connectivity.shared.checkServer() { await library.refresh(); await library.refreshPlaylists() } }
     }
 }
 
@@ -429,7 +436,13 @@ struct LibraryScreen: View {
         }
         .navigationTitle("Library")
         .navigationDestination(for: PlaylistSummary.self) { PlaylistScreen(playlist: $0) }
-        .refreshable { await library.refresh(); await library.refreshPlaylists() }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { PhoneSettings() } label: { Image(systemName: "gearshape") }
+                    .accessibilityLabel("Settings")
+            }
+        }
+        .refreshable { if await Connectivity.shared.checkServer() { await library.refresh(); await library.refreshPlaylists() } }
     }
 }
 

@@ -71,7 +71,7 @@ private struct Gate: View {
         case .signedOut: SignInScreen()
         case .signedIn:
             MainTabs()
-                .task { await library.refresh(); await library.refreshPlaylists() }
+                .task { if await Connectivity.shared.checkServer() { await library.refresh(); await library.refreshPlaylists() } }
         }
     }
 }
