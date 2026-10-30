@@ -88,6 +88,7 @@ private struct ResumeCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: 640, alignment: .leading)       // an iPad: the play button stays by its title, not 1,000 pt away
         .padding(.horizontal)
         .accessibilityLabel("Resume \(track.title), \(track.artistLine)")
     }
