@@ -411,7 +411,12 @@ final class DownloadStore {
     private func save() { write(items) }
 
     private func write(_ list: [Item]) {
-        if let data = try? JSONEncoder().encode(list) { try? data.write(to: indexURL, options: .atomic) }
+        do {
+            try JSONEncoder().encode(list).write(to: indexURL, options: .atomic)
+        } catch {
+            // the list is what the next launch knows the downloads by: a full disk used to lose them without a word
+            notify("Couldn't save the list of downloads: \(error.localizedDescription)", "exclamationmark.triangle.fill")
+        }
     }
 }
 
