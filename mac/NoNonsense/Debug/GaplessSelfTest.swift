@@ -127,15 +127,24 @@ extension SelfTest {
             check("its own length is read, not the first's (6 s)", abs(player.duration - 6) < 0.5, String(format: "%.2f s", player.duration))
 
             // D. an effect on (levelling): the songs have a tap, and a short early start stands in for gapless (29 Oct)
+            UserDefaults.standard.removeObject(forKey: "handoverLead")      // a machine's first changeover starts from the guess
             Leveller.shared.setOn(true)
             player.gaplessChanged()
             player.play(tracks([songs[0], songs[1], songs[2]]))
             _ = await until(5) { player.queuedKeyForTests == songs[1].key }
             player.clearUpNext()
+            // the first changeover teaches how long this machine takes to start the second player (0.16 s here, 0.37 s on
+            // CI's virtual machine); the second starts that much early
+            let warmUp = await gap(songs[0], songs[1])
+            report("gapless: with an effect on, the first changeover on this machine: \(ms(warmUp)); it now starts "
+                   + String(format: "%.0f", Player.handoverLead * 1000) + " ms early")
             let handover = await gap(songs[0], songs[1])
             report("gapless: with an effect on, the gap between songs is \(ms(handover))")
-            check("with an effect on: no gap (the songs overlap by at most 0.12 s)", handover.map { $0 < 0.02 && $0 > -0.12 } ?? false,
-                  "\(ms(handover)); \(player.playerStateForTests)")
+            // the start-up varies by tens of ms from one changeover to the next on a busy machine; against the 110 to
+            // 160 ms gap there was, up to 30 ms of gap and 150 ms of overlap are still a changeover without a break
+            check("with an effect on: no gap once the lead is measured (at most 30 ms of gap or 150 ms of overlap)",
+                  handover.map { $0 < 0.03 && $0 > -0.15 } ?? false, "\(ms(handover)); \(player.playerStateForTests)")
+            UserDefaults.standard.removeObject(forKey: "handoverLead")
             check("…and the second song is the one playing", player.playingListing?.key == songs[1].key && player.isPlaying, player.playerStateForTests)
             Leveller.shared.setOn(false)
             player.gaplessChanged()

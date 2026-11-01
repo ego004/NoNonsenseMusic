@@ -1669,7 +1669,9 @@ extension SelfTest {
                               fixed.top, before.top, fixed.middle))
                 // without Screen Recording, screencapture shows the desktop only: both pictures then read the same, and
                 // they say nothing about the app (seen on CI, 8 Oct: 0.99 and 0.99). Judged on a real screen then
-                if abs(fixed.top - before.top) < 0.02 {
+                // a frame black everywhere, window content included, shows that the runner drew nothing (CI, 30 Oct: 0.00 and
+                // 0.00): a real black strip would still have the window's own content in the middle
+                if abs(fixed.top - before.top) < 0.02 || (fixed.top < 0.02 && fixed.middle < 0.02) {
                     report("fullscreen: the screenshots do not show the app (no Screen Recording here?): the strip is not judged")
                 } else {
                     // the strip itself, not black. Compared with the see-through picture it said nothing on CI: there the
@@ -1684,8 +1686,10 @@ extension SelfTest {
             window.toggleFullScreen(nil)
             for _ in 0..<40 where window.styleMask.contains(.fullScreen) { try? await Task.sleep(for: .milliseconds(250)) }
             try? await Task.sleep(for: .seconds(1.5))
-            check("out of full screen: see-through again", !window.isOpaque && window.backgroundColor.alphaComponent == 0
-                  && !WindowMode.shared.fullScreen)
+            // waited for: leaving full screen is an animation, slower on a virtual machine than the 11.5 s above
+            var seeThroughAgain: Bool { !window.isOpaque && window.backgroundColor.alphaComponent == 0 && !WindowMode.shared.fullScreen }
+            for _ in 0..<40 where !seeThroughAgain { try? await Task.sleep(for: .milliseconds(250)) }
+            check("out of full screen: see-through again", seeThroughAgain)
             report("fullscreen: \(failures == 0 ? "all checks pass" : "\(failures) FAILED")")
             NSApp.terminate(nil)
         }

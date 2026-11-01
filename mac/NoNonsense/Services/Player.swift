@@ -921,7 +921,14 @@ final class Player {
     /// next song starts `handoverLead` early on the second player, and the two overlap for `handoverFade`, equal power:
     /// too short to hear as a blend, long enough that nothing is cut.
     nonisolated static let handoverFade = 0.06
-    nonisolated static let handoverLead = 0.16
+    /// How long the second player takes from `play()` to sounding, read from its own clock at each changeover and kept
+    /// (0.16 s on a Mac, 0.37 s on CI's virtual machine: a fixed lead left a 153 ms gap there). The first changeover on a
+    /// machine uses this guess; the next uses what was measured.
+    nonisolated static let handoverLeadGuess = 0.16
+    nonisolated static var handoverLead: Double {
+        let kept = UserDefaults.standard.double(forKey: "handoverLead")
+        return kept >= 0.08 && kept <= 0.6 ? kept : handoverLeadGuess
+    }
 
     /// The seconds the songs overlap: the crossfade chosen, else the short handover when gapless needs it, else 0.
     private var fadeSeconds: Double {
@@ -955,6 +962,7 @@ final class Player {
         cancelFadePlan()
         let seconds = fadeSeconds
         let handover = Self.crossfade == 0                    // the short overlap that stands in for gapless
+        let lead = Self.handoverLead
         let mine = loads
         Task {
             guard let file = await localFile(for: next.listing), mine == loads, isPlaying, player.currentItem === item,
@@ -976,16 +984,34 @@ final class Player {
             announceNext()
             refreshBuffering()
             publish()
+            if handover { learnLead(of: new, since: Date()) }
             if handover {
                 // the next song's sound reaches the speakers `handoverLead` after it starts: this one fades out then
                 Task {
-                    try? await Task.sleep(for: .seconds(Self.handoverLead))
+                    try? await Task.sleep(for: .seconds(lead))
                     if outgoing === old { SoundChain.shared.fade(item, outOver: seconds) }
                 }
             }
             fadeEnd = Task {
-                try? await Task.sleep(for: .seconds(seconds + (handover ? Self.handoverLead : 0) + 0.3))
+                try? await Task.sleep(for: .seconds(seconds + (handover ? lead : 0) + 0.3))
                 if !Task.isCancelled { endFade() }
+            }
+        }
+    }
+
+    /// How long `started` took to sound: its own clock leaves 0, within 0.8 s. The next changeover starts that much early.
+    /// Between 0.08 and 0.6 s; a clock that never moves (it was paused, or the song changed) teaches nothing.
+    private func learnLead(of started: AVQueuePlayer, since start: Date) {
+        let mine = loads
+        Task {
+            for _ in 0..<80 {
+                try? await Task.sleep(for: .milliseconds(10))
+                guard mine == loads, player === started else { return }
+                if started.currentTime().seconds > 0.01 {
+                    let took = Date().timeIntervalSince(start) - 0.01
+                    UserDefaults.standard.set(min(max(took, 0.08), 0.6), forKey: "handoverLead")
+                    return
+                }
             }
         }
     }

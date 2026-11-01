@@ -85,8 +85,9 @@ extension SelfTest {
             check("…and the next starts from its beginning", player.playingListing?.key == songs[1].key && player.livePosition < 1,
                   String(format: "%.2f s", player.livePosition))
             check("the second player goes once the fade is over", await until(4.5) { !player.fadingForTests })
+            // polled: one sample could land between two bursts of the audio thread (a slow virtual machine, CI, 30 Oct)
             check("the song fading in ends at full volume",
-                  SoundChain.shared.liveProcessors.contains { $0.fadeForTests == 1 && ($0.takeReading().frames > 0) })
+                  await until(3) { SoundChain.shared.liveProcessors.contains { $0.fadeForTests == 1 && ($0.takeReading().frames > 0) } })
             check("the song playing is the second, with its own length", player.playingListing?.key == songs[1].key
                   && abs(player.duration - 10) < 0.6, String(format: "%.2f s", player.duration))
 
