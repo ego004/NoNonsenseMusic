@@ -32,6 +32,7 @@ struct MiniPlayer: View {
             }
             .padding(.horizontal, docked ? 12 : 14)
             .padding(.vertical, docked ? 0 : 8)
+            .frame(maxWidth: 560)                         // an iPad: the controls stay by the title, not 1,100 pt away
             .modifier(OwnGlass(on: !docked))
             .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { drag in
                 guard abs(drag.translation.width) > abs(drag.translation.height) * 1.5 else {
