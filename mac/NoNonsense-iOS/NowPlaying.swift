@@ -177,8 +177,7 @@ struct NowPlayingScreen: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(track.title).font(.title2.weight(.bold)).lineLimit(2).minimumScaleFactor(0.85)
                 Text(track.artistLine).font(.body).opacity(0.75).lineLimit(1)
-                Text("\((player.playingListing ?? track.best).sourceName) · \(player.playingQuality ?? (player.playingListing ?? track.best).quality)")
-                    .font(.caption).opacity(0.55).lineLimit(1)
+                CopyMenu(track: track)
             }
             Spacer(minLength: 0)
             let liked = library.isLiked(track)
@@ -387,85 +386,34 @@ private struct Scrubber: View {
     }
 }
 
-/// The song's lyrics in place of its cover. Timed: the line being sung bright and large, the rest dim, kept in view as
-/// it moves; a tap on a line goes there. Plain: just the text. Asked for when first shown.
-private struct LyricsPanel: View {
-    @Environment(LyricsStore.self) private var lyrics
-    @Environment(Player.self) private var player
+/// Where the song plays from ("YouTube Music · AAC 128 kbps"). With more than one copy it is a menu: choosing a copy
+/// plays it from the same moment.
+private struct CopyMenu: View {
     let track: Track
-    @State private var current: Int?
+    @Environment(Player.self) private var player
 
     var body: some View {
-        Group {
-            switch lyrics.state(for: track) {
-            case .found(let found) where found.lines.isEmpty:
-                message("Couldn't find lyrics")
-            case .found(let found):
-                if found.synced { timed(found) } else { plain(found) }
-            case .unreachable:
-                message("Couldn't reach the server")
-            case .loading, nil:
-                VStack(spacing: 10) {
-                    ProgressView().tint(.white)
-                    Text("Finding lyrics…").font(.callout).foregroundStyle(.white.opacity(0.7))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .task(id: track.id) { if lyrics.state(for: track) == nil { lyrics.fetch(track) } }
-    }
-
-    /// The line being sung is looked at four times a second, but the view is drawn again only when it changes.
-    private func timed(_ found: Lyrics) -> some View {
-        ScrollViewReader { reader in
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    ForEach(Array(found.lines.enumerated()), id: \.offset) { i, line in
-                        Button {
-                            if let ms = line.startMs { player.seek(to: Double(ms) / 1000) }
-                        } label: {
-                            Text(line.text.isEmpty ? "♪" : line.text)
-                                .font(.title2.weight(.bold))
-                                .multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .opacity(i == current ? 1 : 0.35)
-                                .scaleEffect(i == current ? 1 : 0.96, anchor: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .id(i)
+        let playing = player.playingListing ?? track.best
+        let label = "\(playing.sourceName) · \(player.playingQuality ?? playing.quality)"
+        if track.listings.count > 1 {
+            Menu {
+                ForEach(track.listings, id: \.key) { listing in
+                    Toggle(isOn: Binding(get: { listing.key == playing.key }, set: { if $0 { player.switchCopy(to: listing) } })) {
+                        Text("\(listing.sourceName) · \(listing.quality)")
+                        Text("\(listing.artists.joined(separator: ", ")) · \(NowPlayingScreen.time(Double(listing.duration)))\(listing.explicit == true ? " · Explicit" : "")")
                     }
                 }
-                .padding(.vertical, 120)
+            } label: {
+                HStack(spacing: 4) {
+                    Text(label).lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold))
+                }
+                .font(.caption)
+                .opacity(0.7)
             }
-            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.15),
-                                         .init(color: .black, location: 0.85), .init(color: .clear, location: 1)],
-                                 startPoint: .top, endPoint: .bottom))
-            .onChange(of: current) { _, line in
-                guard let line else { return }
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.9)) { reader.scrollTo(line, anchor: .center) }
-            }
-            .animation(.easeOut(duration: 0.3), value: current)
+            .accessibilityHint("Play another copy of this song")
+        } else {
+            Text(label).font(.caption).opacity(0.55).lineLimit(1)
         }
-        .task(id: track.id) {
-            current = nil
-            while !Task.isCancelled {
-                let now = found.line(at: player.livePosition)
-                if now != current { current = now }
-                try? await Task.sleep(for: .milliseconds(250))
-            }
-        }
-    }
-
-    private func plain(_ found: Lyrics) -> some View {
-        ScrollView(showsIndicators: false) {
-            Text(found.lines.map(\.text).joined(separator: "\n"))
-                .font(.title3.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 24)
-        }
-    }
-
-    private func message(_ text: String) -> some View {
-        Text(text).font(.headline).opacity(0.7).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

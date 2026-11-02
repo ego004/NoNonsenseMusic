@@ -30,11 +30,13 @@
 		243BA470092BE8B508E40FE8 /* Footprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26CFDB9AA45C45E878F131FD /* Footprint.swift */; };
 		247AC5B08012F05B68A9FAE3 /* YouTubeSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7653F9E290239BE43EF6D0D6 /* YouTubeSelfTest.swift */; };
 		24BAE3FB97B1C7FFE1C248AD /* Equalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BE03707689D95331FD49A82 /* Equalizer.swift */; };
+		26DC68098A0A083608C48068 /* LyricsTranslations.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F44E306ED4A826FCECEB34 /* LyricsTranslations.swift */; };
 		28B98636A1E0595CBA384EC3 /* YouTubeLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172BF860B15E1251D0DF0E1C /* YouTubeLookup.swift */; };
 		28D11C57911C744EE7C12C63 /* CommandBarSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D091D0F6992A79C578B5F523 /* CommandBarSelfTest.swift */; };
 		2A900B581D7541CC22D8F5CE /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61B7B9C798BEEEDC810D3C7C /* SettingsView.swift */; };
 		2C1BEAAF08EA46E8BEEE308D /* Loudness.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBC3A27A4E50168D10CEC6D /* Loudness.swift */; };
 		2CD3DEA60923FB4359A61B15 /* ReadableSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A78F527B06EAC6E0A29F96 /* ReadableSelfTest.swift */; };
+		34F66F36976CAB8E8D617B45 /* LyricsTranslations.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F44E306ED4A826FCECEB34 /* LyricsTranslations.swift */; };
 		34FCA5B4702277A85194BE3A /* Jam.swift in Sources */ = {isa = PBXBuildFile; fileRef = 042D0FF9C7398E462F7EEAD9 /* Jam.swift */; };
 		35C2E4E3480242C8C35F68AE /* YouTubeLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172BF860B15E1251D0DF0E1C /* YouTubeLookup.swift */; };
 		37A16A5E78571781A8C14A3C /* PagesSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9418F4BBF34BB80AC22AA20 /* PagesSelfTest.swift */; };
@@ -120,6 +122,7 @@
 		D044B7F4E4BE1BD07AC6E6B1 /* SelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C3D0063CBD5878029E2E727 /* SelfTest.swift */; };
 		D14701BCE220BFFE52359ABA /* Social.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EC180CBD9CAE5022E863BAD /* Social.swift */; };
 		D6C295E72FEA5C8128DA9059 /* JamViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 488DEC685DA0304B893444B7 /* JamViews.swift */; };
+		DCCD7240C95BC127C6A616B0 /* Lyrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B544CEEADCFD112FCF40773D /* Lyrics.swift */; };
 		DE9674C8CC7868EC373F0B5D /* PhoneSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D250D6817494B5B25927534F /* PhoneSettings.swift */; };
 		DF808D3E3C6EC312A9601EB4 /* PlaylistLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07FEC0506650B4C844D25EA /* PlaylistLink.swift */; };
 		E02B1DCE96DC5A7901CD2C01 /* JamScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A184D3535FA18747B51206D /* JamScreens.swift */; };
@@ -235,6 +238,7 @@
 		A5C08D46C220140190F5BA02 /* DownloadFilesSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadFilesSelfTest.swift; sourceTree = "<group>"; };
 		AE0713C4CF39D2CF687A3DAE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		AEB8186E89FB9026CB640031 /* Player.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Player.swift; sourceTree = "<group>"; };
+		B544CEEADCFD112FCF40773D /* Lyrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lyrics.swift; sourceTree = "<group>"; };
 		B5C8CE53A38023E1F773BDBD /* Presence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Presence.swift; sourceTree = "<group>"; };
 		B787910CB0D1FA64514F6A52 /* BoundedRangeLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoundedRangeLoader.swift; sourceTree = "<group>"; };
 		BE5B2CD813864FF6256BAA4A /* LatencySelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencySelfTest.swift; sourceTree = "<group>"; };
@@ -257,6 +261,7 @@
 		E270AA16C5BE02590D718911 /* NoNonsenseiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NoNonsenseiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E45C9839E6D148278A97358A /* TranslationSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationSelfTest.swift; sourceTree = "<group>"; };
 		E5E6669294DB009FC163A82D /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
+		E5F44E306ED4A826FCECEB34 /* LyricsTranslations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsTranslations.swift; sourceTree = "<group>"; };
 		EB45FC8B97BCB1B51DE69335 /* Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform.swift; sourceTree = "<group>"; };
 		F07FEC0506650B4C844D25EA /* PlaylistLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistLink.swift; sourceTree = "<group>"; };
 		F1A0C69655F5CC80CAFA2EAC /* CommandBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBar.swift; sourceTree = "<group>"; };
@@ -284,6 +289,7 @@
 				E22B3775E1F5676C0595F497 /* Friends.swift */,
 				C4D0EDC1F1A2DCFB703EC77D /* Info.plist */,
 				3A184D3535FA18747B51206D /* JamScreens.swift */,
+				B544CEEADCFD112FCF40773D /* Lyrics.swift */,
 				389C69805E1883F4C7B415D3 /* MessageLine.swift */,
 				6FA964C6D8C9D0DB68A0AE95 /* NoNonsenseApp.swift */,
 				64644A6F445A2930DAA0F336 /* NowPlaying.swift */,
@@ -415,6 +421,7 @@
 				93FF752447B1866FD59A5D9D /* LibraryStore.swift */,
 				DBBC3A27A4E50168D10CEC6D /* Loudness.swift */,
 				881C5D7D7460D755FDFC0061 /* LyricsStore.swift */,
+				E5F44E306ED4A826FCECEB34 /* LyricsTranslations.swift */,
 				EB45FC8B97BCB1B51DE69335 /* Platform.swift */,
 				AEB8186E89FB9026CB640031 /* Player.swift */,
 				F07FEC0506650B4C844D25EA /* PlaylistLink.swift */,
@@ -631,6 +638,7 @@
 				06ED42D3B0F7A7FD121A2AC7 /* LibraryStore.swift in Sources */,
 				2C1BEAAF08EA46E8BEEE308D /* Loudness.swift in Sources */,
 				0AC4DD34629ED87068AF6E5F /* LyricsStore.swift in Sources */,
+				34F66F36976CAB8E8D617B45 /* LyricsTranslations.swift in Sources */,
 				8A2E113A742983C215DC9639 /* Matching.swift in Sources */,
 				5630B8DC8F8427B02858E427 /* Models.swift in Sources */,
 				A66DC6D35E35B04108B7EA14 /* NoNonsenseApp.swift in Sources */,
@@ -692,7 +700,9 @@
 				E02B1DCE96DC5A7901CD2C01 /* JamScreens.swift in Sources */,
 				F18E7A036730909DFE3132B5 /* LibraryStore.swift in Sources */,
 				8CD7BBF0A71B2A8A13CC12CC /* Loudness.swift in Sources */,
+				DCCD7240C95BC127C6A616B0 /* Lyrics.swift in Sources */,
 				1FC273F244A613777C0C5183 /* LyricsStore.swift in Sources */,
+				26DC68098A0A083608C48068 /* LyricsTranslations.swift in Sources */,
 				39B46FE7EEEC9D914D9EE87E /* Matching.swift in Sources */,
 				6D62854528E721E104187521 /* MessageLine.swift in Sources */,
 				7F2845CCD7BF6DD168A61D68 /* Models.swift in Sources */,

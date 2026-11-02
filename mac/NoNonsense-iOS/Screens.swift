@@ -485,6 +485,8 @@ struct SongsScreen: View {
     var source: String? = nil
     var cover: URL? = nil
     var symbol = "music.note.list"
+    /// What to say when there are no songs yet (and how to add some), under the header.
+    var emptyHint: String? = nil
     var remove: ((Int) -> Void)? = nil
     /// Drag to reorder (Edit): a playlist you can change.
     var move: ((IndexSet, Int) -> Void)? = nil
@@ -493,6 +495,14 @@ struct SongsScreen: View {
         List {
             Section {
                 header.listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+            }
+            if tracks.isEmpty, let emptyHint {
+                Text(emptyHint)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
             }
             Section {
                 ForEach(Array(tracks.enumerated()), id: \.offset) { i, track in
@@ -554,6 +564,8 @@ struct PlaylistScreen: View {
         SongsScreen(title: playlist.name, tracks: tracks, source: "playlist:\(playlist.id.uuidString)",
                     cover: playlist.thumbnail.flatMap(URL.init(string:)),
                     symbol: playlist.isAlbum ? "square.stack" : "music.note.list",
+                    emptyHint: loaded ? (playlist.canEdit ? "No songs yet. Hold any song and choose Add to Playlist, or use Import in the ⋯ menu."
+                                                          : "No songs yet.") : nil,
                     remove: playlist.canEdit ? { i in
                         guard let entry = detail?.items[safe: i] else { return }
                         Task { await library.remove(entry, from: playlist.id) }

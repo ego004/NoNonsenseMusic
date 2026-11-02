@@ -87,7 +87,9 @@ private struct Gate: View {
 private struct MainTabs: View {
     @Environment(Player.self) private var player
     @Environment(LyricsStore.self) private var lyrics
+    @Environment(LibraryStore.self) private var library
     @AppStorage("lyricsFetch") private var lyricsFetch = "songStart"            // Settings › Lyrics
+    @State private var linked: PlaylistSummary?                                  // a shared playlist's link, opened
 
     var body: some View {
         @Bindable var player = player
@@ -108,6 +110,25 @@ private struct MainTabs: View {
         }
         .overlay { MessageLine() }
         .sheet(isPresented: $player.showNowPlaying) { NowPlayingScreen().overlay { MessageLine(lift: 40) } }
+        // a shared playlist's link (PlaylistLink): it opens over the tabs when you may see it (public, or shared with you)
+        .onOpenURL { url in
+            guard let id = PlaylistLink.playlistID(in: url) else { return }
+            player.showNowPlaying = false
+            Task {
+                if await library.loadPlaylist(id), let detail = library.details[id] {
+                    linked = detail.summary
+                } else {
+                    library.notify("That playlist isn't shared with you, or it was deleted.", symbol: "lock.fill")
+                }
+            }
+        }
+        .sheet(item: $linked) { playlist in
+            NavigationStack {
+                PlaylistScreen(playlist: playlist)
+                    .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Done") { linked = nil } } }
+            }
+            .overlay { MessageLine(lift: 40) }
+        }
     }
 }
 

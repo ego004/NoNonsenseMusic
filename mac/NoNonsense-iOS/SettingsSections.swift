@@ -1,8 +1,11 @@
 import SwiftUI
 
-/// Settings › Lyrics: when the app asks the server for them. The same choice and words as the Mac's.
+/// Settings › Lyrics: when the app asks the server for them, what they are translated into, and the experimental Genius
+/// notes. The same choices and words as the Mac's.
 struct LyricsSection: View {
     @AppStorage("lyricsFetch") private var fetch = "songStart"
+    @AppStorage("translateInto") private var translateInto = ""         // LyricsTranslations.target: "" this device's own
+    @AppStorage("geniusNotes") private var genius = false               // experimental, off by default
 
     var body: some View {
         Section {
@@ -14,6 +17,22 @@ struct LyricsSection: View {
             Text("Lyrics")
         } footer: {
             Text("Ahead of time loads them as a song starts, and the next song's too. Downloaded songs keep theirs offline.")
+        }
+        Section {
+            Picker("Translate into", selection: $translateInto) {
+                Text("System language").tag("")
+                ForEach(LyricsTranslations.choices, id: \.id) { Text($0.name).tag($0.id) }
+            }
+        } footer: {
+            Text("For Translate in Lyrics. This \(UIDevice.current.model) translates them (iOS asks to download a language the first time); what it can't goes to Google. The line under the translation says which.")
+        }
+        Section {
+            Toggle(isOn: $genius) {
+                Text("Genius notes")
+                Text("Underlined lines show Genius annotations, and ⓘ shows About This Song. Adds one lookup per song.")
+            }
+        } header: {
+            Text("Experimental")
         }
     }
 }
