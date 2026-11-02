@@ -110,12 +110,14 @@ struct PhoneSettings: View {
                 Text("Equalizer and headphones")
             }
 
+            LyricsSection()
+            StorageSection()
+            AccountDetailsSection()
             Section {
                 LabeledContent("Server", value: API.baseURL.host() ?? API.baseURL.absoluteString)
-                LabeledContent("Signed in as", value: account.user?.username ?? "")
                 Button("Sign out", role: .destructive) { Task { await account.signOut() } }
             } header: {
-                Text("Account")
+                Text("Server")
             }
 
             Section {

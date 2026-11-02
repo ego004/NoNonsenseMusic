@@ -86,6 +86,8 @@ private struct Gate: View {
 
 private struct MainTabs: View {
     @Environment(Player.self) private var player
+    @Environment(LyricsStore.self) private var lyrics
+    @AppStorage("lyricsFetch") private var lyricsFetch = "songStart"            // Settings › Lyrics
 
     var body: some View {
         @Bindable var player = player
@@ -98,6 +100,12 @@ private struct MainTabs: View {
         }
         .tabViewStyle(.sidebarAdaptable)                     // iPad: a sidebar (it folds to tabs); iPhone: the tab bar
         .playerAccessory26(playing: player.current != nil)
+        // Settings › Lyrics › ahead of time: this song's lyrics and the next one's, so Lyrics opens ready (as the Mac does)
+        .task(id: [player.current?.id, player.nextSongs.first?.track.id, lyricsFetch]) {
+            guard lyricsFetch == "songStart", let current = player.current else { return }
+            lyrics.fetch(current)
+            if let next = player.nextSongs.first?.track { lyrics.fetch(next) }
+        }
         .overlay { MessageLine() }
         .sheet(isPresented: $player.showNowPlaying) { NowPlayingScreen().overlay { MessageLine(lift: 40) } }
     }

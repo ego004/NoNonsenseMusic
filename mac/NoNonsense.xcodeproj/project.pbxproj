@@ -85,6 +85,7 @@
 		8A2E113A742983C215DC9639 /* Matching.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F9F3A792DD71494F621530 /* Matching.swift */; };
 		8B5636ECE639853CE0235274 /* HomeHeroSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F03798D2E0871DFCE15FF63 /* HomeHeroSelfTest.swift */; };
 		8BF2E46ECD073C5DCC238688 /* HomeHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D233642141D053435470851 /* HomeHero.swift */; };
+		8C38E577CAA8D37A27375E05 /* SettingsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5AC1D238020F291B7B585E /* SettingsSections.swift */; };
 		8CD7BBF0A71B2A8A13CC12CC /* Loudness.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBC3A27A4E50168D10CEC6D /* Loudness.swift */; };
 		8D292314942FDE16D31FC6E7 /* Library.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E95712FCE99BAF615654D6 /* Library.swift */; };
 		94929082E2697F632E5EAF2B /* Playlists.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4919ACC5F0959DD919B8A173 /* Playlists.swift */; };
@@ -170,6 +171,7 @@
 		0A0BA2A7A3BEC964097F9736 /* LevellingSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LevellingSelfTest.swift; sourceTree = "<group>"; };
 		0BA1F377D529AC06BD5D8330 /* Screens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screens.swift; sourceTree = "<group>"; };
 		0EC180CBD9CAE5022E863BAD /* Social.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Social.swift; sourceTree = "<group>"; };
+		0F5AC1D238020F291B7B585E /* SettingsSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSections.swift; sourceTree = "<group>"; };
 		1233A3ED8401FC7D692055ED /* FriendsSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsSelfTest.swift; sourceTree = "<group>"; };
 		14E78AB03F8D61BD062EA5D8 /* Translation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Translation.swift; sourceTree = "<group>"; };
 		172BF860B15E1251D0DF0E1C /* YouTubeLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeLookup.swift; sourceTree = "<group>"; };
@@ -288,6 +290,7 @@
 				D250D6817494B5B25927534F /* PhoneSettings.swift */,
 				4919ACC5F0959DD919B8A173 /* Playlists.swift */,
 				0BA1F377D529AC06BD5D8330 /* Screens.swift */,
+				0F5AC1D238020F291B7B585E /* SettingsSections.swift */,
 				74048C1592C02B92BD911627 /* SignInScreen.swift */,
 			);
 			path = "NoNonsense-iOS";
@@ -704,6 +707,7 @@
 				ABC21877BBFAF7C2D3926F94 /* Prefetcher.swift in Sources */,
 				2100DFDB2C18440CA6FD5864 /* Presence.swift in Sources */,
 				9C06DDCCC56A776BA0DDD09E /* Screens.swift in Sources */,
+				8C38E577CAA8D37A27375E05 /* SettingsSections.swift in Sources */,
 				87E82CA918522EB92A65ED42 /* Shuffle.swift in Sources */,
 				75AE83FC3FFBF3138C6B51E7 /* SignInScreen.swift in Sources */,
 				5F89837B84C463967C2AB6E7 /* Social.swift in Sources */,
