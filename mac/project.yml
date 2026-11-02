@@ -58,10 +58,10 @@ targets:
         ENABLE_HARDENED_RUNTIME: NO
         CODE_SIGN_IDENTITY: "-"   # ad-hoc signature: runs on this Mac, no developer account needed
         CODE_SIGN_STYLE: Manual
-        MARKETING_VERSION: "0.6.0"   # the release; Sparkle compares it with the appcast's
+        MARKETING_VERSION: "0.6.1"   # the release; Sparkle compares it with the appcast's
         # the app icon: NoNonsense/Assets.xcassets/AppIcon, rendered from app/assets/icon/logo.svg (the one logo for every app)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        CURRENT_PROJECT_VERSION: "14"
+        CURRENT_PROJECT_VERSION: "15"
         NN_URL_SCHEME: nononsense
         NN_UPDATE_FEED: https://github.com/ego004/NoNonsenseMusic/releases/latest/download/appcast.xml
         NN_UPDATE_KEY: y+sgiLPBeRJEb6RlazvQX1I7wFl2CpuBdxUGl6eViJs=   # the release key's public half (generate_keys, account nononsensemusic, 25 Oct)
@@ -116,8 +116,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.nononsense.music
         PRODUCT_NAME: NoNonsenseMusic
-        MARKETING_VERSION: "0.6.0"
-        CURRENT_PROJECT_VERSION: "14"
+        MARKETING_VERSION: "0.6.1"
+        CURRENT_PROJECT_VERSION: "15"
         TARGETED_DEVICE_FAMILY: "1,2"     # iPhone and iPad
         CODE_SIGNING_ALLOWED: NO          # unsigned: AltStore or SideStore signs it with your own Apple ID
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -144,8 +144,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.nononsense.music.widget
-        MARKETING_VERSION: "0.6.0"
-        CURRENT_PROJECT_VERSION: "14"
+        MARKETING_VERSION: "0.6.1"
+        CURRENT_PROJECT_VERSION: "15"
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_ENTITLEMENTS: NoNonsense-Widget/Widget.entitlements
