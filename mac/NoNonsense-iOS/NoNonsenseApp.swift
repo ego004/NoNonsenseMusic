@@ -71,6 +71,7 @@ private struct Gate: View {
         case .signedOut: SignInScreen()
         case .signedIn:
             MainTabs()
+                .task { Social.shared.start() }
                 .task { if await Connectivity.shared.checkServer() { await library.refresh(); await library.refreshPlaylists() } }
         }
     }
@@ -84,6 +85,8 @@ private struct MainTabs: View {
         TabView {
             Tab("Home", systemImage: "house") { NavigationStack { HomeScreen() }.playerBarBefore26() }
             Tab("Library", systemImage: "books.vertical") { NavigationStack { LibraryScreen() }.playerBarBefore26() }
+            Tab("Friends", systemImage: "person.2") { NavigationStack { FriendsScreen() }.playerBarBefore26() }
+                .badge(Social.shared.unread)
             Tab(role: .search) { NavigationStack { SearchScreen() }.playerBarBefore26() }
         }
         .tabViewStyle(.sidebarAdaptable)                     // iPad: a sidebar (it folds to tabs); iPhone: the tab bar
