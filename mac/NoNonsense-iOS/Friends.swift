@@ -56,6 +56,7 @@ struct FriendsScreen: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                JamButton()
                 NavigationLink { NotificationsScreen() } label: {
                     Image(systemName: social.unread > 0 ? "bell.badge" : "bell")
                 }

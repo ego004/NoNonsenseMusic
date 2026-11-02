@@ -64,6 +64,7 @@ struct NoNonsensePhoneApp: App {
 private struct Gate: View {
     @Environment(Account.self) private var account
     @Environment(LibraryStore.self) private var library
+    @Environment(Player.self) private var player
 
     var body: some View {
         switch account.state {
@@ -71,7 +72,13 @@ private struct Gate: View {
         case .signedOut: SignInScreen()
         case .signedIn:
             MainTabs()
-                .task { Social.shared.start() }
+                .task {
+                    Social.shared.start()
+                    JamSession.shared.player = player
+                    JamSession.shared.onNotice = { [library] in library.notify($0, symbol: "person.2.wave.2") }
+                    JamSession.shared.me = account.user?.id
+                    await JamSession.shared.resume()                 // back in the jam this phone was in when the app last ran
+                }
                 .task { if await Connectivity.shared.checkServer() { await library.refresh(); await library.refreshPlaylists() } }
         }
     }

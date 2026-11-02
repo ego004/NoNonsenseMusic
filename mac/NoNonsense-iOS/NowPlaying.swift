@@ -272,6 +272,8 @@ struct NowPlayingScreen: View {
             .buttonStyle(.plain)
             .accessibilityLabel(lyricsShown ? "Hide lyrics" : "Lyrics")
             Spacer()
+            JamButton().font(.title3)
+            Spacer()
             Button { queueShown = true } label: { Image(systemName: "list.bullet").font(.title3) }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Up Next")
