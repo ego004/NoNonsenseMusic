@@ -3,8 +3,10 @@ import SwiftUI
 /// A playlist's own menu: rename, share, make public or private, delete (yours); leave (shared with you); unpin (an album).
 struct PlaylistMenu: View {
     @Environment(LibraryStore.self) private var library
+    @Environment(DownloadStore.self) private var downloads
     @Environment(\.dismiss) private var dismiss
     let playlist: PlaylistSummary
+    let tracks: [Track]
     @State private var renaming = false
     @State private var sharing = false
     @State private var deleting = false
@@ -15,6 +17,11 @@ struct PlaylistMenu: View {
         // the library's copy has the latest name and public flag; this screen's own was made when it opened
         let current = library.playlists.first { $0.id == playlist.id } ?? playlist
         Menu {
+            Button { Task { await downloads.download(all: tracks, name: current.name) } } label: {
+                Label("Download", systemImage: "arrow.down.circle")
+            }
+            .disabled(tracks.isEmpty)
+            Divider()
             if current.isAlbum {
                 Button(role: .destructive) { Task { await library.unpin(current); dismiss() } } label: {
                     Label("Unpin Album", systemImage: "pin.slash")

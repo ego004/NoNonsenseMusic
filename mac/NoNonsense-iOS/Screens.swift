@@ -45,7 +45,7 @@ struct HomeScreen: View {
                             .padding(.top, 80)
                     } else {
                         ContentUnavailableView("Can't reach your server", systemImage: "bolt.horizontal.circle",
-                                               description: Text("Your library is on the server. Pull down to try again."))
+                                               description: Text("Your library is on the server. Downloads still play, from Library. Pull down to try again."))
                             .padding(.top, 80)
                     }
                 }
@@ -397,6 +397,11 @@ struct AlbumScreen: View {
         SongsScreen(title: detail?.title ?? ref.title, tracks: detail?.songs.map(Track.init) ?? [],
                     source: "album:\(ref.source):\(ref.id)", cover: (detail?.image ?? ref.image).flatMap(URL.init(string:)),
                     symbol: "square.stack")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    AlbumMenu(ref: ref, title: detail?.title ?? ref.title, tracks: detail?.songs.map(Track.init) ?? [])
+                }
+            }
             .overlay {
                 if let problem { Text(problem).foregroundStyle(.secondary) } else if detail == nil { ProgressView() }
             }
@@ -420,6 +425,14 @@ struct LibraryScreen: View {
                     SongsScreen(title: "Liked Songs", tracks: library.liked, source: "liked")
                 } label: {
                     Label { Text("Liked Songs") } icon: { Image(systemName: "heart.fill").foregroundStyle(.pink) }
+                }
+                NavigationLink {
+                    SongsScreen(title: "Recently Played", tracks: library.recent, source: "recent", symbol: "clock.arrow.circlepath")
+                } label: {
+                    Label { Text("Recently Played") } icon: { Image(systemName: "clock.arrow.circlepath").foregroundStyle(.blue) }
+                }
+                NavigationLink { DownloadsScreen() } label: {
+                    Label { Text("Downloads") } icon: { Image(systemName: "arrow.down.circle.fill").foregroundStyle(.gray) }
                 }
             }
             if !library.ownPlaylists.isEmpty {
@@ -551,7 +564,7 @@ struct PlaylistScreen: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if playlist.canEdit && tracks.count > 1 { EditButton() }
-                    PlaylistMenu(playlist: playlist)
+                    PlaylistMenu(playlist: playlist, tracks: tracks)
                 }
             }
             .overlay { if !loaded && tracks.isEmpty { ProgressView() } }
@@ -570,6 +583,7 @@ extension Array {
 
 struct TrackRow: View {
     @Environment(Player.self) private var player
+    @Environment(DownloadStore.self) private var downloads
     let track: Track
     var remove: (() -> Void)? = nil
     let play: () -> Void
@@ -585,6 +599,8 @@ struct TrackRow: View {
                     Text(track.artistLine).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                if downloads.isDownloading(track) { ProgressView().controlSize(.small) }
+                else if downloads.isDownloaded(track) { Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).font(.caption) }
                 if track.isExplicit { Image(systemName: "e.square.fill").foregroundStyle(.secondary).font(.caption) }
             }
             .contentShape(Rectangle())
@@ -615,6 +631,7 @@ private struct SongMenu: ViewModifier {
     @Environment(LibraryStore.self) private var library
     let track: Track
     @State private var newPlaylist = false
+    @Environment(DownloadStore.self) private var downloads
 
     func body(content: Content) -> some View {
         content.contextMenu {
@@ -633,6 +650,11 @@ private struct SongMenu: ViewModifier {
                 }
             } label: {
                 Label("Add to Playlist", systemImage: "text.badge.plus")
+            }
+            if downloads.isDownloaded(track) {
+                Button(role: .destructive) { downloads.remove(track) } label: { Label("Remove Download", systemImage: "arrow.down.circle.fill") }
+            } else if !downloads.isDownloading(track) {
+                Button { Task { _ = await downloads.download(track) } } label: { Label("Download", systemImage: "arrow.down.circle") }
             }
         }
         .newPlaylistAlert($newPlaylist, adding: track)
