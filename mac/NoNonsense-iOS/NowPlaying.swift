@@ -353,6 +353,8 @@ private struct UpNextSheet: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
         }
+        // presented from Now Playing, whose white text would otherwise carry in and vanish on the sheet's light background
+        .foregroundStyle(Color(.label))     // an explicit colour: .primary would derive from the white
         .presentationDetents([.medium, .large])
     }
 }

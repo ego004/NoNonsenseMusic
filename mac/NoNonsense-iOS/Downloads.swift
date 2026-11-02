@@ -30,8 +30,9 @@ struct DownloadsScreen: View {
                 }
             }
         }
-        .confirmationDialog("Remove all \(tracks.count) downloads?", isPresented: $confirming, titleVisibility: .visible) {
-            Button("Remove All", role: .destructive) { downloads.removeAll() }
+        .confirmationDialog(tracks.count == 1 ? "Remove this download?" : "Remove all \(tracks.count) downloads?",
+                            isPresented: $confirming, titleVisibility: .visible) {
+            Button(tracks.count == 1 ? "Remove" : "Remove All", role: .destructive) { downloads.removeAll() }
         } message: {
             Text("They stay in your library and still play from the internet.")
         }

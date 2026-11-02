@@ -338,7 +338,7 @@ struct ArtistScreen: View {
                         CompatGlassGroup(spacing: 12) {
                             HStack(spacing: 12) {
                                 Button { player.playInOrder(songs, source: "artist") } label: {
-                                    Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity)
+                                    Label("Play", systemImage: "play.fill").foregroundStyle(.white).frame(maxWidth: .infinity)    // white: the icon took the tint, blue on blue
                                 }
                                 .compatGlassButton(prominent: true)
                                 Button { player.shufflePlay(songs, source: "artist") } label: {
@@ -529,7 +529,7 @@ struct SongsScreen: View {
                 CompatGlassGroup(spacing: 12) {
                     HStack(spacing: 12) {
                         Button { player.playInOrder(tracks, source: source) } label: {
-                            Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity)
+                            Label("Play", systemImage: "play.fill").foregroundStyle(.white).frame(maxWidth: .infinity)    // white: the icon took the tint, blue on blue
                         }
                         .compatGlassButton(prominent: true)
                         Button { player.shufflePlay(tracks, source: source) } label: {

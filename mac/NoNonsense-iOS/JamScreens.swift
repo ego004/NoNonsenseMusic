@@ -29,6 +29,8 @@ struct JamSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
+        // presented from Now Playing, whose white text would otherwise carry in and vanish on the sheet's light background
+        .foregroundStyle(Color(.label))     // an explicit colour: .primary would derive from the white
         .presentationDetents([.medium, .large])
     }
 }
@@ -46,6 +48,7 @@ private struct JamStart: View {
                     Text("Start a Jam").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .foregroundStyle(.white)                  // the sheet's label colour (JamSheet) would otherwise darken it
                 .controlSize(.large)
                 .disabled(working)
                 .listRowInsets(EdgeInsets())

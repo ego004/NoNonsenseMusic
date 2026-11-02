@@ -281,6 +281,7 @@ private struct NoteSheet: View {
                 if let play { ToolbarItem(placement: .cancellationAction) { Button("Play from Here", action: play) } }
             }
         }
+        .foregroundStyle(Color(.label))              // not the lyrics' white: this sheet's background is light
         .presentationDetents([.medium, .large])
     }
 }
@@ -307,6 +308,7 @@ private struct AboutSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
+        .foregroundStyle(Color(.label))              // not the lyrics' white: this sheet's background is light
         .presentationDetents([.medium, .large])
     }
 

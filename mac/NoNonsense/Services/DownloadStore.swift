@@ -253,8 +253,11 @@ final class DownloadStore {
 
     /// The downloaded item for this song, if any of its copies is downloaded.
     func item(for track: Track) -> Item? {
+        // `byKey` is not observed (for speed), so a row asking only it was never redrawn when a download was removed:
+        // reading `items` makes every asking view depend on the list, with no scan
+        _ = items.count
         // `listings` holds `best` too
-        track.listings.lazy.compactMap { self.byKey[$0.key] }.first
+        return track.listings.lazy.compactMap { self.byKey[$0.key] }.first
     }
 
     func isDownloaded(_ track: Track) -> Bool { item(for: track) != nil }
