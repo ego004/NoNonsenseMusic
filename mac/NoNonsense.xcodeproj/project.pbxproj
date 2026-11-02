@@ -39,6 +39,7 @@
 		35C2E4E3480242C8C35F68AE /* YouTubeLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172BF860B15E1251D0DF0E1C /* YouTubeLookup.swift */; };
 		37A16A5E78571781A8C14A3C /* PagesSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9418F4BBF34BB80AC22AA20 /* PagesSelfTest.swift */; };
 		39B46FE7EEEC9D914D9EE87E /* Matching.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F9F3A792DD71494F621530 /* Matching.swift */; };
+		3D3B45152DF976EE5FFD22C4 /* Downloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F1BF4192DAF097FA1E80FE /* Downloads.swift */; };
 		3DDD48B03F42672DEF183122 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73544AE9F06A2B4B55D2598C /* Components.swift */; };
 		3E69D300CFA68B85A708E32B /* PlayQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 065566838EF587BE46F586CF /* PlayQueue.swift */; };
 		3F2F7E1C5040BE4EC6FC272A /* ArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF34CE64DF6A78F1C8313C22 /* ArtworkCache.swift */; };
@@ -66,6 +67,7 @@
 		6AA4CA4D7784F07B035A03AA /* LatencySelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5B2CD813864FF6256BAA4A /* LatencySelfTest.swift */; };
 		6ABB94D8EDC9C897AF277C70 /* DownloadFilesSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C08D46C220140190F5BA02 /* DownloadFilesSelfTest.swift */; };
 		6D43D9B835C2AA793E158686 /* ShotsSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A9592945899992685A5DA42 /* ShotsSelfTest.swift */; };
+		6D62854528E721E104187521 /* MessageLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 389C69805E1883F4C7B415D3 /* MessageLine.swift */; };
 		6F64B2DFCCBD7118BABB97EA /* SoundChain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618A1D0EE3F89CF391B14495 /* SoundChain.swift */; };
 		74FA1C59B9A0C86EA6EA1917 /* SearchScrollSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DC645F51EFF23CA4CA04A2A /* SearchScrollSelfTest.swift */; };
 		75AE83FC3FFBF3138C6B51E7 /* SignInScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74048C1592C02B92BD911627 /* SignInScreen.swift */; };
@@ -85,6 +87,7 @@
 		8BF2E46ECD073C5DCC238688 /* HomeHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D233642141D053435470851 /* HomeHero.swift */; };
 		8CD7BBF0A71B2A8A13CC12CC /* Loudness.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBC3A27A4E50168D10CEC6D /* Loudness.swift */; };
 		8D292314942FDE16D31FC6E7 /* Library.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E95712FCE99BAF615654D6 /* Library.swift */; };
+		94929082E2697F632E5EAF2B /* Playlists.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4919ACC5F0959DD919B8A173 /* Playlists.swift */; };
 		9C06DDCCC56A776BA0DDD09E /* Screens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BA1F377D529AC06BD5D8330 /* Screens.swift */; };
 		9DF50AC9EFC8F64B885295A1 /* LibrarySearchSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 950478B4535521B0AE1EAA67 /* LibrarySearchSelfTest.swift */; };
 		9F804D830BC9D35D72B713CE /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73F3F3979510A3CCDB133168 /* API.swift */; };
@@ -118,6 +121,7 @@
 		D6C295E72FEA5C8128DA9059 /* JamViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 488DEC685DA0304B893444B7 /* JamViews.swift */; };
 		DE9674C8CC7868EC373F0B5D /* PhoneSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D250D6817494B5B25927534F /* PhoneSettings.swift */; };
 		DF808D3E3C6EC312A9601EB4 /* PlaylistLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07FEC0506650B4C844D25EA /* PlaylistLink.swift */; };
+		E02B1DCE96DC5A7901CD2C01 /* JamScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A184D3535FA18747B51206D /* JamScreens.swift */; };
 		E3C1BAD6A0079F7A5A5860C2 /* Translation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E78AB03F8D61BD062EA5D8 /* Translation.swift */; };
 		E629D09E77E48296D29A3066 /* CrossfadeSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A75F29E0A353CA93B68D4C6 /* CrossfadeSelfTest.swift */; };
 		E6CB162CD9456A9FBAC68BE0 /* Equalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BE03707689D95331FD49A82 /* Equalizer.swift */; };
@@ -125,6 +129,7 @@
 		EFC7F87D81EFD0E8E81C07F6 /* Footprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26CFDB9AA45C45E878F131FD /* Footprint.swift */; };
 		F0E2C30026FE94064660905F /* SongRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78598E531205B9DEC5A58465 /* SongRow.swift */; };
 		F18E7A036730909DFE3132B5 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93FF752447B1866FD59A5D9D /* LibraryStore.swift */; };
+		F609AC4C0AC6DCB790974D83 /* Friends.swift in Sources */ = {isa = PBXBuildFile; fileRef = E22B3775E1F5676C0595F497 /* Friends.swift */; };
 		F64B40AF93EB96115BCFD901 /* ImportSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 329D0FA5B9551CCD2A1718DE /* ImportSelfTest.swift */; };
 		F72DD52D3A19BE855522588B /* PlayerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE09B7F546BD239B2AFD81C /* PlayerViews.swift */; };
 		FF8CAE6F1B5B90DD4746E3B4 /* SoundChain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618A1D0EE3F89CF391B14495 /* SoundChain.swift */; };
@@ -181,11 +186,14 @@
 		326F676677E65041C04439B3 /* EqualizerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EqualizerView.swift; sourceTree = "<group>"; };
 		329D0FA5B9551CCD2A1718DE /* ImportSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportSelfTest.swift; sourceTree = "<group>"; };
 		363890CE0E21F043D187DD44 /* NowPlayingWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWidget.swift; sourceTree = "<group>"; };
+		389C69805E1883F4C7B415D3 /* MessageLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageLine.swift; sourceTree = "<group>"; };
+		3A184D3535FA18747B51206D /* JamScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamScreens.swift; sourceTree = "<group>"; };
 		3A75F29E0A353CA93B68D4C6 /* CrossfadeSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossfadeSelfTest.swift; sourceTree = "<group>"; };
 		3BE09B7F546BD239B2AFD81C /* PlayerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViews.swift; sourceTree = "<group>"; };
 		413FB74B40D0CE16AB8515BB /* DownloadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadStore.swift; sourceTree = "<group>"; };
 		44221F78FB3585CCCFB9829B /* GaplessSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessSelfTest.swift; sourceTree = "<group>"; };
 		488DEC685DA0304B893444B7 /* JamViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamViews.swift; sourceTree = "<group>"; };
+		4919ACC5F0959DD919B8A173 /* Playlists.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Playlists.swift; sourceTree = "<group>"; };
 		4959C1E1E9DCDBE27CFF964F /* JamSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamSelfTest.swift; sourceTree = "<group>"; };
 		49D3EAF180A8B0220D0DC10F /* HeadphoneCorrection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadphoneCorrection.swift; sourceTree = "<group>"; };
 		4BE03707689D95331FD49A82 /* Equalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Equalizer.swift; sourceTree = "<group>"; };
@@ -196,6 +204,7 @@
 		5F5EA99D1EBE71A439B8643B /* AccountViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountViews.swift; sourceTree = "<group>"; };
 		618A1D0EE3F89CF391B14495 /* SoundChain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundChain.swift; sourceTree = "<group>"; };
 		61B7B9C798BEEEDC810D3C7C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		62F1BF4192DAF097FA1E80FE /* Downloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Downloads.swift; sourceTree = "<group>"; };
 		64644A6F445A2930DAA0F336 /* NowPlaying.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlaying.swift; sourceTree = "<group>"; };
 		697F60B31855BC706E31C261 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6C1793902EFA792B2E0C4600 /* PlaybackTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTimeline.swift; sourceTree = "<group>"; };
@@ -242,6 +251,7 @@
 		D66109BF3B7B7E8B4AF0B01A /* NoNonsenseWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NoNonsenseWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DBBC3A27A4E50168D10CEC6D /* Loudness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Loudness.swift; sourceTree = "<group>"; };
 		E154740FDBEA3594ABF53ACE /* SpotifyImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyImport.swift; sourceTree = "<group>"; };
+		E22B3775E1F5676C0595F497 /* Friends.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Friends.swift; sourceTree = "<group>"; };
 		E270AA16C5BE02590D718911 /* NoNonsenseiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NoNonsenseiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E45C9839E6D148278A97358A /* TranslationSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationSelfTest.swift; sourceTree = "<group>"; };
 		E5E6669294DB009FC163A82D /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
@@ -268,10 +278,15 @@
 			isa = PBXGroup;
 			children = (
 				697F60B31855BC706E31C261 /* Assets.xcassets */,
+				62F1BF4192DAF097FA1E80FE /* Downloads.swift */,
+				E22B3775E1F5676C0595F497 /* Friends.swift */,
 				C4D0EDC1F1A2DCFB703EC77D /* Info.plist */,
+				3A184D3535FA18747B51206D /* JamScreens.swift */,
+				389C69805E1883F4C7B415D3 /* MessageLine.swift */,
 				6FA964C6D8C9D0DB68A0AE95 /* NoNonsenseApp.swift */,
 				64644A6F445A2930DAA0F336 /* NowPlaying.swift */,
 				D250D6817494B5B25927534F /* PhoneSettings.swift */,
+				4919ACC5F0959DD919B8A173 /* Playlists.swift */,
 				0BA1F377D529AC06BD5D8330 /* Screens.swift */,
 				74048C1592C02B92BD911627 /* SignInScreen.swift */,
 			);
@@ -665,14 +680,18 @@
 				AC4DCAE526D0F6A760E43034 /* Compat.swift in Sources */,
 				5747924482C44768D03C6130 /* Connectivity.swift in Sources */,
 				474617AF6DD565D08BA8B785 /* DownloadStore.swift in Sources */,
+				3D3B45152DF976EE5FFD22C4 /* Downloads.swift in Sources */,
 				E6CB162CD9456A9FBAC68BE0 /* Equalizer.swift in Sources */,
 				EFC7F87D81EFD0E8E81C07F6 /* Footprint.swift in Sources */,
+				F609AC4C0AC6DCB790974D83 /* Friends.swift in Sources */,
 				C5B5A37F4D1C7F522B05263C /* HeadphoneCorrection.swift in Sources */,
 				0022E127193CF8874B46336F /* Jam.swift in Sources */,
+				E02B1DCE96DC5A7901CD2C01 /* JamScreens.swift in Sources */,
 				F18E7A036730909DFE3132B5 /* LibraryStore.swift in Sources */,
 				8CD7BBF0A71B2A8A13CC12CC /* Loudness.swift in Sources */,
 				1FC273F244A613777C0C5183 /* LyricsStore.swift in Sources */,
 				39B46FE7EEEC9D914D9EE87E /* Matching.swift in Sources */,
+				6D62854528E721E104187521 /* MessageLine.swift in Sources */,
 				7F2845CCD7BF6DD168A61D68 /* Models.swift in Sources */,
 				78557402F0A45D9C77448394 /* NoNonsenseApp.swift in Sources */,
 				525E2F19F7C544C59E2C58A7 /* NowPlaying.swift in Sources */,
@@ -681,6 +700,7 @@
 				3E69D300CFA68B85A708E32B /* PlayQueue.swift in Sources */,
 				AB757A5B421B253B7D246E6E /* Player.swift in Sources */,
 				DF808D3E3C6EC312A9601EB4 /* PlaylistLink.swift in Sources */,
+				94929082E2697F632E5EAF2B /* Playlists.swift in Sources */,
 				ABC21877BBFAF7C2D3926F94 /* Prefetcher.swift in Sources */,
 				2100DFDB2C18440CA6FD5864 /* Presence.swift in Sources */,
 				9C06DDCCC56A776BA0DDD09E /* Screens.swift in Sources */,
@@ -771,14 +791,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				DEPLOYMENT_POSTPROCESSING = YES;
 				INFOPLIST_FILE = "NoNonsense-iOS/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.5.0;
+				MARKETING_VERSION = 0.6.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music;
 				PRODUCT_NAME = NoNonsenseMusic;
 				SDKROOT = iphoneos;
@@ -795,7 +815,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
 				INFOPLIST_FILE = NoNonsense/Info.plist;
@@ -803,7 +823,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.5.0;
+				MARKETING_VERSION = 0.6.0;
 				NN_UPDATE_FEED = "";
 				NN_UPDATE_KEY = "fV6+W5hiUV1hZe3TvS6AbNVbe4TJ6npYDb+Mt2R8NjQ=";
 				NN_URL_SCHEME = "nononsense-debug";
@@ -819,13 +839,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				INFOPLIST_FILE = "NoNonsense-iOS/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.5.0;
+				MARKETING_VERSION = 0.6.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music;
 				PRODUCT_NAME = NoNonsenseMusic;
 				SDKROOT = iphoneos;
@@ -840,7 +860,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				ENABLE_HARDENED_RUNTIME = NO;
 				INFOPLIST_FILE = "NoNonsense-Widget/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -848,7 +868,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 0.5.0;
+				MARKETING_VERSION = 0.6.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music.widget;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -928,7 +948,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				DEPLOYMENT_POSTPROCESSING = YES;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
@@ -937,7 +957,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.5.0;
+				MARKETING_VERSION = 0.6.0;
 				NN_UPDATE_FEED = "https://github.com/ego004/NoNonsenseMusic/releases/latest/download/appcast.xml";
 				NN_UPDATE_KEY = "y+sgiLPBeRJEb6RlazvQX1I7wFl2CpuBdxUGl6eViJs=";
 				NN_URL_SCHEME = nononsense;
@@ -956,7 +976,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				ENABLE_HARDENED_RUNTIME = NO;
 				INFOPLIST_FILE = "NoNonsense-Widget/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -964,7 +984,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 0.5.0;
+				MARKETING_VERSION = 0.6.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music.debug.widget;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
