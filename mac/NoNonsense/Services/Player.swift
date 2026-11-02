@@ -1008,7 +1008,8 @@ final class Player {
                 try? await Task.sleep(for: .milliseconds(10))
                 guard mine == loads, player === started else { return }
                 if started.currentTime().seconds > 0.01 {
-                    let took = Date().timeIntervalSince(start) - 0.01
+                    // 30 ms more than it took: an overlap loses nothing (both songs sound for a moment), a gap is silence
+                    let took = Date().timeIntervalSince(start) - 0.01 + 0.03
                     UserDefaults.standard.set(min(max(took, 0.08), 0.6), forKey: "handoverLead")
                     return
                 }

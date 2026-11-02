@@ -140,10 +140,11 @@ extension SelfTest {
                    + String(format: "%.0f", Player.handoverLead * 1000) + " ms early")
             let handover = await gap(songs[0], songs[1])
             report("gapless: with an effect on, the gap between songs is \(ms(handover))")
-            // the start-up varies by tens of ms from one changeover to the next on a busy machine; against the 110 to
-            // 160 ms gap there was, up to 30 ms of gap and 150 ms of overlap are still a changeover without a break
-            check("with an effect on: no gap once the lead is measured (at most 30 ms of gap or 150 ms of overlap)",
-                  handover.map { $0 < 0.03 && $0 > -0.15 } ?? false, "\(ms(handover)); \(player.playerStateForTests)")
+            // the start-up varies from one changeover to the next, by tens of ms on a Mac and by hundreds on CI's virtual
+            // machine (0.3 s in one run, 0.8 s in another). What must not happen is silence: up to 40 ms of gap is no
+            // break; an overlap loses nothing (both songs sound for a moment), so it is bounded only against a runaway
+            check("with an effect on: no gap once the lead is measured (at most 40 ms of gap)",
+                  handover.map { $0 < 0.04 && $0 > -0.45 } ?? false, "\(ms(handover)); \(player.playerStateForTests)")
             UserDefaults.standard.removeObject(forKey: "handoverLead")
             check("…and the second song is the one playing", player.playingListing?.key == songs[1].key && player.isPlaying, player.playerStateForTests)
             Leveller.shared.setOn(false)
