@@ -88,7 +88,8 @@ private struct MainTabs: View {
         }
         .tabViewStyle(.sidebarAdaptable)                     // iPad: a sidebar (it folds to tabs); iPhone: the tab bar
         .playerAccessory26(playing: player.current != nil)
-        .sheet(isPresented: $player.showNowPlaying) { NowPlayingScreen() }
+        .overlay { MessageLine() }
+        .sheet(isPresented: $player.showNowPlaying) { NowPlayingScreen().overlay { MessageLine(lift: 40) } }
     }
 }
 

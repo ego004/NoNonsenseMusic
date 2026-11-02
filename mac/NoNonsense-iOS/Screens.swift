@@ -410,6 +410,8 @@ struct AlbumScreen: View {
 
 struct LibraryScreen: View {
     @Environment(LibraryStore.self) private var library
+    @State private var creating = false
+    @State private var deleting: PlaylistSummary?
 
     var body: some View {
         List {
@@ -424,6 +426,9 @@ struct LibraryScreen: View {
                 Section("Your playlists") {
                     ForEach(library.ownPlaylists) { playlist in
                         NavigationLink(value: playlist) { PlaylistRow(playlist: playlist) }
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) { deleting = playlist } label: { Label("Delete", systemImage: "trash") }
+                            }
                     }
                 }
             }
@@ -438,10 +443,22 @@ struct LibraryScreen: View {
         .navigationTitle("Library")
         .navigationDestination(for: PlaylistSummary.self) { PlaylistScreen(playlist: $0) }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button { creating = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("New Playlist")
                 NavigationLink { PhoneSettings() } label: { Image(systemName: "gearshape") }
                     .accessibilityLabel("Settings")
             }
+        }
+        .newPlaylistAlert($creating)
+        .confirmationDialog("Delete “\(deleting?.name ?? "")”?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let playlist = deleting { Task { await library.deletePlaylist(playlist) } }
+                deleting = nil
+            }
+        } message: {
+            Text("This can't be undone.")
         }
         .refreshable { if await Connectivity.shared.checkServer() { await library.refresh(); await library.refreshPlaylists() } }
     }
@@ -456,6 +473,8 @@ struct SongsScreen: View {
     var cover: URL? = nil
     var symbol = "music.note.list"
     var remove: ((Int) -> Void)? = nil
+    /// Drag to reorder (Edit): a playlist you can change.
+    var move: ((IndexSet, Int) -> Void)? = nil
 
     var body: some View {
         List {
@@ -468,6 +487,7 @@ struct SongsScreen: View {
                         player.play(tracks, startAt: i, source: source)
                     }
                 }
+                .onMove(perform: move)
             }
         }
         .navigationTitle(title)
@@ -524,7 +544,16 @@ struct PlaylistScreen: View {
                     remove: playlist.canEdit ? { i in
                         guard let entry = detail?.items[safe: i] else { return }
                         Task { await library.remove(entry, from: playlist.id) }
+                    } : nil,
+                    move: playlist.canEdit ? { source, destination in
+                        Task { await library.moveItems(in: playlist.id, from: source, to: destination) }
                     } : nil)
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if playlist.canEdit && tracks.count > 1 { EditButton() }
+                    PlaylistMenu(playlist: playlist)
+                }
+            }
             .overlay { if !loaded && tracks.isEmpty { ProgressView() } }
             .task {
                 _ = await library.loadPlaylist(playlist.id)
@@ -585,6 +614,7 @@ private struct SongMenu: ViewModifier {
     @Environment(Player.self) private var player
     @Environment(LibraryStore.self) private var library
     let track: Track
+    @State private var newPlaylist = false
 
     func body(content: Content) -> some View {
         content.contextMenu {
@@ -595,16 +625,17 @@ private struct SongMenu: ViewModifier {
             Button { Task { await library.toggleLike(track) } } label: {
                 Label(liked ? "Unlike" : "Like", systemImage: liked ? "heart.slash" : "heart")
             }
-            if !library.playlists.filter(\.canEdit).isEmpty {
-                Menu {
-                    ForEach(library.playlists.filter(\.canEdit)) { playlist in
-                        Button(playlist.name) { Task { await library.add(track, to: playlist) } }
-                    }
-                } label: {
-                    Label("Add to Playlist", systemImage: "text.badge.plus")
+            Menu {
+                Button { newPlaylist = true } label: { Label("New Playlist…", systemImage: "plus") }
+                if !library.playlists.filter(\.canEdit).isEmpty { Divider() }
+                ForEach(library.playlists.filter(\.canEdit)) { playlist in
+                    Button(playlist.name) { Task { await library.add(track, to: playlist) } }
                 }
+            } label: {
+                Label("Add to Playlist", systemImage: "text.badge.plus")
             }
         }
+        .newPlaylistAlert($newPlaylist, adding: track)
     }
 }
 
