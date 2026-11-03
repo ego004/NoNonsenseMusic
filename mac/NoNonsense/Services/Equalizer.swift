@@ -15,16 +15,21 @@ final class Equalizer {
     nonisolated static let range = -12.0 ... 12.0
 
     enum Preset: String, CaseIterable, Identifiable {
-        case flat, bassBoost, vocal, treble, custom
+        case flat, bassBoost, deepBass, vocal, treble, custom
         var id: String { rawValue }
         var name: String {
-            switch self { case .flat: "Flat"; case .bassBoost: "Bass Boost"; case .vocal: "Vocal"; case .treble: "Treble"; case .custom: "Custom" }
+            switch self { case .flat: "Flat"; case .bassBoost: "Bass Boost"; case .deepBass: "Deep Bass"; case .vocal: "Vocal"; case .treble: "Treble"; case .custom: "Custom" }
         }
         /// The gains, band by band; Custom has none of its own (it is whatever you set).
         var gains: [Double]? {
             switch self {
             case .flat: Array(repeating: 0, count: 14)
             case .bassBoost: [6, 6, 5, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+            // Thumping, rumbling bass (the lift peaks near 60 to 80 Hz) with a small dip around 300 Hz for separation and
+            // a touch of lift at 1 to 3 kHz for vocals. A 12-band parametric curve ("Deep Bass Clarity Recommended")
+            // fitted to these 14 bands by least squares against the filters' real responses: within 0.8 dB above it
+            // anywhere from 30 Hz to 12 kHz, 0.8 dB RMS. With the limiter on (its default) a boost keeps its volume.
+            case .deepBass: [4, 7.5, 8.5, 6, 1.5, -1.5, -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -1, -1]
             case .vocal: [-2, -2, -1, 0, -1, 0, 1, 2, 3, 3.5, 3, 1.5, 0, 0]
             case .treble: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 1.5, 3, 4.5, 5.5]
             case .custom: nil
