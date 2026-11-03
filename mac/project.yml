@@ -42,7 +42,7 @@ targets:
         SUFeedURL: $(NN_UPDATE_FEED)
         SUPublicEDKey: $(NN_UPDATE_KEY)
         SUEnableAutomaticChecks: true            # Settings › Account › Check for updates says whether; no first-run prompt
-        SUScheduledCheckInterval: 86400          # once a day
+        SUScheduledCheckInterval: 14400          # every 4 hours while the app runs (Sparkle's lowest is 1 hour); launch checks too
         SUVerifyUpdateBeforeExtraction: true     # the signature checked before anything is unzipped
         NSAppTransportSecurity:
           # the backend runs on this Mac over plain http; everything else (audio CDNs) is https

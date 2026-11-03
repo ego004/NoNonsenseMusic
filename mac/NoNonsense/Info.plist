@@ -45,7 +45,7 @@
 	<key>SUPublicEDKey</key>
 	<string>$(NN_UPDATE_KEY)</string>
 	<key>SUScheduledCheckInterval</key>
-	<integer>86400</integer>
+	<integer>14400</integer>
 	<key>SUVerifyUpdateBeforeExtraction</key>
 	<true/>
 </dict>

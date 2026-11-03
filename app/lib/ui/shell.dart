@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -120,12 +121,27 @@ class _ShellState extends State<Shell> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _openLink());
     WidgetsBinding.instance.addPostFrameCallback((_) => _goOnline());
     WidgetsBinding.instance.addPostFrameCallback((_) => _offerUpdate());
+    // and every 4 hours while the app stays open (as on the Mac)
+    _updateTimer = Timer.periodic(const Duration(hours: 4), (_) => _offerUpdate());
   }
+
+  Timer? _updateTimer;
+  bool _offering = false;
 
   /// "NoNonsenseMusic 0.4.1 is available", with what is new: Update downloads it, checks its signature and installs it
   /// (core/update_check.dart); a platform with no file in the release opens the release page instead. Skip This
   /// Version is not offered again.
   Future<void> _offerUpdate() async {
+    if (_offering || !mounted) return;      // a dialog or an install is already open
+    _offering = true;
+    try {
+      await _offerUpdateNow();
+    } finally {
+      _offering = false;
+    }
+  }
+
+  Future<void> _offerUpdateNow() async {
     final settings = Scope.of(context).settings;
     if (!settings.checkUpdates) return;
     final current = (await PackageInfo.fromPlatform()).version;
@@ -247,6 +263,7 @@ class _ShellState extends State<Shell> {
 
   @override
   void dispose() {
+    _updateTimer?.cancel();
     HardwareKeyboard.instance.removeHandler(_keyHeard);
     PlaylistLinks.pending.removeListener(_openLink);
     JamSession.shared.removeListener(_sayJamEnded);

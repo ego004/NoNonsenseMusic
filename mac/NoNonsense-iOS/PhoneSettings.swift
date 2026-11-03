@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Sound (the same chain and settings as the Mac app's), the server, and your account.
 struct PhoneSettings: View {
+    @AppStorage("checkUpdates") private var checkUpdates = true       // the Mac's setting too
     @Environment(Account.self) private var account
     @Environment(Player.self) private var player
     @AppStorage("gapless") private var gapless = false
@@ -121,7 +122,10 @@ struct PhoneSettings: View {
             }
 
             Section {
-                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
+                LabeledContent("Version", value: UpdateNotice.current)
+                Toggle("Check for updates", isOn: $checkUpdates)
+            } footer: {
+                Text("Looks at every launch and every 4 hours. AltStore or SideStore installs the update.")
             }
         }
         .navigationTitle("Settings")

@@ -80,6 +80,7 @@
 		7C3F83393CA321A64FA0909C /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C646EB60CF5521894381A0AB /* RootView.swift */; };
 		7DDD497D6C7D50D0BBB746CC /* ThemeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2B2FE4C7E6EEAA589159B7F /* ThemeStore.swift */; };
 		7F2845CCD7BF6DD168A61D68 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 292804CD0EB5D2B5A39CF640 /* Models.swift */; };
+		80DC912326BA873C4F17DF62 /* UpdateNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5368ED5723234F37DCB734BE /* UpdateNotice.swift */; };
 		819E08205BF5C0D90D795E17 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F7CD8D9DD581E357889DAF /* Account.swift */; };
 		84686E9E5E599CE8BF15A495 /* ServerLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA9BFC4261D1B1DA125FFCA /* ServerLauncher.swift */; };
 		87E82CA918522EB92A65ED42 /* Shuffle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E61BBC7E329399CCCFF251 /* Shuffle.swift */; };
@@ -203,6 +204,7 @@
 		49D3EAF180A8B0220D0DC10F /* HeadphoneCorrection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadphoneCorrection.swift; sourceTree = "<group>"; };
 		4BE03707689D95331FD49A82 /* Equalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Equalizer.swift; sourceTree = "<group>"; };
 		4EA9BFC4261D1B1DA125FFCA /* ServerLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLauncher.swift; sourceTree = "<group>"; };
+		5368ED5723234F37DCB734BE /* UpdateNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateNotice.swift; sourceTree = "<group>"; };
 		57E61BBC7E329399CCCFF251 /* Shuffle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shuffle.swift; sourceTree = "<group>"; };
 		59813407D940F2826A2A02EC /* WidgetFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetFeed.swift; sourceTree = "<group>"; };
 		59E95712FCE99BAF615654D6 /* Library.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Library.swift; sourceTree = "<group>"; };
@@ -298,6 +300,7 @@
 				0BA1F377D529AC06BD5D8330 /* Screens.swift */,
 				0F5AC1D238020F291B7B585E /* SettingsSections.swift */,
 				74048C1592C02B92BD911627 /* SignInScreen.swift */,
+				5368ED5723234F37DCB734BE /* UpdateNotice.swift */,
 			);
 			path = "NoNonsense-iOS";
 			sourceTree = "<group>";
@@ -725,6 +728,7 @@
 				C3FB1DA9FD1BE8440D2EA28C /* SoundProfiles.swift in Sources */,
 				1FDE566454E931785038C31A /* SpotifyImport.swift in Sources */,
 				7DDD497D6C7D50D0BBB746CC /* ThemeStore.swift in Sources */,
+				80DC912326BA873C4F17DF62 /* UpdateNotice.swift in Sources */,
 				BAA9B2D0956BCF1F35FADDB6 /* WidgetFeed.swift in Sources */,
 				35C2E4E3480242C8C35F68AE /* YouTubeLookup.swift in Sources */,
 			);

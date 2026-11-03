@@ -1,9 +1,10 @@
 import AppKit
 import Sparkle
 
-/// In-place updates, through Sparkle: once a day the app reads the latest release's appcast on GitHub; a newer version
+/// In-place updates, through Sparkle: at every launch, and every 4 hours while the app runs, it reads the latest
+/// release's appcast on GitHub; a newer version
 /// is offered with its notes, downloaded, checked against the release key's EdDSA signature (an update not signed by it
-/// is refused), put in place of this app, and opened. Settings › Account › Check for updates turns the daily check off;
+/// is refused), put in place of this app, and opened. Settings › Account › Check for updates turns the checks off;
 /// the app menu's Check for Updates… asks at once. The appcast is the one request that does not go to your server.
 ///
 /// Releases are ad-hoc signed (no Apple Developer ID), so the signature is what vouches for an update: Sparkle accepts
@@ -39,6 +40,10 @@ final class Updater: NSObject, SPUUpdaterDelegate {
             return
         }
         self.controller = controller
+        // Sparkle's own schedule asks only when the interval since the last check has passed, so a launch an hour
+        // after one asked nothing (a release stayed unseen for a day). Every launch asks, silently: a window opens only
+        // when there is an update. The 4-hour schedule then runs from this check.
+        if Self.enabled { controller.updater.checkForUpdatesInBackground() }
     }
 
     var canCheck: Bool { controller?.updater.canCheckForUpdates ?? false }

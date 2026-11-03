@@ -108,6 +108,7 @@ private struct MainTabs: View {
             lyrics.fetch(current)
             if let next = player.nextSongs.first?.track { lyrics.fetch(next) }
         }
+        .offersUpdates()
         .overlay { MessageLine() }
         .sheet(isPresented: $player.showNowPlaying) { NowPlayingScreen().overlay { MessageLine(lift: 40) } }
         // a shared playlist's link (PlaylistLink): it opens over the tabs when you may see it (public, or shared with you)
