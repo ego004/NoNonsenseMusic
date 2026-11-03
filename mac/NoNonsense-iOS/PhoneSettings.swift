@@ -94,6 +94,7 @@ struct PhoneSettings: View {
             } header: {
                 Text("Tone")
             }
+            StudioSection()
 
             Section {
                 Toggle(isOn: Binding(get: { profiles.on }, set: { profiles.setOn($0) })) {

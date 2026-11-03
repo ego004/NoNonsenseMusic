@@ -101,6 +101,18 @@ extension SelfTest {
             check("…10 kHz stays on its side (under −20 dB)", treble.other < -20, db(treble.other))
             check("…and bass in both ears stays as loud", near(mono.same, 0, 0.3), db(mono.same))
 
+            // B3b. Studio, through a real processor: a mono song is untouched by width, the side is raised above 150 Hz and
+            // the bass taken off it, and a loud-bass song stays finite
+            let studioOn = StudioSettings(width: 1, rumble: 1, clarity: 1, air: 1)
+            let monoThrough = SoundProcessor(gains: flat, studio: studioOn).offline(frequency: 1000, channels: 2)
+            check("studio: a mono 1 kHz tone passes as it was (all four on)", near(monoThrough, 0, 0.3), db(monoThrough))
+            let sideThrough = SoundProcessor(gains: flat, studio: StudioSettings(width: 1)).offline(frequency: 1000, channels: 2, antiphase: true)
+            check("studio: the side at 1 kHz is raised 3.5 dB", near(sideThrough, 3.52, 0.3), db(sideThrough))
+            let sideBass = SoundProcessor(gains: flat, studio: StudioSettings(width: 1)).offline(frequency: 60, channels: 2, antiphase: true)
+            check("studio: the side at 60 Hz is taken down (the bass goes to the middle)", sideBass < -8, db(sideBass))
+            let rumbled = SoundProcessor(gains: flat, studio: StudioSettings(rumble: 1)).offline(frequency: 80, channels: 2)
+            check("studio: sub rumble adds energy under an 80 Hz bass note, and stays sane", rumbled > 0.5 && rumbled < 6, db(rumbled))
+
             // B2b. true peak: a quarter-rate tone whose samples all sit at 85% while the wave between them reaches 120%
             @MainActor func truePeak(_ x: [Float], from: Int, to: Int) -> Float {         // an independent measure: 16×, 64-tap Hann sinc
                 var peak: Float = 0

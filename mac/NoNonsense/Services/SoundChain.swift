@@ -28,7 +28,7 @@ final class SoundChain {
     /// a tap changes over to the next with a gap of about 0.1 s (measured 29 Oct: 109 ms against 2 ms), as the player
     /// starts its audio pipeline only when the song starts.
     var active: Bool {
-        Self.bassHarmonics > 0 || Self.vocalClarity > 0 || Self.loudnessCompensation || Equalizer.shared.on || Leveller.shared.on || Self.crossfeeding || HeadphoneCorrection.shared.model != nil
+        Self.bassHarmonics > 0 || Self.vocalClarity > 0 || Self.loudnessCompensation || Equalizer.shared.on || Leveller.shared.on || Self.crossfeeding || Self.studio.isOn || HeadphoneCorrection.shared.model != nil
             || Player.crossfade > 0                       // its fades are shaped in the taps
     }
 
@@ -48,6 +48,8 @@ final class SoundChain {
 
     /// Settings › Playback › Crossfeed (off by default).
     static var crossfeeding: Bool { UserDefaults.standard.bool(forKey: "crossfeed") }
+    /// Settings › Playback › Studio: sub rumble, clarity, air and width (all off by default).
+    static var studio: StudioSettings { StudioSettings.stored() }
 
     /// Settings › Playback › Loudness compensation (28 Oct; off by default): as the volume goes down, ears lose bass and
     /// treble sooner than the middle (ISO 226's equal-loudness contours), so quiet music sounds thin. Two shelves, at
@@ -112,6 +114,16 @@ final class SoundChain {
     /// Crossfeed or the headphone correction changed: the playing song's tap is made again.
     func settingChanged() { changed?() }
 
+    private var studioTask: Task<Void, Never>?
+    /// A Studio slider moved: the taps are made again once it rests for a moment, not at every step of the drag.
+    func studioChanged() {
+        studioTask?.cancel()
+        studioTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            if !Task.isCancelled { self?.changed?() }
+        }
+    }
+
     /// The tap for `item`, the copy `key`, when either is on (none when both are off): attached once its audio track is
     /// known. A copy playing from a file not measured yet is measured now. `fadeIn`: it starts silent and fades in over
     /// that many seconds (a crossfade).
@@ -139,6 +151,7 @@ final class SoundChain {
         let eq = Equalizer.shared, leveller = Leveller.shared
         let processor = SoundProcessor(gains: eq.on && !bypassing ? eq.gains : Self.flat, level: leveller.on ? leveller.gain(for: key) : 0,
                                        limiting: leveller.limiting, crossfeeding: Self.crossfeeding && !bypassing,
+                                       studio: bypassing ? .off : Self.studio,
                                        correction: bypassing ? [] : HeadphoneCorrection.shared.filters,
                                        vocal: bypassing ? 0 : Self.vocalClarity)
         processor.update(bass: bypassing ? 0 : Self.bassHarmonics)
@@ -198,6 +211,8 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
     private var limiter: PeakLimiter?
     private let crossfeeding: Bool
     private var crossfeed: Crossfeed?
+    private let studio: StudioSettings             // sub rumble, clarity, air, width (StudioChain)
+    private var studioChain: StudioChain?
     private var bassAmount: Float = 0              // bass harmonics, 0 to 1 (BassHarmonics)
     private var bass: BassHarmonics?               // made when the format is known
     private var vocalGain: Double                  // vocal clarity's boost, dB; 0: none
@@ -215,7 +230,8 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
 
     /// `level`: the levelling gain in dB. `limiting`: a limiter last, and no preamp (a boost keeps its volume).
     init(gains: [Double], level: Double = 0, limiting: Bool = false, crossfeeding: Bool = false,
-         correction: [CorrectionFilter] = [], vocal: Double = 0) {
+         studio: StudioSettings = .off, correction: [CorrectionFilter] = [], vocal: Double = 0) {
+        self.studio = studio
         self.gains = gains
         self.vocalGain = vocal
         self.correction = correction
@@ -286,7 +302,7 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
         }
         let (boost, shelves) = lock.withLockUnchecked { (vocalGain, loudness) }
         install(Self.build(gains: gains, correction: correction, loudness: shelves, sampleRate: rate, channels: count,
-                           limiting: limiting, vocal: boost))
+                           limiting: limiting, vocal: boost, studioRoom: studio.headroom))
     }
 
     /// Psychoacoustic bass' amount, 0 (off) to 1.
@@ -299,7 +315,7 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
             return (sampleRate, channels, gains, vocalGain)
         }
         install(Self.build(gains: current, correction: correction, loudness: shelves, sampleRate: rate, channels: count,
-                           limiting: limiting, vocal: boost))
+                           limiting: limiting, vocal: boost, studioRoom: studio.headroom))
     }
 
     /// Vocal presence's boost, in dB (0: off), as its slider moves: the filter and the preamp made again.
@@ -309,7 +325,7 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
             return (sampleRate, channels, gains, loudness)
         }
         install(Self.build(gains: current, correction: correction, loudness: shelves, sampleRate: rate, channels: count,
-                           limiting: limiting, vocal: gain),
+                           limiting: limiting, vocal: gain, studioRoom: studio.headroom),
                 vocal: count == 2 && gain > 0 ? VocalClarity(gain: gain, sampleRate: rate) : nil, vocalChanges: true)
     }
 
@@ -355,9 +371,10 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
         let count = Int(format.mChannelsPerFrame)
         let (boost, shelves) = lock.withLockUnchecked { (vocalGain, loudness) }
         install(Self.build(gains: current, correction: correction, loudness: shelves, sampleRate: format.mSampleRate,
-                           channels: count, limiting: limiting, vocal: boost),
+                           channels: count, limiting: limiting, vocal: boost, studioRoom: studio.headroom),
                 limiter: limiting && count > 0 ? PeakLimiter(sampleRate: format.mSampleRate, channels: count) : nil,
                 crossfeed: crossfeeding && count == 2 ? Crossfeed(sampleRate: format.mSampleRate) : nil,
+                studio: studio.isOn && count == 2 ? StudioChain(studio, sampleRate: format.mSampleRate) : nil,
                 vocal: count == 2 && boost > 0 ? VocalClarity(gain: boost, sampleRate: format.mSampleRate) : nil, vocalChanges: true)
     }
 
@@ -367,10 +384,10 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
     /// `loudness`: loudness compensation's shelves, last and outside the preamp: the volume after the tap always takes
     /// off more than they add (SoundChain.loudnessShelves), so they cannot make the output louder than full volume would.
     private static func build(gains: [Double], correction: [CorrectionFilter] = [], loudness: [CorrectionFilter] = [],
-                              sampleRate: Double, channels: Int, limiting: Bool, vocal: Double = 0) -> Cascade? {
+                              sampleRate: Double, channels: Int, limiting: Bool, vocal: Double = 0, studioRoom: Double = 0) -> Cascade? {
         guard channels > 0 else { return nil }
         let coefficients = correction.flatMap { $0.coefficients(sampleRate: sampleRate) } + coefficients(gains: gains, sampleRate: sampleRate)
-        let room: Double = peak(coefficients: coefficients, sampleRate: sampleRate) + max(0, vocal)
+        let room: Double = peak(coefficients: coefficients, sampleRate: sampleRate) + max(0, vocal) + studioRoom
         let preamp = limiting ? 1 : Float(pow(10, -room / 20))
         let all = coefficients + loudness.flatMap { $0.coefficients(sampleRate: sampleRate) }
         return Cascade(coefficients: all, sections: all.count / 5, channels: channels, preamp: preamp)
@@ -379,12 +396,13 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
     /// Swapped in under the lock; the old ones are let go here, never on the audio thread.
     /// `vocalChanges`: vocal clarity's filter is replaced by `vocal`, nil included (it was turned off).
     private func install(_ new: Cascade?, limiter newLimiter: PeakLimiter? = nil, crossfeed newCrossfeed: Crossfeed? = nil,
-                         vocal newVocal: VocalClarity? = nil, vocalChanges: Bool = false) {
-        let old = lock.withLockUnchecked { () -> (Cascade?, PeakLimiter?, Crossfeed?, VocalClarity?) in
-            let old = (cascade, limiter, crossfeed, vocal)
+                         studio newStudio: StudioChain? = nil, vocal newVocal: VocalClarity? = nil, vocalChanges: Bool = false) {
+        let old = lock.withLockUnchecked { () -> (Cascade?, PeakLimiter?, Crossfeed?, StudioChain?, VocalClarity?) in
+            let old = (cascade, limiter, crossfeed, studioChain, vocal)
             cascade = new
             if newLimiter != nil { limiter = newLimiter }
             if newCrossfeed != nil { crossfeed = newCrossfeed }
+            if newStudio != nil { studioChain = newStudio }
             if vocalChanges { vocal = newVocal }
             return old
         }
@@ -447,6 +465,7 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
                 if buffers.count == 2, let left = buffers[0].mData?.assumingMemoryBound(to: Float.self),
                    let right = buffers[1].mData?.assumingMemoryBound(to: Float.self) {
                     vocal?.process(left, right, frames: frames)
+                    studioChain?.process(left, right, frames: frames)
                     crossfeed?.process(left, right, frames: frames)
                 }
                 if let limiter, limiter.channels == buffers.count {
@@ -497,27 +516,40 @@ nonisolated final class SoundProcessor: @unchecked Sendable {
 
     /// Self-tests: `seconds` of a sine at `frequency`, through these filters as the tap would run them, and the change
     /// in loudness in dB over the second half (no audio device involved). `meanwhile` runs at the half.
-    func offline(frequency: Double, sampleRate rate: Double = 44_100, seconds: Double = 1, meanwhile: (() -> Void)? = nil) -> Double {
+    /// `channels` 2: the same tone in both (a mono song), or with the right channel upside down (`antiphase`: all of it on
+    /// the side).
+    func offline(frequency: Double, sampleRate rate: Double = 44_100, seconds: Double = 1, channels: Int = 1, antiphase: Bool = false,
+                 meanwhile: (() -> Void)? = nil) -> Double {
         let format = AudioStreamBasicDescription(mSampleRate: rate, mFormatID: kAudioFormatLinearPCM,
                                                  mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsNonInterleaved,
                                                  mBytesPerPacket: 4, mFramesPerPacket: 1, mBytesPerFrame: 4,
-                                                 mChannelsPerFrame: 1, mBitsPerChannel: 32, mReserved: 0)
+                                                 mChannelsPerFrame: UInt32(channels), mBitsPerChannel: 32, mReserved: 0)
         prepare(format: format)
         _ = takeReading()
         let frames = Int(rate * seconds)
-        var samples = (0..<frames).map { Float(0.25 * sin(2 * .pi * frequency * Double($0) / rate)) }
-        samples.withUnsafeMutableBufferPointer { pointer in
-            let list = AudioBufferList.allocate(maximumBuffers: 1)
-            defer { free(list.unsafeMutablePointer) }
+        let tone = (0..<frames).map { Float(0.25 * sin(2 * .pi * frequency * Double($0) / rate)) }
+        var first = tone, second = antiphase ? tone.map { -$0 } : tone
+        let list = AudioBufferList.allocate(maximumBuffers: channels)
+        defer { free(list.unsafeMutablePointer) }
+        func run(_ pointers: [UnsafeMutablePointer<Float>]) {
             for start in stride(from: 0, to: frames, by: 1024) {          // as the tap is called: a buffer at a time
                 let count = min(1024, frames - start)
-                list[0] = AudioBuffer(mNumberChannels: 1, mDataByteSize: UInt32(count * 4), mData: pointer.baseAddress! + start)
+                for c in 0..<channels {
+                    list[c] = AudioBuffer(mNumberChannels: 1, mDataByteSize: UInt32(count * 4), mData: pointers[c] + start)
+                }
                 if start == frames / 2 / 1024 * 1024 {                    // the second half: the filters have settled
                     _ = takeReading()
                     meanwhile?()
                 }
                 process(list, frames: count)
             }
+        }
+        if channels == 2 {
+            first.withUnsafeMutableBufferPointer { l in
+                second.withUnsafeMutableBufferPointer { r in run([l.baseAddress!, r.baseAddress!]) }
+            }
+        } else {
+            first.withUnsafeMutableBufferPointer { run([$0.baseAddress!]) }
         }
         return takeReading().change ?? 0
     }

@@ -93,6 +93,7 @@ targets:
       - path: NoNonsense/Services
         excludes: [Updater.swift, ServerLauncher.swift]
       - path: NoNonsense/Views/Compat.swift     # Liquid Glass on iOS 26, a material in the same shape before
+      - path: NoNonsense/Views/StudioSection.swift   # Settings › Playback › Studio, shared with the Mac
     info:
       path: NoNonsense-iOS/Info.plist
       properties:

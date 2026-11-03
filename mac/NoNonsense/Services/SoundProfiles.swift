@@ -19,7 +19,7 @@ final class SoundProfiles {
 
     /// The settings that belong to an output: their UserDefaults keys, as Equalizer, HeadphoneCorrection and
     /// SoundChain store them.
-    nonisolated static let keys = ["eqOn", "eqGains", "eqPreset", "headphoneCorrection", "crossfeed"]
+    nonisolated static let keys = ["eqOn", "eqGains", "eqPreset", "headphoneCorrection", "crossfeed"] + StudioSettings.keys
 
     private(set) var output: Output?
     private(set) var on: Bool

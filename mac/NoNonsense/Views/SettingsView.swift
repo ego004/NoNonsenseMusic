@@ -571,6 +571,7 @@ private struct PlaybackSettings: View {
             } header: {
                 Text("Tone")
             }
+            StudioSection()
             Section {
                 Toggle(isOn: Binding(get: { SoundProfiles.shared.on }, set: { SoundProfiles.shared.setOn($0) })) {
                     Text("Per-output profiles")
