@@ -268,13 +268,40 @@ class Library extends ChangeNotifier {
     await _refreshPlaylists();
   }
 
-  Future<void> add(Track t, String playlist) async {
+  /// The rows of [playlist] that are this song, by any of its copies; empty when it is not there, null while the playlist's
+  /// rows have not been loaded ([loadMembership]).
+  List<String>? entriesOf(Track t, String playlist) {
+    final d = details[playlist];
+    if (d == null) return null;
+    final keys = t.listings.map((l) => l.key).toSet();
+    return [for (final (id, track) in d.items) if (track.listings.any((l) => keys.contains(l.key))) id];
+  }
+
+  /// Loads the rows of every playlist the user may add to that is not loaded yet, so the picker can say which already have
+  /// the song. Side by side; a playlist already opened costs nothing.
+  Future<void> loadMembership() async {
+    final missing = [for (final p in playlists) if (p.canEdit && details[p.id] == null) p.id];
+    await Future.wait([for (final id in missing) loadPlaylist(id)]);
+  }
+
+  /// Adds the song unless the playlist already has it: then it says so and adds nothing ([allowDuplicate]: the picker's
+  /// "Add Again", after asking; a song added twice is two rows). True when it was added.
+  Future<bool> add(Track t, String playlist, {bool allowDuplicate = false}) async {
+    if (!allowDuplicate) {
+      if (details[playlist] == null) await loadPlaylist(playlist);
+      if (entriesOf(t, playlist)?.isNotEmpty ?? false) {
+        problem?.call('“${t.title}” is already in “${_nameOf(playlist)}”');
+        return false;
+      }
+    }
     try {
       await Api.add(t.listings, playlist);
       await _refreshPlaylists();
       await loadPlaylist(playlist);
+      return true;
     } catch (e) {
       _failed('add to “${_nameOf(playlist)}”', e);
+      return false;
     }
   }
 

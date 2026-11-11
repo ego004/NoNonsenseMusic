@@ -55,7 +55,9 @@ class Player extends ChangeNotifier implements JamPlayer {
   bool isBuffering = false;
   bool showNowPlaying = false;
   /// Beside the song in Now Playing: 'upNext', 'lyrics' or 'none'.
-  String panel = 'upNext';
+  /// A phone opens on the cover, as the iPhone does (Up Next over it covered the artwork every time); a computer has the room
+  /// for Up Next beside it.
+  String panel = defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS ? 'none' : 'upNext';
   double volume = 1;
   String? message; // "Couldn't play …", shown for a few seconds
   Timer? _messageTimer;

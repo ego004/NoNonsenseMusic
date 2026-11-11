@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/download_store.dart';
+import 'add_to_playlist.dart';
 import '../core/models.dart';
 import '../core/reveal.dart';
 import 'browse_nav.dart';
 import 'cover.dart';
 import 'glass_menu.dart';
 import 'layout.dart';
-import 'playlist_screen.dart';
 import 'scope.dart';
 import 'waiting.dart';
 
@@ -57,7 +58,7 @@ class _SongRowState extends State<SongRow> {
       keys: widget.keys,
       source: widget.source,
     );
-    return MouseRegion(
+    final row = MouseRegion(
       onEnter: (_) => setState(() => hovering = true),
       onExit: (_) => setState(() => hovering = false),
       child: GestureDetector(
@@ -189,6 +190,24 @@ class _SongRowState extends State<SongRow> {
         ),
       ),
     );
+    if (!isTouchDevice) return row;
+    // a touch screen, as the iPhone: swipe right for Play Next, left for Add to Queue. The row never leaves: the swipe does its
+    // action and the row springs back (confirmDismiss answers no).
+    return Dismissible(
+      key: ValueKey('swipe/${track.id}/${widget.index}'),
+      background: const _SwipeHint(icon: FluentIcons.text_bullet_list_ltr_24_regular, label: 'Play Next', color: Color(0xFF5B5BD6), left: true),
+      secondaryBackground: const _SwipeHint(icon: FluentIcons.add_24_regular, label: 'Add to Queue', color: Color(0xFFE08A1E), left: false),
+      confirmDismiss: (direction) async {
+        HapticFeedback.lightImpact();
+        if (direction == DismissDirection.startToEnd) {
+          s.player.playNext(track);
+        } else {
+          s.player.addToQueue(track);
+        }
+        return false;
+      },
+      child: row,
+    );
   }
 
   void _menu(BuildContext context, Offset at, Track track, VoidCallback play) => showSongMenu(
@@ -266,22 +285,7 @@ Future<void> showSongMenu(
     case 'remove':
       remove?.run();
     case 'playlist':
-      final to = await showGlassMenu<String>(context, at, [
-        GlassMenuEntry('+', opens('New Playlist…')),
-        const GlassMenuEntry.divider(),
-        // Only playlists the user can edit: a viewer cannot add songs, and the server answers 403.
-        for (final p in s.library.playlists.where((p) => p.canEdit)) GlassMenuEntry(p.id, p.name),
-      ]);
-      if (to == null || !context.mounted) return;
-      if (to == '+') {
-        final name = await askName(
-          context,
-          title: 'New Playlist with “${track.title}”',
-        );
-        if (name != null) await s.library.createPlaylist(name, adding: track);
-      } else {
-        await s.library.add(track, to);
-      }
+      await showAddToPlaylist(context, track);
   }
 }
 
@@ -537,4 +541,28 @@ class _Listings extends StatelessWidget {
       ),
     );
   }
+}
+
+/// What a row's swipe shows under it: the action's colour, icon and name, on the side the swipe starts from.
+class _SwipeHint extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool left;
+  const _SwipeHint({required this.icon, required this.label, required this.color, required this.left});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        margin: EdgeInsets.only(bottom: songRowGap(context)),
+        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(16)),
+        alignment: left ? Alignment.centerLeft : Alignment.centerRight,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (!left) Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+          if (!left) const SizedBox(width: 8),
+          Icon(icon, color: Colors.white, size: 22),
+          if (left) const SizedBox(width: 8),
+          if (left) Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+        ]),
+      );
 }
