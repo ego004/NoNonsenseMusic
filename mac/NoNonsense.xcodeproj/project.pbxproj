@@ -833,14 +833,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				DEPLOYMENT_POSTPROCESSING = YES;
 				INFOPLIST_FILE = "NoNonsense-iOS/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.6.2;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music;
 				PRODUCT_NAME = NoNonsenseMusic;
 				SDKROOT = iphoneos;
@@ -857,7 +857,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
 				INFOPLIST_FILE = NoNonsense/Info.plist;
@@ -865,7 +865,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.6.2;
 				NN_UPDATE_FEED = "";
 				NN_UPDATE_KEY = "fV6+W5hiUV1hZe3TvS6AbNVbe4TJ6npYDb+Mt2R8NjQ=";
 				NN_URL_SCHEME = "nononsense-debug";
@@ -881,13 +881,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				INFOPLIST_FILE = "NoNonsense-iOS/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.6.2;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music;
 				PRODUCT_NAME = NoNonsenseMusic;
 				SDKROOT = iphoneos;
@@ -902,7 +902,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				ENABLE_HARDENED_RUNTIME = NO;
 				INFOPLIST_FILE = "NoNonsense-Widget/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -910,7 +910,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.6.2;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music.widget;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -990,7 +990,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				DEPLOYMENT_POSTPROCESSING = YES;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
@@ -999,7 +999,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.6.2;
 				NN_UPDATE_FEED = "https://github.com/ego004/NoNonsenseMusic/releases/latest/download/appcast.xml";
 				NN_UPDATE_KEY = "y+sgiLPBeRJEb6RlazvQX1I7wFl2CpuBdxUGl6eViJs=";
 				NN_URL_SCHEME = nononsense;
@@ -1018,7 +1018,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				ENABLE_HARDENED_RUNTIME = NO;
 				INFOPLIST_FILE = "NoNonsense-Widget/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1026,7 +1026,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.6.2;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nononsense.music.debug.widget;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
