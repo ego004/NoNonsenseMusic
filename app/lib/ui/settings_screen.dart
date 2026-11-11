@@ -41,12 +41,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final s = Scope.of(context);
     final theme = Theme.of(context);
-    Widget heading(String t) => Padding(padding: const EdgeInsets.only(top: 24, bottom: 8), child: Text(t, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)));
     return ListenableBuilder(
       listenable: s.settings,
       builder: (context, _) => ListView(padding: EdgeInsets.fromLTRB(gutter(context), isPhone(context) ? phoneTop : 28, gutter(context), bottomClearance(context)), children: [
         Text('Settings', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
-        heading('Account'),
+        ..._card(context, 'Account', [
         Row(children: [
           const Expanded(child: Text('Username')),
           Text(s.auth.user?.username ?? 'Not signed in', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
@@ -71,7 +70,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 16),
         // Sign-out is per device: the other devices stay signed in
         Align(alignment: Alignment.centerLeft, child: OutlinedButton(onPressed: s.auth.signOut, child: const Text('Sign Out'))),
-        heading('Server'),
+        ]),
+        ..._card(context, 'Server', [
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
           child: TextField(
@@ -96,7 +96,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text(ok.data == null ? 'Checking…' : ok.data! ? 'Connected' : 'Not reachable'),
           ]),
         ),
-        heading('Appearance'),
+        ]),
+        ..._card(context, 'Appearance', [
         SegmentedButton<ThemeMode>(
           segments: const [
             ButtonSegment(value: ThemeMode.system, label: Text('System')),
@@ -114,7 +115,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         // Settings › Appearance as on the Mac (#29): the window, its surfaces one part at a time, sizes, colours
         if (Platform.isWindows) ...[
-          heading('Window'),
+          _subheading(context, 'Window'),
           RadioGroup<WindowMaterial>(
             groupValue: s.settings.material,
             onChanged: (m) { if (m != null) s.settings.setMaterial(m); },
@@ -123,9 +124,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ]),
           ),
         ],
-        heading('Surfaces'),
+        ]),
+        ..._card(context, 'Surfaces', [
         const _Surfaces(),
-        heading('Sizes'),
+        ]),
+        ..._card(context, 'Sizes', [
         _slider(context, 'Text size', s.settings.textScale, 0.85, 1.4, 'Smaller', 'Larger', s.settings.setTextScale),
         _slider(context, 'Card size', s.settings.look.cardSize, 116, 210, 'Small', 'Large', (v) => s.settings.setLook(s.settings.look.copyWith(cardSize: v))),
         // the sizes, live: a card at half its size and a song's two lines, as on the Mac
@@ -148,7 +151,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
         ),
         Text('Text: everywhere. Cards: the covers on Home, in the Library and in albums, shown here at half size.', style: theme.textTheme.bodySmall),
-        heading('Colours'),
+        ]),
+        ..._card(context, 'Colours', [
         _ColourRow(
           title: 'Accent',
           detail: 'Buttons, selections and the playing song. System: blue',
@@ -171,7 +175,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Expanded(child: Text('Colours, surfaces and sizes back to how they came', style: theme.textTheme.bodySmall)),
           OutlinedButton(onPressed: s.settings.resetLook, child: const Text('Reset All')),
         ]),
-        heading('Playback'),
+        ]),
+        ..._card(context, 'Playback', [
         ListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('Preferred Source'),
@@ -217,10 +222,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: const Text('Play the explicit version'),
           subtitle: const Text('When a song has both, the explicit or the clean copy plays. Applies to lists loaded after the change.'),
         ),
-        if (AndroidSound.available) ...[heading('Sound'), const _AndroidSoundSettings()],
-        heading('Storage'),
+        if (AndroidSound.available) ...[_subheading(context, 'Sound'), const _AndroidSoundSettings()],
+        ]),
+        ..._card(context, 'Storage', [
         const StorageSettings(),
-        heading('Lyrics'),
+        ]),
+        ..._card(context, 'Lyrics', [
         // the question the two answers below are for: without it, "When a song starts" read as lyrics showing by
         // themselves (20 Oct). As on the Mac (Settings › Lyrics › Load lyrics)
         const ListTile(
@@ -257,8 +264,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: const Text('Genius notes (experimental)'),
           subtitle: const Text('Underlined lines open what Genius says about them; ⓘ shows About This Song. One more lookup per song.'),
         ),
-        heading('Discord'),
+        ]),
+        ..._card(context, 'Discord', [
         const _DiscordSettings(),
+        ]),
       ]),
     );
   }
@@ -580,3 +589,36 @@ class _AndroidSoundSettings extends StatelessWidget {
     );
   }
 }
+
+/// A section of Settings: its heading, then its controls on one rounded card, as the iPhone's grouped Settings has them.
+List<Widget> _card(BuildContext context, String title, List<Widget> children) {
+  final theme = Theme.of(context);
+  final dark = theme.brightness == Brightness.dark;
+  return [
+    Padding(
+      padding: const EdgeInsets.fromLTRB(4, 24, 0, 8),
+      child: Text(title,
+          style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
+    ),
+    // a Material, not a coloured box: the ListTiles inside paint their ink on the nearest Material
+    Material(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: dark ? 0.38 : 0.7),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: theme.colorScheme.onSurface.withValues(alpha: 0.055)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+      ),
+    ),
+  ];
+}
+
+/// A heading inside a card, for a group within a section.
+Widget _subheading(BuildContext context, String text) => Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 6),
+      child: Text(text, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+    );
+
