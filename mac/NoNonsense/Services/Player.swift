@@ -587,9 +587,12 @@ final class Player {
         playingListing = listing
         loads += 1
         if start { isPlaying = true }
+        StartTiming.shared.began(title: listing.title, listing: listing)
+        watchSlowStart(of: listing.title, load: loads)
         // a downloaded copy plays from its file
         if let file = fromFile ? downloads.localURL(for: listing) : nil {
             resolving = false                                     // an address still on its way for the last copy no longer matters
+            StartTiming.shared.how("file")
             playingFile = true
             attach(AVPlayerItem(url: file), for: listing)
             return
@@ -607,6 +610,7 @@ final class Player {
             if let cached = await AudioCache.shared.file(for: listing.key) {
                 guard mine == loads else { return }
                 resolving = false
+                StartTiming.shared.how("cache")
                 attach(AVPlayerItem(url: cached), for: listing)
                 return
             }
@@ -621,6 +625,7 @@ final class Player {
             }
             guard mine == loads else { return }
             resolving = false
+            StartTiming.shared.gotLink()
             // through the loader: bounded ranges (YouTube sends open-ended ones at playback speed), and the whole file
             // kept in the cache once it is in (TICKETS 0a, 0b, 8 Oct)
             var direct = false
@@ -1047,6 +1052,7 @@ final class Player {
         guard let loaded = player.currentItem, ObjectIdentifier(loaded) == item else { return }
         refreshBuffering()
         if status == .readyToPlay {
+            StartTiming.shared.ready()
             failuresInARow = 0                                    // this song loads: the run of failures is over
             if queued == nil { queueNext() }
             // "play" once it can sound: songs that never loaded no longer count as played, nor show in Recently Played
@@ -1077,6 +1083,7 @@ final class Player {
 
     /// A copy would not play: AVPlayer failed on it, or the server gave no address for it.
     private func copyFailed(_ failed: Listing, of track: Track) {
+        StartTiming.shared.failed("this copy would not play")
         // a YouTube link this Mac looked up and that would not play: never handed out again (the retry looks it up anew)
         let youtube = Listing.isYouTube(failed.source)
         let forgotten = youtube ? Task { await YouTubeLookup.shared.forget(failed.id) } : nil
@@ -1195,7 +1202,40 @@ final class Player {
         let loading = resolving || player.currentItem?.status == .unknown
         let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
         let now = isPlaying && (loading || waiting)
-        if now != isBuffering { isBuffering = now }
+        if now != isBuffering {
+            isBuffering = now
+            if !now { audioFlowing() }
+        }
+    }
+
+    // MARK: - a slow start
+
+    @ObservationIgnored private var slowStart: Task<Void, Never>?
+    /// Set while "Still getting … ready" is showing, so it goes when the sound starts and not after its few seconds.
+    @ObservationIgnored private var slowMessage: String?
+
+    /// A start that has not sounded after `StartTiming.slowSeconds` says so, so a silent spinner is not a mystery (the
+    /// stages of every start are in playback.log).
+    private func watchSlowStart(of title: String, load number: Int) {
+        slowStart?.cancel()
+        slowStart = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(StartTiming.slowSeconds))
+            guard let self, !Task.isCancelled, number == loads, isBuffering else { return }
+            let message = "Still getting “\(title)” ready…"
+            slowMessage = message
+            show(message, seconds: 30)
+        }
+    }
+
+    /// The spinner stopped: the start is over.
+    private func audioFlowing() {
+        StartTiming.shared.audio()
+        slowStart?.cancel()
+        if let said = slowMessage, errorMessage == said {
+            messageTimer?.cancel()
+            errorMessage = nil
+        }
+        slowMessage = nil
     }
 
     private func itemEnded(_ item: AVPlayerItem?) {

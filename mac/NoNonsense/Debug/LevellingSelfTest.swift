@@ -113,6 +113,23 @@ extension SelfTest {
             let rumbled = SoundProcessor(gains: flat, studio: StudioSettings(rumble: 1)).offline(frequency: 80, channels: 2)
             check("studio: sub rumble adds energy under an 80 Hz bass note, and stays sane", rumbled > 0.5 && rumbled < 6, db(rumbled))
 
+            // B3c. the start log (StartTiming): the stages, SLOW from 5 s, a failure saying "after", no link for a cached song
+            let at = Date(timeIntervalSince1970: 0)
+            let fine = StartTiming.line(at: at, title: "Song", source: "ytmusic", copy: "abc", how: "stream", outcome: "ok",
+                                        link: 0.52, ready: 1.2, audio: 1.45, total: 1.45)
+            check("start log: a quick start shows its stages and is not SLOW",
+                  fine.contains("link 0.52 s · ready 1.20 s · audio 1.45 s") && fine.contains("  ok  stream  ytmusic") && !fine.contains("SLOW"), fine)
+            let slowLine = StartTiming.line(at: at, title: "Song", source: "ytmusic", copy: "abc", how: "stream", outcome: "ok",
+                                            link: 6.1, ready: 6.3, audio: 6.4, total: 6.4)
+            check("start log: 5 s or more is SLOW", slowLine.contains("  SLOW ok  "), slowLine)
+            let failedLine = StartTiming.line(at: at, title: "Song", source: "jiosaavn", copy: "abc", how: "stream", outcome: "failed: x",
+                                              link: nil, ready: nil, audio: nil, total: 12)
+            check("start log: a failure says how long it took, not an audio time",
+                  failedLine.contains("after 12.00 s") && !failedLine.contains("audio") && failedLine.contains("SLOW"), failedLine)
+            let cachedLine = StartTiming.line(at: at, title: "Song", source: "jiosaavn", copy: "abc", how: "cache", outcome: "ok",
+                                              link: nil, ready: 0.05, audio: 0.08, total: 0.08)
+            check("start log: a cached song has no link time", cachedLine.contains("link – ·") && cachedLine.contains("  cache  "), cachedLine)
+
             // B2b. true peak: a quarter-rate tone whose samples all sit at 85% while the wave between them reaches 120%
             @MainActor func truePeak(_ x: [Float], from: Int, to: Int) -> Float {         // an independent measure: 16×, 64-tap Hann sinc
                 var peak: Float = 0

@@ -32,6 +32,7 @@
 		243BA470092BE8B508E40FE8 /* Footprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26CFDB9AA45C45E878F131FD /* Footprint.swift */; };
 		247AC5B08012F05B68A9FAE3 /* YouTubeSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7653F9E290239BE43EF6D0D6 /* YouTubeSelfTest.swift */; };
 		24BAE3FB97B1C7FFE1C248AD /* Equalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BE03707689D95331FD49A82 /* Equalizer.swift */; };
+		24EA046426A1C9B255A5D783 /* StartTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8B5B290490E684B74E5262 /* StartTiming.swift */; };
 		26DC68098A0A083608C48068 /* LyricsTranslations.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F44E306ED4A826FCECEB34 /* LyricsTranslations.swift */; };
 		28B98636A1E0595CBA384EC3 /* YouTubeLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172BF860B15E1251D0DF0E1C /* YouTubeLookup.swift */; };
 		28D11C57911C744EE7C12C63 /* CommandBarSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D091D0F6992A79C578B5F523 /* CommandBarSelfTest.swift */; };
@@ -98,6 +99,7 @@
 		9DF50AC9EFC8F64B885295A1 /* LibrarySearchSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 950478B4535521B0AE1EAA67 /* LibrarySearchSelfTest.swift */; };
 		9F804D830BC9D35D72B713CE /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73F3F3979510A3CCDB133168 /* API.swift */; };
 		A309D54434C4C7E4DC7878DA /* NoNonsenseWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D66109BF3B7B7E8B4AF0B01A /* NoNonsenseWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A5A4FCCF63866D57E054F08B /* StartTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8B5B290490E684B74E5262 /* StartTiming.swift */; };
 		A66DC6D35E35B04108B7EA14 /* NoNonsenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 990E0DB832F7D7C8D25D4453 /* NoNonsenseApp.swift */; };
 		A9023AAA1F6E63CEE2C6160F /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F7CD8D9DD581E357889DAF /* Account.swift */; };
 		A9869EBAE17D9F9D870C7A77 /* WidgetFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59813407D940F2826A2A02EC /* WidgetFeed.swift */; };
@@ -263,6 +265,7 @@
 		D3A107F0B5844D7248A1C29E /* BarSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarSelfTest.swift; sourceTree = "<group>"; };
 		D66109BF3B7B7E8B4AF0B01A /* NoNonsenseWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NoNonsenseWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DBBC3A27A4E50168D10CEC6D /* Loudness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Loudness.swift; sourceTree = "<group>"; };
+		DF8B5B290490E684B74E5262 /* StartTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartTiming.swift; sourceTree = "<group>"; };
 		E154740FDBEA3594ABF53ACE /* SpotifyImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyImport.swift; sourceTree = "<group>"; };
 		E22B3775E1F5676C0595F497 /* Friends.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Friends.swift; sourceTree = "<group>"; };
 		E270AA16C5BE02590D718911 /* NoNonsenseiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NoNonsenseiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -444,6 +447,7 @@
 				618A1D0EE3F89CF391B14495 /* SoundChain.swift */,
 				03362F227F7148FC5A803F7F /* SoundProfiles.swift */,
 				E154740FDBEA3594ABF53ACE /* SpotifyImport.swift */,
+				DF8B5B290490E684B74E5262 /* StartTiming.swift */,
 				FA5831CB52E11318734C33E1 /* Studio.swift */,
 				D2B2FE4C7E6EEAA589159B7F /* ThemeStore.swift */,
 				A561235C0692FB4B426F29EF /* Updater.swift */,
@@ -679,6 +683,7 @@
 				FF8CAE6F1B5B90DD4746E3B4 /* SoundChain.swift in Sources */,
 				881E1DDB1D46834786221A48 /* SoundProfiles.swift in Sources */,
 				50493A6732F168A78D258680 /* SpotifyImport.swift in Sources */,
+				A5A4FCCF63866D57E054F08B /* StartTiming.swift in Sources */,
 				08C4AB0A686641E57312488B /* Studio.swift in Sources */,
 				0AB214FD1456980198666A91 /* StudioSection.swift in Sources */,
 				AE2446E87AE50D3E1F6FAE13 /* ThemeStore.swift in Sources */,
@@ -737,6 +742,7 @@
 				6F64B2DFCCBD7118BABB97EA /* SoundChain.swift in Sources */,
 				C3FB1DA9FD1BE8440D2EA28C /* SoundProfiles.swift in Sources */,
 				1FDE566454E931785038C31A /* SpotifyImport.swift in Sources */,
+				24EA046426A1C9B255A5D783 /* StartTiming.swift in Sources */,
 				BC4C343380A67A39ED2D0D39 /* Studio.swift in Sources */,
 				F472177AC95A3CAC4A54A0F2 /* StudioSection.swift in Sources */,
 				7DDD497D6C7D50D0BBB746CC /* ThemeStore.swift in Sources */,
