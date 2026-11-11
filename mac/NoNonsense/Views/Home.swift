@@ -117,26 +117,7 @@ struct HomeView: View {
 
     private var likedRows: some View {
         let tracks = Array(library.liked.prefix(24))
-        let rows = max(1, min(3, tracks.count))
-        return ScrollView(.horizontal) {
-            // three rows, filled down each column. Made once, not lazily (see RecentShelf); scrolls freely
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
-                ForEach(0..<rows, id: \.self) { row in
-                    GridRow {
-                        ForEach(Array(stride(from: row, to: tracks.count, by: rows)), id: \.self) { i in
-                            CompactSongTile(track: tracks[i], width: 300) { player.play(library.liked, startAt: i) }
-                                .frame(height: 60)
-                        }
-                    }
-                }
-            }
-            .background(ScrollElasticity(vertical: .none))   // a shelf moves sideways only
-        }
-        .scrollIndicators(.never)
-        .defaultScrollAnchor(.leading)
-        .shelf(margin: 32)
-        .clipShape(SidewaysClip())                           // cut off at the page margins, as Jump Back In is
-        .selfTestFrame("home.likedShelf")
+        return LikedShelf(tracks: tracks) { player.play(library.liked, startAt: $0) }
     }
 
     private var firstStep: some View {
@@ -185,6 +166,7 @@ private struct RecentShelf: View {
     let play: (Int) -> Void
     @State private var scroller = ShelfScroller.Handle()
     @State private var more = false
+    @State private var before = false            // something lies to the left: the shelf was moved on (a mouse has no sideways wheel)
 
     var body: some View {
         #if DEBUG
@@ -199,35 +181,97 @@ private struct RecentShelf: View {
             }
             .padding(.vertical, 12)                         // room for the hover lift and its shadow
             .background(ScrollElasticity(vertical: .none))   // a shelf moves sideways only
-            .background(ShelfScroller(handle: scroller) { more = $0 })
+            .background(ShelfScroller(handle: scroller, more: { more = $0 }, before: { before = $0 }))
         }
         .scrollIndicators(.never)                           // .hidden still showed them with a mouse
         .defaultScrollAnchor(.leading)
         .shelf(margin: 32)
         // .shelf stops at the page column's edges: this cuts the covers off at the margins, as the rest of the page is
         .clipShape(SidewaysClip())
-        .overlay(alignment: .trailing) {
-            Button { scroller.view?.moveOn() } label: {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 40, height: 40)
-                    .compatGlass(in: .circle, interactive: true)
-            }
-            .buttonStyle(.quiet(highlight: false))
-            .help("More")
-            .accessibilityLabel("More")
-            .padding(.trailing, -20)                         // half over the margin, as in the Windows app
-            .opacity(more ? 1 : 0)
-            .allowsHitTesting(more)
-            .animation(.easeOut(duration: 0.18), value: more)
-        }
+        .shelfArrows(scroller, more: more, before: before)
         .selfTestFrame("home.recentShelf")
         #if DEBUG
         .onAppear {                                          // the click, when a click cannot reach
             SelfTest.homeShelfMore = { scroller.view?.moveOn() }
+            SelfTest.homeShelfBack = { scroller.view?.moveBack() }
             SelfTest.homeShelfReading = { scroller.view?.reading }
         }
         #endif
+    }
+}
+
+/// The way along a shelf for a mouse, which has no sideways wheel: an arrow on each side, shown when there is more to that
+/// side (a trackpad scrolls them too, and the arrows follow).
+private struct ShelfArrows: ViewModifier {
+    let scroller: ShelfScroller.Handle
+    let more: Bool
+    let before: Bool
+
+    private func arrow(_ name: String, label: String, show: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 40, height: 40)
+                .compatGlass(in: .circle, interactive: true)
+        }
+        .buttonStyle(.quiet(highlight: false))
+        .help(label)
+        .accessibilityLabel(label)
+        .opacity(show ? 1 : 0)
+        .allowsHitTesting(show)
+        .animation(.easeOut(duration: 0.18), value: show)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .leading) {
+                arrow("chevron.left", label: "Back", show: before) { scroller.view?.moveBack() }
+                    .padding(.leading, -20)                  // half over the margin, as in the Windows app
+            }
+            .overlay(alignment: .trailing) {
+                arrow("chevron.right", label: "More", show: more) { scroller.view?.moveOn() }
+                    .padding(.trailing, -20)
+            }
+    }
+}
+
+private extension View {
+    func shelfArrows(_ scroller: ShelfScroller.Handle, more: Bool, before: Bool) -> some View {
+        modifier(ShelfArrows(scroller: scroller, more: more, before: before))
+    }
+}
+
+/// Liked Songs on Home: three rows of song tiles, filled down each column, moving sideways (arrows as Jump Back In's).
+private struct LikedShelf: View {
+    let tracks: [Track]
+    let play: (Int) -> Void
+    @State private var scroller = ShelfScroller.Handle()
+    @State private var more = false
+    @State private var before = false
+
+    var body: some View {
+        let rows = max(1, min(3, tracks.count))
+        ScrollView(.horizontal) {
+            // three rows, filled down each column. Made once, not lazily (see RecentShelf); scrolls freely
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
+                ForEach(0..<rows, id: \.self) { row in
+                    GridRow {
+                        ForEach(Array(stride(from: row, to: tracks.count, by: rows)), id: \.self) { i in
+                            CompactSongTile(track: tracks[i], width: 300) { play(i) }
+                                .frame(height: 60)
+                        }
+                    }
+                }
+            }
+            .background(ScrollElasticity(vertical: .none))   // a shelf moves sideways only
+            .background(ShelfScroller(handle: scroller, more: { more = $0 }, before: { before = $0 }))
+        }
+        .scrollIndicators(.never)
+        .defaultScrollAnchor(.leading)
+        .shelf(margin: 32)
+        .clipShape(SidewaysClip())                           // cut off at the page margins, as Jump Back In is
+        .shelfArrows(scroller, more: more, before: before)
+        .selfTestFrame("home.likedShelf")
     }
 }
 
@@ -236,6 +280,8 @@ struct ShelfReading {
     let origin: CGFloat
     let width: CGFloat
     let end: CGFloat
+    /// The farthest left AppKit lets it go: where the shelf rests, its content margin included.
+    let start: CGFloat
 }
 
 /// The shelf's AppKit side. SwiftUI's sideways ScrollView is an NSScrollView, and its clip view knows exactly how far
@@ -246,6 +292,7 @@ struct ShelfReading {
 private struct ShelfScroller: NSViewRepresentable {
     let handle: Handle
     let more: (Bool) -> Void
+    let before: (Bool) -> Void
 
     /// How the shelf reaches its scroller: a class held in State, so setting it redraws nothing.
     final class Handle {
@@ -257,11 +304,14 @@ private struct ShelfScroller: NSViewRepresentable {
     func updateNSView(_ view: ShelfScrollerView, context: Context) {
         handle.view = view
         view.more = more
+        view.before = before
     }
 }
 
 private final class ShelfScrollerView: NSView {
     var more: (Bool) -> Void = { _ in }
+    var before: (Bool) -> Void = { _ in }
+    private var shownBefore: Bool?
     private var shown: Bool?
     private var observers: [NSObjectProtocol] = []
 
@@ -295,7 +345,20 @@ private final class ShelfScrollerView: NSView {
         var far = clip.bounds
         far.origin.x = clip.documentView?.frame.width ?? 0
         let shown = clip.bounds.width - scroll.contentInsets.left - scroll.contentInsets.right
-        return ShelfReading(origin: clip.bounds.minX, width: shown, end: clip.constrainBoundsRect(far).minX)
+        var near = clip.bounds
+        near.origin.x = -1_000_000
+        return ShelfReading(origin: clip.bounds.minX, width: shown, end: clip.constrainBoundsRect(far).minX,
+                            start: clip.constrainBoundsRect(near).minX)
+    }
+
+    /// Back by 80% of what shows, or to the start: the same animation as `moveOn`.
+    func moveBack() {
+        guard let clip = enclosingScrollView?.contentView, let now = reading else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.42
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.215, 0.61, 0.355, 1)
+            clip.animator().setBoundsOrigin(NSPoint(x: max(now.origin - now.width * 0.8, now.start), y: clip.bounds.minY))
+        }
     }
 
     /// On by 80% of what shows, or to the end: one animation (420 ms, ease-out cubic, as in the Windows app).
@@ -311,7 +374,14 @@ private final class ShelfScrollerView: NSView {
     /// Tells the shelf when more comes to lie to the right, or stops (4 pt to spare, as in the Windows app). Later, not
     /// now: this can run while SwiftUI lays the shelf out, when its state must not change.
     private func check() {
-        guard let now = reading.map({ $0.origin < $0.end - 4 }), now != shown else { return }
+        guard let r = reading else { return }
+        let back = r.origin > r.start + 4
+        if back != shownBefore {
+            shownBefore = back
+            Task { @MainActor [weak self] in self?.before(back) }
+        }
+        let now = r.origin < r.end - 4
+        guard now != shown else { return }
         shown = now
         Task { @MainActor [weak self] in self?.more(now) }
     }

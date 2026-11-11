@@ -16,6 +16,7 @@ extension SelfTest {
     static var homeShows: [String: String] = [:]
     /// Jump Back In's More arrow, as a click would press it (the shelf sets it): an invisible window takes no clicks.
     static var homeShelfMore: (() -> Void)?
+    static var homeShelfBack: (() -> Void)?
     /// Where Jump Back In's clip view is, how wide, and its end, as AppKit has them (the shelf sets it).
     static var homeShelfReading: (() -> ShelfReading?)?
 
@@ -132,6 +133,16 @@ extension SelfTest {
                     check("at the end, the More arrow is gone", homeShows["home.shelf"] == "end" && end.map { $0.origin >= $0.end - 4 } == true,
                           "\(homeShows["home.shelf"] ?? "-"), \(describe(end))")
                     windowShot("homehero-\(named(sizes[0]))-shelf-end")
+                    // and the way back, for a mouse (it could not scroll left): each press goes back by 80%, to the start
+                    var back = 0
+                    while let now = homeShelfReading?(), now.origin > now.start + 4, back < 10 {
+                        homeShelfBack?()
+                        try? await Task.sleep(for: .seconds(0.9))
+                        back += 1
+                    }
+                    let start = homeShelfReading?()
+                    check("Back: the shelf returns to its start (\(back) presses)", start.map { $0.origin <= $0.start + 4 } == true && back > 0,
+                          describe(start))
                 }
             }
 
