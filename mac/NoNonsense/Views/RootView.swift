@@ -439,6 +439,9 @@ private struct PlaylistSheets: ViewModifier {
                     await library.createPlaylist(named: $0, adding: request.track)
                 }
             }
+            .sheet(item: $library.addToPlaylistRequest) { track in
+                AddToPlaylistSheet(track: track)
+            }
             .sheet(item: $library.renameRequest) { playlist in
                 NamePlaylistSheet(title: "Rename Playlist", action: "Rename", initial: playlist.name) {
                     await library.renamePlaylist(playlist, to: $0)

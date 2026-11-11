@@ -141,7 +141,7 @@ private struct PlaylistTile: View {
                 Cover(url: playlist.thumbnail.flatMap(URL.init(string:)), size: geo.size.width,
                       symbol: playlist.isAlbum ? "square.stack" : "music.note.list")
                 Text(playlist.name).font(.subheadline.weight(.medium)).lineLimit(1)
-                Text("\(playlist.songCount) songs").font(.caption).foregroundStyle(.secondary)
+                Text(playlist.songsText).font(.caption).foregroundStyle(.secondary)
             }
         }
         .aspectRatio(0.78, contentMode: .fit)
@@ -642,7 +642,7 @@ private struct SongMenu: ViewModifier {
     @Environment(Player.self) private var player
     @Environment(LibraryStore.self) private var library
     let track: Track
-    @State private var newPlaylist = false
+    @State private var picking = false
     @Environment(DownloadStore.self) private var downloads
 
     func body(content: Content) -> some View {
@@ -654,22 +654,15 @@ private struct SongMenu: ViewModifier {
             Button { Task { await library.toggleLike(track) } } label: {
                 Label(liked ? "Unlike" : "Like", systemImage: liked ? "heart.slash" : "heart")
             }
-            Menu {
-                Button { newPlaylist = true } label: { Label("New Playlist…", systemImage: "plus") }
-                if !library.playlists.filter(\.canEdit).isEmpty { Divider() }
-                ForEach(library.playlists.filter(\.canEdit)) { playlist in
-                    Button(playlist.name) { Task { await library.add(track, to: playlist) } }
-                }
-            } label: {
-                Label("Add to Playlist", systemImage: "text.badge.plus")
-            }
+            // the picker: which playlists already have the song, and add, add again or remove (AddToPlaylistSheet)
+            Button { picking = true } label: { Label("Add to Playlist…", systemImage: "text.badge.plus") }
             if downloads.isDownloaded(track) {
                 Button(role: .destructive) { downloads.remove(track) } label: { Label("Remove Download", systemImage: "arrow.down.circle.fill") }
             } else if !downloads.isDownloading(track) {
                 Button { Task { _ = await downloads.download(track) } } label: { Label("Download", systemImage: "arrow.down.circle") }
             }
         }
-        .newPlaylistAlert($newPlaylist, adding: track)
+        .sheet(isPresented: $picking) { AddToPlaylistSheet(track: track) }
     }
 }
 
@@ -681,7 +674,7 @@ struct PlaylistRow: View {
             Cover(url: playlist.thumbnail.flatMap(URL.init(string:)), size: 44, symbol: playlist.isAlbum ? "square.stack" : "music.note.list")
             VStack(alignment: .leading, spacing: 2) {
                 Text(playlist.name).lineLimit(1)
-                Text("\(playlist.songCount) songs").font(.subheadline).foregroundStyle(.secondary)
+                Text(playlist.songsText).font(.subheadline).foregroundStyle(.secondary)
             }
         }
     }

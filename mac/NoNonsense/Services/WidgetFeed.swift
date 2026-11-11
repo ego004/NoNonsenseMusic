@@ -28,6 +28,8 @@ enum WidgetFeed {
         }
         let info = ["title": track.title, "artist": track.artistLine, "playing": playing] as [String: Any]
         if let data = try? JSONSerialization.data(withJSONObject: info) { try? data.write(to: folder.appending(path: "widget.json"), options: .atomic) }
+        // another song: the last one's cover goes now, so the widget never shows old art under a new title
+        if songChanged { try? FileManager.default.removeItem(at: folder.appending(path: "cover.jpg")) }
         guard songChanged, let url = track.image else { WidgetCenter.shared.reloadAllTimelines(); return }
         Task {
             // the cover is the cache's 128-point copy (256 px), as small as a widget needs

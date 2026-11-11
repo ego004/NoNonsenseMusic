@@ -130,6 +130,17 @@ extension SelfTest {
                                               link: nil, ready: 0.05, audio: 0.08, total: 0.08)
             check("start log: a cached song has no link time", cachedLine.contains("link – ·") && cachedLine.contains("  cache  "), cachedLine)
 
+            // B3d. hearts pressed in quick succession (LibraryStore.hearts): a reload must not empty a like still on its way
+            let reload: Set<String> = ["a", "b"]
+            check("hearts: with nothing pending, the server's list is the hearts (it undoes a like the server refused)",
+                  LibraryStore.hearts(server: reload, pending: []) == reload)
+            check("hearts: a like still on its way stays filled when a reload does not have it yet",
+                  LibraryStore.hearts(server: reload, pending: [PendingLike(keys: ["c", "d"], liked: true)]) == ["a", "b", "c", "d"])
+            check("hearts: an unlike still on its way stays empty when a reload still has the song",
+                  LibraryStore.hearts(server: reload, pending: [PendingLike(keys: ["b"], liked: false)]) == ["a"])
+            check("hearts: four likes in a row all stay filled under one reload",
+                  LibraryStore.hearts(server: [], pending: ["p", "q", "r", "s"].map { PendingLike(keys: [$0], liked: true) }) == ["p", "q", "r", "s"])
+
             // B2b. true peak: a quarter-rate tone whose samples all sit at 85% while the wave between them reaches 120%
             @MainActor func truePeak(_ x: [Float], from: Int, to: Int) -> Float {         // an independent measure: 16×, 64-tap Hann sinc
                 var peak: Float = 0

@@ -258,6 +258,8 @@ nonisolated struct PlaylistSummary: Codable, Hashable, Identifiable, Sendable {
 
     var isOwner: Bool { role == "owner" }
     var isAlbum: Bool { kind == "album" }
+    /// "1 song", "12 songs".
+    var songsText: String { songCount == 1 ? "1 song" : "\(songCount) songs" }
     /// May change its songs: the owner or an editor, and never a pinned album. The server refuses the rest.
     var canEdit: Bool { role != "viewer" && !isAlbum }
 }

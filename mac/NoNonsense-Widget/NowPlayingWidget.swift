@@ -66,13 +66,22 @@ struct WidgetView: View {
         .widgetURL(URL(string: "nononsense://open"))
     }
 
-    private var cover: Image {
-        entry.cover.flatMap(NSImage.init(data:)).map(Image.init(nsImage:)) ?? Image(systemName: "music.note")
+    /// The cover, or a dark tile with a small note when there is none (not written yet, or not readable). The symbol itself
+    /// used to be scaled to fill the widget, which drew a big white blob where the picture should be.
+    @ViewBuilder private var cover: some View {
+        if let image = entry.cover.flatMap(NSImage.init(data:)) {
+            Image(nsImage: image).resizable().scaledToFill()
+        } else {
+            ZStack {
+                Color.white.opacity(0.1)
+                Image(systemName: "music.note").font(.system(size: 30)).foregroundStyle(.white.opacity(0.5))
+            }
+        }
     }
 
     private func small(_ song: NowPlaying) -> some View {
         ZStack(alignment: .bottomLeading) {
-            cover.resizable().scaledToFill()
+            cover
             LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title).font(.subheadline.weight(.semibold)).lineLimit(2)
@@ -85,7 +94,7 @@ struct WidgetView: View {
 
     private func medium(_ song: NowPlaying) -> some View {
         HStack(spacing: 14) {
-            cover.resizable().scaledToFill().frame(width: 112, height: 112).clipShape(RoundedRectangle(cornerRadius: 12))
+            cover.frame(width: 112, height: 112).clipShape(RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) {
                 Text(song.playing ? "Playing" : "Paused").font(.caption.weight(.semibold)).textCase(.uppercase).opacity(0.6)
                 Text(song.title).font(.headline).lineLimit(2)

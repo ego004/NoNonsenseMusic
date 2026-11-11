@@ -47,7 +47,10 @@ struct NoNonsenseApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("NoNonsenseMusic") {
+        // One window, not a WindowGroup: a WindowGroup opens a new window for every nononsense:// URL, so each click on the
+        // widget (or a shared playlist's link) made another window of an app that has one player, one library and one login.
+        // A Window takes the URL in the window it has, and brings it forward.
+        Window("NoNonsenseMusic", id: "main") {
             AccountGate {
                 RootView()
                     #if DEBUG

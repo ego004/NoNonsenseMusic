@@ -80,8 +80,10 @@ final class LibraryStore {
         }
         // the hearts follow the server's liked list (this also undoes an optimistic like the server refused), but only
         // when it was just asked: from the last answer, a ♥ tapped as a song starts would empty again for a moment
+        // (with the likes still on their way on top of it: a reload that came back before they reached the server emptied
+        // their hearts until the last reload, which is why hearts tapped in quick succession took so long to show)
         if let l = newLiked {
-            let keys = Set(l.flatMap { $0.listings.map(\.key) })
+            let keys = Self.hearts(server: Set(l.flatMap { $0.listings.map(\.key) }), pending: Array(pendingLikes.values))
             if keys != likedKeys { likedKeys = keys }
         }
         guard changed else { return }
@@ -114,6 +116,7 @@ final class LibraryStore {
         // optimistic: the heart fills instantly, the server catches up
         if wasLiked { track.listings.forEach { likedKeys.remove($0.key) } }
         else { track.listings.forEach { likedKeys.insert($0.key) } }
+        pendingLikes[track.id] = PendingLike(keys: Set(track.listings.map(\.key)), liked: !wasLiked)
         // one song's likes and unlikes take turns: an unlike sent while the like was still on its way had no song id
         // yet, so it never reached the server and the next refresh filled the heart again (audit, 7 Oct)
         let previous = likeTurns[track.id]
@@ -136,9 +139,22 @@ final class LibraryStore {
         // only the last turn refreshes: an earlier one's refresh would undo the heart of a newer press for a moment
         guard likeTurns[track.id] == turn else { return }
         likeTurns[track.id] = nil
+        pendingLikes[track.id] = nil
+        // one reload, after the last like has answered: each like reloading the list on its own while the others were still
+        // on their way (a 400-song list, once per heart) was the lag, and each reload could empty a heart not yet sent
+        guard pendingLikes.isEmpty else { return }
         await refreshLiked()
     }
     @ObservationIgnored private var likeTurns: [String: Task<Void, Never>] = [:]
+    /// Hearts pressed and not yet answered, by song: what they should show whatever a reload says meanwhile.
+    @ObservationIgnored private var pendingLikes: [String: PendingLike] = [:]
+
+    /// The server's liked list, with the likes (and unlikes) still on their way applied over it.
+    nonisolated static func hearts(server: Set<String>, pending: [PendingLike]) -> Set<String> {
+        var keys = server
+        for like in pending { if like.liked { keys.formUnion(like.keys) } else { keys.subtract(like.keys) } }
+        return keys
+    }
 
     // MARK: - playlists (MUS-2)
 
@@ -147,6 +163,8 @@ final class LibraryStore {
     private(set) var details: [UUID: PlaylistDetail] = [:]
     /// Asks RootView for the "New Playlist" sheet: from the sidebar's +, ⌘N, or a song's "Add to Playlist › New Playlist…".
     var newPlaylistRequest: NewPlaylistRequest?
+    /// Asks RootView for the "Add to Playlist" picker for a song (a song's menu, on the Mac).
+    var addToPlaylistRequest: Track?
     /// Ask RootView for the rename sheet, or the "Delete …?" question (from the sidebar or the playlist screen).
     var renameRequest: PlaylistSummary?
     var deleteRequest: PlaylistSummary?
@@ -268,7 +286,32 @@ final class LibraryStore {
         }
     }
 
-    func add(_ track: Track, to playlist: PlaylistSummary) async {
+    /// The rows of `playlist` that are this song, by any of its copies; empty when it is not there, nil while the playlist's
+    /// rows have not been loaded yet (`loadMembership`).
+    func entries(of track: Track, in playlist: PlaylistSummary) -> [PlaylistEntry]? {
+        guard let detail = details[playlist.id] else { return nil }
+        let keys = Set(track.listings.map(\.key))
+        return detail.items.filter { entry in entry.song.listings.contains { keys.contains($0.key) } }
+    }
+
+    /// Loads the rows of every playlist you may add to that is not loaded yet, so a picker can say which already have the
+    /// song. One request each, side by side; a playlist already opened costs nothing.
+    func loadMembership() async {
+        let missing = playlists.filter { $0.canEdit && details[$0.id] == nil }.map(\.id)
+        let loading = missing.map { id in Task { @MainActor in _ = await self.loadPlaylist(id) } }
+        for task in loading { await task.value }
+    }
+
+    /// Adds the song unless the playlist already has it: then it says so and adds nothing (`allowDuplicate`: the picker's
+    /// "Add Again", after asking; a song added twice is two rows).
+    func add(_ track: Track, to playlist: PlaylistSummary, allowDuplicate: Bool = false) async {
+        if !allowDuplicate {
+            if details[playlist.id] == nil { _ = await loadPlaylist(playlist.id) }
+            if let already = entries(of: track, in: playlist), !already.isEmpty {
+                show("“\(track.title)” is already in “\(playlist.name)”", symbol: "exclamationmark.circle.fill")
+                return
+            }
+        }
         do {
             try await API.add(track.listings, to: playlist.id)
             show("Added to “\(playlist.name)”", symbol: "checkmark.circle.fill")
@@ -381,4 +424,10 @@ final class LibraryStore {
     }
     /// Edits made on screen per playlist, so a load that left before one cannot undo it (`loadPlaylist`).
     @ObservationIgnored private var localEdits: [UUID: Int] = [:]
+}
+
+/// A ♥ pressed and not yet answered by the server: the copies' keys of the song, and whether it is now liked.
+nonisolated struct PendingLike: Sendable {
+    let keys: Set<String>
+    let liked: Bool
 }

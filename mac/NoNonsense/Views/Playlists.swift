@@ -301,21 +301,14 @@ struct NamePlaylistSheet: View {
     }
 }
 
-/// "Add to Playlist" in a song's right-click menu: every playlist you may add to (yours, and those shared with you
-/// as an editor), plus "New Playlist…" (created, then the song added).
+/// "Add to Playlist…" in a song's right-click menu: the picker (AddToPlaylistSheet), which says which playlists already
+/// have the song. It was a submenu of every playlist, which added the song a second time without a word.
 struct AddToPlaylistMenu: View {
     let track: Track
     @Environment(LibraryStore.self) private var library
 
     var body: some View {
-        let editable = library.playlists.filter(\.canEdit)
-        Menu("Add to Playlist") {
-            Button("New Playlist…") { library.newPlaylistRequest = .init(track: track) }
-            if !editable.isEmpty { Divider() }
-            ForEach(editable) { playlist in
-                Button(playlist.name) { Task { await library.add(track, to: playlist) } }
-            }
-        }
+        Button("Add to Playlist…") { library.addToPlaylistRequest = track }
     }
 }
 
