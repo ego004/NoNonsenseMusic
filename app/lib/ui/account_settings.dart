@@ -197,7 +197,7 @@ class ImportIntoPlaylistButton extends StatelessWidget {
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             const Icon(Icons.download_outlined, size: 18),
             const SizedBox(width: 6),
-            Text(_progress(SpotifyImporter.shared)),
+            Flexible(child: Text(_progress(SpotifyImporter.shared), maxLines: 2, overflow: TextOverflow.ellipsis)),
           ]),
         ),
       ),

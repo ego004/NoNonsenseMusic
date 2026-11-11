@@ -509,25 +509,58 @@ class NowPlaying extends StatelessWidget {
 
 /// Fits the whole cover into the actual space available after the mobile controls have been laid out.
 /// Thumbnails elsewhere retain their usual cropped square appearance.
-class _FittedArtwork extends StatelessWidget {
+class _FittedArtwork extends StatefulWidget {
   const _FittedArtwork(this.image);
   final String? image;
 
   @override
+  State<_FittedArtwork> createState() => _FittedArtworkState();
+}
+
+/// On a touch screen the cover follows the finger sideways and tilts, and far enough it skips: left for the next song, right
+/// for the previous one, as on the iPhone. Let go short of that and it springs back.
+class _FittedArtworkState extends State<_FittedArtwork> {
+  double _dx = 0;
+  bool _dragging = false;
+
+  @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, space) {
-      final side = space.maxWidth < space.maxHeight
-          ? space.maxWidth
-          : space.maxHeight;
+      final side = space.maxWidth < space.maxHeight ? space.maxWidth : space.maxHeight;
+      final player = Scope.of(context).player;
+      final cover = Cover(
+        widget.image,
+        key: const ValueKey('now-playing-artwork'),
+        size: side,
+        radius: 14,
+        // filled and cropped, as every other cover and the Mac's Now Playing: a video's 16:9 thumbnail floated in
+        // empty bands
+      );
       return Center(
-        child: Cover(
-          image,
-          key: const ValueKey('now-playing-artwork'),
-          size: side,
-          radius: 14,
-          // filled and cropped, as every other cover and the Mac's Now Playing: a video's 16:9 thumbnail floated in
-          // empty bands
-        ),
+        child: !isTouchDevice
+            ? cover
+            : GestureDetector(
+                onHorizontalDragStart: (_) => setState(() => _dragging = true),
+                onHorizontalDragUpdate: (d) => setState(() => _dx += d.delta.dx),
+                onHorizontalDragEnd: (d) {
+                  final far = _dx.abs() > side * 0.3 || d.velocity.pixelsPerSecond.dx.abs() > side * 2.5;
+                  if (far) {
+                    HapticFeedback.lightImpact();
+                    _dx < 0 ? player.next() : player.previous();
+                  }
+                  setState(() {
+                    _dragging = false;
+                    _dx = 0;
+                  });
+                },
+                child: AnimatedContainer(
+                  duration: _dragging ? Duration.zero : const Duration(milliseconds: 260),
+                  curve: Curves.easeOutBack,
+                  transform: Matrix4.translationValues(_dx, 0, 0)..rotateZ(_dx / 40 * 0.0175),
+                  transformAlignment: Alignment.center,
+                  child: cover,
+                ),
+              ),
       );
     },
   );

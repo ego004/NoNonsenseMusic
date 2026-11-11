@@ -48,7 +48,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ..._card(context, 'Account', [
         Row(children: [
           const Expanded(child: Text('Username')),
-          Text(s.auth.user?.username ?? 'Not signed in', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          Flexible(child: Text(s.auth.user?.username ?? 'Not signed in', maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant))),
         ]),
         const SizedBox(height: 12),
         ConstrainedBox(
@@ -98,7 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         ]),
         ..._card(context, 'Appearance', [
-        SegmentedButton<ThemeMode>(
+        _scrolls(SegmentedButton<ThemeMode>(
           segments: const [
             ButtonSegment(value: ThemeMode.system, label: Text('System')),
             ButtonSegment(value: ThemeMode.light, label: Text('Light')),
@@ -107,7 +107,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           selected: {s.settings.themeShown},
           // a solid background is one colour, light or dark: it sets the theme while it is chosen
           onSelectionChanged: s.settings.material.theme == null ? (v) => s.settings.setTheme(v.first) : null,
-        ),
+        )),
         if (Platform.isWindows && s.settings.material.theme != null)
           Padding(
             padding: const EdgeInsets.only(top: 6),
@@ -320,7 +320,7 @@ class _SurfacesState extends State<_Surfaces> {
         );
     // stretched, as the page's own controls are (the Theme picker, Text size)
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      SegmentedButton<_Part>(
+      _scrolls(SegmentedButton<_Part>(
         showSelectedIcon: false,
         segments: [
           const ButtonSegment(value: _Part.main, label: Text('Main area')),
@@ -330,7 +330,7 @@ class _SurfacesState extends State<_Surfaces> {
         ],
         selected: {_part},
         onSelectionChanged: (v) => setState(() => _part = v.first),
-      ),
+      )),
       const SizedBox(height: 12),
       ...switch (_part) {
         // softer only: the text on the window has nothing over the cover's colours but a light veil
@@ -415,12 +415,12 @@ class _ColourRowState extends State<_ColourRow> {
         Text(widget.detail, style: theme.textTheme.bodySmall),
         const SizedBox(height: 6),
         Wrap(spacing: 10, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          SegmentedButton<ColourMode>(
+          _scrolls(SegmentedButton<ColourMode>(
             showSelectedIcon: false,
             segments: [for (final m in ColourMode.values) ButtonSegment(value: m, label: Text(m.label))],
             selected: {widget.mode},
             onSelectionChanged: (v) => widget.setMode(v.first),
-          ),
+          )),
           if (widget.mode == ColourMode.song)
             Tooltip(
               message: song == null ? "No colourful cover playing: the system's colour is used" : "The playing cover's colour",
@@ -621,4 +621,8 @@ Widget _subheading(BuildContext context, String text) => Padding(
       padding: const EdgeInsets.only(top: 12, bottom: 6),
       child: Text(text, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
     );
+
+/// A row of segments that is wider than a narrow phone at a large text size scrolls sideways instead of overflowing (at 200% the
+/// three segments of Appearance and Surfaces were wider than the screen).
+Widget _scrolls(Widget row) => SingleChildScrollView(scrollDirection: Axis.horizontal, child: row);
 
