@@ -71,4 +71,10 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Account'), findsOneWidget);
   });
+
+  testWidgets('Settings has a Check for Updates Now row on every platform', (tester) async {
+    await pump(tester, (_) => const PhonePage(child: SettingsScreen()));
+    await tester.scrollUntilVisible(find.text('Check for Updates Now'), 400, scrollable: find.byType(Scrollable).first);
+    expect(find.text('Check for Updates Now'), findsOneWidget);
+  });
 }

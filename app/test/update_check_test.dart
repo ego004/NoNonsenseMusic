@@ -59,6 +59,15 @@ void main() {
     expect(noFile!.file, isNull, reason: 'a platform the release has no file for: only its page');
   });
 
+  test('a look says whether GitHub answered: up to date is not the same as not reached', () async {
+    final upToDate = await lookUpUpdate(current: '0.4.1', client: serving(feed()), file: 'NoNonsenseMusic-Setup.exe');
+    expect((upToDate.update, upToDate.reached), (null, true));
+    final down = await lookUpUpdate(current: '0.4.0', client: serving(feed(), status: 503), file: 'NoNonsenseMusic-Setup.exe');
+    expect((down.update, down.reached), (null, false));
+    final newer = await lookUpUpdate(current: '0.4.0', client: serving(feed()), file: 'NoNonsenseMusic-Setup.exe');
+    expect((newer.update?.version, newer.reached), ('0.4.1', true));
+  });
+
   Future<UpdateFile> offered(Map<String, dynamic> j) async =>
       (await checkForUpdate(current: '0.4.0', client: serving(j), file: 'NoNonsenseMusic-Setup.exe'))!.file!;
 

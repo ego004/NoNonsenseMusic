@@ -57,30 +57,45 @@ String? get platformFile {
   return Platform.resolvedExecutable.toLowerCase().startsWith(installed) ? 'NoNonsenseMusic-Setup.exe' : null;
 }
 
-/// A newer release than [current] that is not [skipped], or null (none, skipped, or GitHub not reachable).
-Future<UpdateInfo?> checkForUpdate(
+/// What a look at the feed found: [update] when a newer release than the current one (and not a skipped one) is out;
+/// [reached] says whether GitHub answered at all, so "up to date" can be told from "could not look".
+class UpdateLookup {
+  const UpdateLookup(this.update, {required this.reached});
+  final UpdateInfo? update;
+  final bool reached;
+}
+
+Future<UpdateLookup> lookUpUpdate(
     {required String current, String? skipped, http.Client? client, Uri? feed, String? file}) async {
   try {
     final r = await (client ?? http.Client()).get(feed ?? latestFeed).timeout(const Duration(seconds: 10));
-    if (r.statusCode != 200) return null;
+    if (r.statusCode != 200) return const UpdateLookup(null, reached: false);
     final j = jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
     final version = j['version'] as String;
-    if (!isNewer(version, current) || version == skipped) return null;
+    if (!isNewer(version, current) || version == skipped) return const UpdateLookup(null, reached: true);
     final files = j['files'] as Map<String, dynamic>? ?? const {};
     final mine = files[file ?? platformFile] as Map<String, dynamic>?;
-    return UpdateInfo(
-      version,
-      j['notes'] as String? ?? '',
-      mine == null
-          ? null
-          : UpdateFile(file ?? platformFile!, Uri.parse(mine['url'] as String), (mine['length'] as num).toInt(),
-              base64Decode(mine['ed_signature'] as String)),
-      Uri.parse('$_releases/tag/v$version'),
+    return UpdateLookup(
+      UpdateInfo(
+        version,
+        j['notes'] as String? ?? '',
+        mine == null
+            ? null
+            : UpdateFile(file ?? platformFile!, Uri.parse(mine['url'] as String), (mine['length'] as num).toInt(),
+                base64Decode(mine['ed_signature'] as String)),
+        Uri.parse('$_releases/tag/v$version'),
+      ),
+      reached: true,
     );
   } catch (_) {
-    return null;
+    return const UpdateLookup(null, reached: false);
   }
 }
+
+/// A newer release than [current] that is not [skipped], or null (none, skipped, or GitHub not reachable).
+Future<UpdateInfo?> checkForUpdate(
+        {required String current, String? skipped, http.Client? client, Uri? feed, String? file}) async =>
+    (await lookUpUpdate(current: current, skipped: skipped, client: client, feed: feed, file: file)).update;
 
 /// [file] downloaded into [folder], its length and signature checked against [key] (base64): the path to install, or
 /// [UpdateRefused] (the file deleted). [progress] gets the share downloaded, 0 to 1.
@@ -130,6 +145,22 @@ List<int> _key(String base64Key) {
   throw UpdateRefused('This build has no release key, so it cannot check an update. Download it from the release page.');
 }
 
+const _channel = MethodChannel('nononsense/update');
+
+/// Android only: may this app install other apps (itself, updated)? Always true elsewhere. Asked before the download, so
+/// the permission is not found missing after it.
+Future<bool> installAllowed() async {
+  if (!Platform.isAndroid) return true;
+  try {
+    return await _channel.invokeMethod<bool>('allowed') ?? true;
+  } on MissingPluginException {
+    return true;
+  }
+}
+
+/// Android: opens the page where "Install unknown apps" is allowed for this app.
+Future<void> openInstallSettings() => _channel.invokeMethod<void>('settings');
+
 /// Installs a checked download. Windows: the setup, silently; it closes this app and opens the new version (installer.iss),
 /// so this app quits ([quit]). Android: the system's installer, which asks first (and, the first time, for permission to
 /// install from this app). Returns what the user is told, or null when there is nothing to say.
@@ -141,7 +172,7 @@ Future<String?> installUpdate(File file, {void Function()? quit}) async {
     return null;
   }
   if (Platform.isAndroid) {
-    final answer = await const MethodChannel('nononsense/update').invokeMethod<String>('install', {'path': file.path});
+    final answer = await _channel.invokeMethod<String>('install', {'path': file.path});
     return answer == 'permission'
         ? 'Allow NoNonsenseMusic to install apps, then tap Update again.'
         : null;

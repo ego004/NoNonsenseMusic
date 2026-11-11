@@ -19,7 +19,12 @@ class MainActivity : AudioServiceActivity() {
         // same key. The first time, Android needs permission to install from this app: its page opens instead
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "nononsense/update").setMethodCallHandler { call, result ->
             val path = call.argument<String>("path")
-            if (call.method != "install" || path == null) {
+            if (call.method == "allowed") {
+                result.success(Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())
+            } else if (call.method == "settings") {
+                startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                result.success(null)
+            } else if (call.method != "install" || path == null) {
                 result.notImplemented()
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
                 startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))

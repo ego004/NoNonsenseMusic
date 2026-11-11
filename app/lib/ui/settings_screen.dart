@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../core/android_sound.dart';
 import '../core/api.dart';
@@ -12,6 +13,7 @@ import 'layout.dart';
 import 'redesign.dart';
 import 'scope.dart';
 import 'storage_settings.dart';
+import 'update_flow.dart';
 
 /// Builds the settings screen: account and sign out, the server's address, the appearance (the window's material on
 /// Windows, its surfaces, sizes and colours), playback choices, lyrics, and Discord presence.
@@ -22,6 +24,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  bool _checkingUpdate = false;
+
   TextEditingController? _field;
   TextEditingController? _deviceField;
   String? _deviceProblem;
@@ -93,7 +97,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Icon(ok.data == null ? Icons.more_horiz : ok.data! ? Icons.check_circle : Icons.cancel, size: 18,
                 color: ok.data == null ? theme.colorScheme.onSurfaceVariant : ok.data! ? Colors.green : theme.colorScheme.error),
             const SizedBox(width: 6),
-            Text(ok.data == null ? 'Checking…' : ok.data! ? 'Connected' : 'Not reachable'),
+            Flexible(child: Text(ok.data == null ? 'Checking…' : ok.data! ? 'Connected' : 'Not reachable')),
           ]),
         ),
         ]),
@@ -144,10 +148,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(width: 16),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Song title', style: TextStyle(fontWeight: FontWeight.w600)),
-              Text('Artist', style: theme.textTheme.bodySmall),
-            ]),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Song title', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w600)),
+                Text('Artist', maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall),
+              ]),
+            ),
           ]),
         ),
         Text('Text: everywhere. Cards: the covers on Home, in the Library and in albums, shown here at half size.', style: theme.textTheme.bodySmall),
@@ -173,7 +179,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 16),
         Row(children: [
           Expanded(child: Text('Colours, surfaces and sizes back to how they came', style: theme.textTheme.bodySmall)),
-          OutlinedButton(onPressed: s.settings.resetLook, child: const Text('Reset All')),
+          const SizedBox(width: 8),
+          Flexible(child: OutlinedButton(onPressed: s.settings.resetLook, child: const Text('Reset All', maxLines: 1))),
         ]),
         ]),
         ..._card(context, 'Playback', [
@@ -214,7 +221,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             setState(() {});
           },
           title: const Text('Check for updates'),
-          subtitle: const Text('At launch, asks GitHub whether a newer version exists.'),
+          subtitle: const Text('At every launch and every 4 hours, asks GitHub whether a newer version exists.'),
+        ),
+        ListTile(
+          title: const Text('Check for Updates Now'),
+          subtitle: FutureBuilder<String>(
+            future: PackageInfo.fromPlatform().then((v) => v.version).catchError((_) => ''),
+            builder: (_, v) => Text('Version ${v.data ?? ''}'),
+          ),
+          trailing: _checkingUpdate ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null,
+          onTap: _checkingUpdate
+              ? null
+              : () async {
+                  setState(() => _checkingUpdate = true);
+                  try {
+                    await runUpdateFlow(context, manual: true);
+                  } finally {
+                    if (mounted) setState(() => _checkingUpdate = false);
+                  }
+                },
         ),
         SwitchListTile(
           value: s.settings.explicit,
@@ -285,9 +310,9 @@ Widget _slider(BuildContext context, String label, double value, double min, dou
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(label),
       Row(children: [
-        Text(low, style: small),
-        Expanded(child: _Slide(value: value, min: min, max: max, save: save)),
-        Text(high, style: small),
+        Flexible(child: Text(low, style: small, maxLines: 1, overflow: TextOverflow.ellipsis)),
+        Expanded(flex: 3, child: _Slide(value: value, min: min, max: max, save: save)),
+        Flexible(child: Text(high, style: small, maxLines: 1, overflow: TextOverflow.ellipsis)),
       ]),
     ]),
   );

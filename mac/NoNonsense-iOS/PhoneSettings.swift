@@ -3,6 +3,8 @@ import SwiftUI
 /// Sound (the same chain and settings as the Mac app's), the server, and your account.
 struct PhoneSettings: View {
     @AppStorage("checkUpdates") private var checkUpdates = true       // the Mac's setting too
+    @State private var checking = false
+    @State private var updateAnswer: String?
     @Environment(Account.self) private var account
     @Environment(Player.self) private var player
     @AppStorage("gapless") private var gapless = false
@@ -124,6 +126,20 @@ struct PhoneSettings: View {
 
             Section {
                 LabeledContent("Version", value: UpdateNotice.current)
+                Button {
+                    checking = true
+                    Task {
+                        updateAnswer = await UpdateNotice.shared.checkNow()
+                        checking = false
+                    }
+                } label: {
+                    HStack {
+                        Text("Check Now")
+                        if checking { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(checking)
+                if let updateAnswer { Text(updateAnswer).font(.footnote).foregroundStyle(.secondary) }
                 Toggle("Check for updates", isOn: $checkUpdates)
             } footer: {
                 Text("Looks at every launch and every 4 hours. AltStore or SideStore installs the update.")

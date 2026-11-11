@@ -906,7 +906,7 @@ private struct AccountSettings: View {
                 }
                 Toggle(isOn: $checkUpdates) {
                     Text("Check for updates")
-                    Text("Once a day, asks GitHub whether a newer version exists. An update downloads and installs itself when you say so, and only if it is signed by NoNonsenseMusic's release key.")
+                    Text("At every launch and every 4 hours, asks GitHub whether a newer version exists. An update downloads and installs itself when you say so, and only if it is signed by NoNonsenseMusic's release key.")
                         .foregroundStyle(.secondary)
                 }
                 .onChange(of: checkUpdates) { _, on in Updater.enabled = on }

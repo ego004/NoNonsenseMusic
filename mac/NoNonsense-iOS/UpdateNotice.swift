@@ -30,12 +30,34 @@ final class UpdateNotice {
     /// Asks once. Nothing when it is off, a version is already shown, the feed cannot be read, or nothing newer is out.
     func check() async {
         guard Self.enabled, found == nil else { return }
+        if case .newer(let version) = await lookUp(), version != UserDefaults.standard.string(forKey: "skippedUpdate") {
+            found = Found(version: version)
+        }
+    }
+
+    enum Outcome: Equatable {
+        case newer(String)
+        case upToDate
+        case unreachable
+    }
+
+    /// Reads the feed: what is newest, whatever the settings say (Settings › Check Now uses it as it is).
+    func lookUp() async -> Outcome {
         guard let (data, response) = try? await URLSession.shared.data(from: Self.feed),
               (response as? HTTPURLResponse)?.statusCode == 200,
               let source = try? JSONDecoder().decode(Source.self, from: data),
-              let latest = source.apps.first?.version else { return }
-        guard Self.isNewer(latest, than: Self.current), latest != UserDefaults.standard.string(forKey: "skippedUpdate") else { return }
-        found = Found(version: latest)
+              let latest = source.apps.first?.version else { return .unreachable }
+        return Self.isNewer(latest, than: Self.current) ? .newer(latest) : .upToDate
+    }
+
+    /// Settings › Check Now: asks at once, even with automatic checks off, and shows a newer version even if it was
+    /// skipped. Returns what to tell the person when nothing is shown.
+    func checkNow() async -> String? {
+        switch await lookUp() {
+        case .newer(let version): found = Found(version: version); return nil
+        case .upToDate: return "NoNonsenseMusic \(Self.current) is the latest version."
+        case .unreachable: return "GitHub did not answer. Check the connection and try again."
+        }
     }
 
     private struct Source: Decodable {

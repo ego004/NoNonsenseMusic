@@ -217,6 +217,10 @@ class Settings extends ChangeNotifier {
   /// The release the user chose Skip This Version for: not offered again; a later one is.
   String? skippedUpdate;
 
+  /// The version someone said Update to on Android, who was then sent to allow installs: back in the app, it goes on
+  /// without asking again (the app may have been restarted by the permission page, so this is kept).
+  String? pendingUpdate;
+
   /// Lyrics › Translate: whether lyrics in another language show with their translation. Off by default and kept.
   bool translateLyrics = false;
 
@@ -266,6 +270,7 @@ class Settings extends ChangeNotifier {
     autoplaySkipsRecent = _p.getBool('autoplaySkipsRecent') ?? true;
     checkUpdates = _p.getBool('checkUpdates') ?? true;
     skippedUpdate = _p.getString('skippedUpdate');
+    pendingUpdate = _p.getString('pendingUpdate');
     translateLyrics = _p.getBool('lyricsTranslated') ?? false;
     // a language no longer offered is the device's again
     final into = _p.getString('translateInto') ?? '';
@@ -371,6 +376,14 @@ class Settings extends ChangeNotifier {
       _set('checkUpdates', on, () => checkUpdates = on);
   Future<void> skipUpdate(String version) =>
       _set('skippedUpdate', version, () => skippedUpdate = version);
+  Future<void> setPendingUpdate(String? version) async {
+    pendingUpdate = version;
+    if (version == null) {
+      await _p.remove('pendingUpdate');
+    } else {
+      await _p.setString('pendingUpdate', version);
+    }
+  }
   Future<void> setTranslateLyrics(bool on) =>
       _set('lyricsTranslated', on, () => translateLyrics = on);
 
