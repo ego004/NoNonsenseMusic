@@ -3,6 +3,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../core/download_store.dart';
 import '../core/models.dart';
+import '../core/recent_searches.dart';
 import '../core/search_model.dart';
 import 'browse_widgets.dart';
 import 'concept.dart';
@@ -36,6 +37,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    RecentSearches.shared.load();
     if (widget.initial.isNotEmpty) {
       _field.text = widget.initial;
       _model.typed(widget.initial);
@@ -43,8 +45,18 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  /// Searches the words at once (a tap on a recent one).
+  void _search(String text) {
+    _field.value = TextEditingValue(text: text, selection: TextSelection.collapsed(offset: text.length));
+    _model.typed(text);
+    _model.submit();
+    RecentSearches.shared.add(text);
+  }
+
   @override
   void dispose() {
+    // what was searched for and found something is remembered when the screen goes (not every keystroke of it)
+    if (_model.songs.isNotEmpty || _model.artists.isNotEmpty || _model.albums.isNotEmpty) RecentSearches.shared.add(_model.query);
     _field.dispose();
     _model.dispose();
     super.dispose();
@@ -70,7 +82,10 @@ class _SearchScreenState extends State<SearchScreen> {
                   controller: _field,
                   autofocus: true,
                   onChanged: m.typed,
-                  onSubmitted: (_) => m.submit(),
+                  onSubmitted: (_) {
+                    m.submit();
+                    RecentSearches.shared.add(m.query);
+                  },
                   style: const TextStyle(fontSize: 16),
                   cursorWidth: 1.5,
                   decoration: InputDecoration(
@@ -105,9 +120,55 @@ class _SearchScreenState extends State<SearchScreen> {
                 ? const _Empty('Can\'t reach your server', 'Is the backend running?', FluentIcons.plug_disconnected_24_regular)
                 : m.showsNoResults
                     ? const _Empty('No results', 'Try another spelling.', FluentIcons.search_24_regular)
-                    : m.isIdle ? const SizedBox.shrink() : _Results(model: m, side: side),
+                    : m.isIdle ? _Recent(side: side, onPick: _search) : _Results(model: m, side: side),
           ),
         ]);
+      },
+    );
+  }
+}
+
+/// Under the empty field: the last searches, a tap searches them again, × forgets one, Clear forgets all.
+class _Recent extends StatelessWidget {
+  final double side;
+  final ValueChanged<String> onPick;
+  const _Recent({required this.side, required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListenableBuilder(
+      listenable: RecentSearches.shared,
+      builder: (context, _) {
+        final items = RecentSearches.shared.items;
+        if (items.isEmpty) return const SizedBox.shrink();
+        return ListView(
+          padding: EdgeInsets.fromLTRB(side, 4, side, bottomClearance(context, extra: 20)),
+          children: [
+            Row(children: [
+              Expanded(child: Text('Recent', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700))),
+              TextButton(onPressed: RecentSearches.shared.clear, child: const Text('Clear')),
+            ]),
+            for (final text in items)
+              InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => onPick(text),
+                child: SizedBox(
+                  height: 48,
+                  child: Row(children: [
+                    Icon(FluentIcons.history_24_regular, size: 20, color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                    const SizedBox(width: 14),
+                    Expanded(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    IconButton(
+                      tooltip: 'Remove $text',
+                      onPressed: () => RecentSearches.shared.remove(text),
+                      icon: Icon(FluentIcons.dismiss_20_regular, size: 18, color: theme.colorScheme.onSurface.withValues(alpha: 0.55)),
+                    ),
+                  ]),
+                ),
+              ),
+          ],
+        );
       },
     );
   }

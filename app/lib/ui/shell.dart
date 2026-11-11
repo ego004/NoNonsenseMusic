@@ -22,6 +22,7 @@ import 'glass.dart';
 import 'home.dart';
 import 'layout.dart';
 import 'now_playing.dart';
+import 'phone_page.dart';
 import 'player_bar.dart';
 import 'playlist_screen.dart';
 import 'redesign.dart';
@@ -93,7 +94,33 @@ class _ShellState extends State<Shell> {
     }
   }
 
+  /// A tab of the bottom bar (the shell's, or the one a page shows): pages open over the shell go first.
+  void _openTab(int index) => _open(switch (index) {
+        0 => Section.home,
+        1 => Section.search,
+        2 => Section.library,
+        _ => Section.friends,
+      });
+
   void _open(Section sec, {String? playlist}) {
+    // a phone: these are pages pushed over the tab you are on, with a back button, as on the iPhone; the tab stays as it was
+    if (isPhone(context) && (sec == Section.liked || sec == Section.recent || sec == Section.downloads || sec == Section.playlist || sec == Section.settings)) {
+      final library = Scope.of(context).library;
+      if (sec == Section.liked || sec == Section.recent) library.refresh();
+      BrowseNav.shared.clear();
+      openPhonePage(
+        context,
+        switch (sec) {
+          Section.liked => const SongListScreen(liked: true),
+          Section.recent => const SongListScreen(liked: false),
+          Section.downloads => const SongListScreen.downloads(),
+          Section.playlist => PlaylistScreen(key: ValueKey(playlist), id: playlist!, onDeleted: () => Navigator.of(context).maybePop()),
+          _ => const SettingsScreen(),
+        },
+      );
+      return;
+    }
+    if (isPhone(context)) Navigator.of(context).popUntil((route) => route.isFirst);
     if (sec == Section.settings && section != Section.settings) _beforeSettings = section;
     BrowseNav.shared
         .clear(); // choosing a sidebar item starts afresh, as on the Mac
@@ -101,6 +128,7 @@ class _ShellState extends State<Shell> {
       section = sec;
       playlistId = playlist;
     });
+    ShellNav.selected.value = _tab(section == Section.settings ? _beforeSettings : section).clamp(0, 3);
     if (sec == Section.liked || sec == Section.recent || sec == Section.home) {
       Scope.of(context).library.refresh();
     }
@@ -117,6 +145,7 @@ class _ShellState extends State<Shell> {
     });
     // A pending playlist link (PlaylistLinks) opens here, including one that arrived before the user signed in.
     PlaylistLinks.pending.addListener(_openLink);
+    ShellNav.tab = _openTab;
     HardwareKeyboard.instance.addHandler(_keyHeard);
     WidgetsBinding.instance.addPostFrameCallback((_) => _openLink());
     WidgetsBinding.instance.addPostFrameCallback((_) => _goOnline());
@@ -264,6 +293,7 @@ class _ShellState extends State<Shell> {
   @override
   void dispose() {
     _updateTimer?.cancel();
+    if (ShellNav.tab == _openTab) ShellNav.tab = null;
     HardwareKeyboard.instance.removeHandler(_keyHeard);
     PlaylistLinks.pending.removeListener(_openLink);
     JamSession.shared.removeListener(_sayJamEnded);
@@ -515,76 +545,12 @@ class _ShellState extends State<Shell> {
                         setState(() => _bottomArea = h);
                       }
                     },
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-                          child: message,
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                          child: AnimatedSize(
-                            duration: MediaQuery.disableAnimationsOf(context)
-                                ? Duration.zero
-                                : const Duration(milliseconds: 240),
-                            curve: Curves.easeOutCubic,
-                            child: const Center(child: PlayerBar()),
-                          ),
-                        ),
-                        if (showNav)
-                          Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              8,
-                              0,
-                              8,
-                              MediaQuery.paddingOf(context).bottom + 6,
-                            ),
-                            child: GlassSurface(
-                              radius: 28,
-                              // Settings › Appearance › Surfaces › Bottom bar, as the player bar over it
-                              blur: 18 * Look.of(context).barBlur,
-                              solid: Look.of(context).barSolid,
-                              // the bar pads itself by the system's insets, top and bottom; the bottom one is already
-                              // given above, and the status bar's stood as an empty band over the icons (13 Oct)
-                              child: MediaQuery.removePadding(
-                                context: context,
-                                removeTop: true,
-                                removeBottom: true,
-                                child: NavigationBar(
-                                // Settings shows the tab it was opened over
-                                selectedIndex: _tab(section == Section.settings ? _beforeSettings : section),
-                                onDestinationSelected: (index) =>
-                                    _open(switch (index) {
-                                      0 => Section.home,
-                                      1 => Section.search,
-                                      2 => Section.library,
-                                      _ => Section.friends,
-                                    }),
-                                destinations: [
-                                  const NavigationDestination(
-                                    icon: Icon(FluentIcons.home_24_regular),
-                                    label: 'Home',
-                                  ),
-                                  NavigationDestination(
-                                    icon: Icon(FluentIcons.search_24_regular),
-                                    label: 'Search',
-                                  ),
-                                  const NavigationDestination(
-                                    icon: Icon(FluentIcons.library_24_regular),
-                                    label: 'Library',
-                                  ),
-                                  NavigationDestination(
-                                    icon: FriendsNavIcon(),
-                                    label: 'Friends',
-                                  ),
-                                ],
-                              ),
-                              ),
-                            ),
-                          ),
-                      ],
+                    child: PhoneDock(
+                      message: message,
+                      // Settings shows the tab it was opened over
+                      selected: _tab(section == Section.settings ? _beforeSettings : section),
+                      showNav: showNav,
+                      onSelect: _openTab,
                     ),
                   ),
                 ),

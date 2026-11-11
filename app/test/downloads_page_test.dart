@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nononsense/ui/phone_page.dart';
 import 'package:nononsense/core/audio_cache.dart';
 import 'package:nononsense/core/auth.dart';
 import 'package:nononsense/core/download_store.dart';
@@ -101,6 +102,6 @@ void main() {
     await tester.pumpAndSettle();
     // the page itself reads the app's own downloads, empty in a test: its empty state shows it opened
     expect(find.text('Nothing downloaded yet'), findsOneWidget);
-    expect(find.byType(BackButton), findsOneWidget, reason: 'a page of its own, with a way back');
+    expect(find.byType(PageBackButton), findsOneWidget, reason: 'a page of its own, with a way back');
   });
 }

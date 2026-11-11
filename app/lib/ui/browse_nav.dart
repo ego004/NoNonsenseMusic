@@ -8,8 +8,7 @@ import 'browse_pages.dart';
 import 'concept.dart';
 import 'glass.dart';
 import 'layout.dart';
-import 'now_playing.dart';
-import 'player_bar.dart';
+import 'phone_page.dart';
 import 'scope.dart';
 
 /// A page opened from inside a screen: an artist or an album.
@@ -135,6 +134,7 @@ void openBrowse(BuildContext context, BrowseTarget target) {
   if (isPhone(context)) {
     Navigator.of(context).push(
       PageRouteBuilder<void>(
+        opaque: true,
         pageBuilder: (_, _, _) => PhoneBrowsePage(target: target),
         transitionDuration: MediaQuery.disableAnimationsOf(context)
             ? Duration.zero
@@ -206,53 +206,11 @@ class BrowseHost extends StatelessWidget {
   );
 }
 
-/// A page on a phone: a full-screen route with a back button, keeping the player bar and Now Playing in reach.
+/// A page on a phone: an album's or an artist's, in the one page scaffold (PhonePage) every pushed page uses.
 class PhoneBrowsePage extends StatelessWidget {
   final BrowseTarget target;
   const PhoneBrowsePage({super.key, required this.target});
 
   @override
-  Widget build(BuildContext context) {
-    final p = Scope.of(context).player;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        scrolledUnderElevation: 0,
-        leading: BackButton(onPressed: () => Navigator.of(context).maybePop()),
-      ),
-      body: Stack(
-        children: [
-          const Positioned.fill(child: PhoneBackdrop()),
-          Positioned.fill(child: BrowsePage(target: target)),
-          // the same two layers the shell draws over its screens, so a song can be started and opened from here
-          const Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
-            child: Center(child: PlayerBar()),
-          ),
-          ListenableBuilder(
-            listenable: p,
-            builder: (context, _) => AnimatedSwitcher(
-              duration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 320),
-              layoutBuilder: (current, previous) => Stack(
-                fit: StackFit.expand,
-                children: [...previous, ?current],
-              ),
-              transitionBuilder: (child, animation) =>
-                  phoneRevealTransition(child, animation, dy: 0.12),
-              child: p.showNowPlaying
-                  ? const NowPlaying(key: ValueKey('browse-now-playing'))
-                  : const SizedBox.shrink(
-                      key: ValueKey('browse-now-playing-hidden'),
-                    ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => PhonePage(child: BrowsePage(target: target));
 }
