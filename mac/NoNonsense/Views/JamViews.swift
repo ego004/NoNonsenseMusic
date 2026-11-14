@@ -190,8 +190,11 @@ private struct RoomView: View {
                 Text(problem).textStyle(.callout).foregroundStyle(.red)
             }
 
-            Button("Leave Jam", role: .destructive) { Task { await jam.leave() } }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            Button { Task { await jam.leave() } } label: {
+                Label("Leave Jam", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            .buttonStyle(JamActionStyle())
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(18)
         .selfTestFrame("jam.room")
@@ -227,6 +230,27 @@ private struct RoomView: View {
     }
 }
 
+/// The Jam panel's actions (Invite, Leave Jam): white text on a dark pill. The panel is glass over the song's colour, and
+/// the system's own button looks (red text for a destructive one, pale bordered ones) washed out on it, to nothing on a
+/// red or a light colour (14 Nov). A dark pill with white text reads on every colour the accent can be.
+private extension View {
+    func jamActionLook(pressed: Bool = false) -> some View {
+        self
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.black.opacity(pressed ? 0.7 : 0.5), in: .capsule)
+            .overlay(Capsule().strokeBorder(.white.opacity(0.28), lineWidth: 1))
+            .contentShape(.capsule)
+    }
+}
+
+private struct JamActionStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.jamActionLook(pressed: configuration.isPressed)
+    }
+}
+
 /// The host's Invite menu: friends not in the room yet. Each invite sends them a notification with the code.
 private struct InviteMenu: View {
     let room: JamState
@@ -246,10 +270,14 @@ private struct InviteMenu: View {
                 .disabled(sent.contains(friend.username))
             }
         } label: {
-            Label("Invite", systemImage: "person.badge.plus")
+            HStack(spacing: 5) {
+                Label("Invite", systemImage: "person.badge.plus")
+                Image(systemName: "chevron.down").font(.caption2.weight(.bold))
+            }
+            .jamActionLook()
         }
-        .menuStyle(.button)
-        .controlSize(.small)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .help("Invite a friend to this jam")
     }
